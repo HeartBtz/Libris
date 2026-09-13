@@ -50,7 +50,7 @@ _Screenshots use fictional, synthetic demonstration data in the real UI. They do
 
 ### Navigating Libris
 
-The library includes title/author search, activity filters and sorting. Inside a book, navigation groups translation and recovery, book memory, and configuration. Desktop navigation stays accessible while reviewing; mobile navigation is horizontally scrollable.
+The library includes title/author search, activity filters and sorting. Each book shows one progress bar for its current stage instead of stacking unrelated metrics. Inside a book, navigation groups translation and recovery, book memory, and configuration. Desktop navigation stays accessible while reviewing; mobile navigation is horizontally scrollable.
 
 <details>
 <summary>Light theme and mobile review</summary>

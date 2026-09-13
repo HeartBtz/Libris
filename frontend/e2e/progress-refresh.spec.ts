@@ -9,7 +9,7 @@ const config = Object.fromEntries(
 );
 const base = `http://${config.BIND_ADDRESS}:${config.PORT}`;
 
-test("library has separate analysis/translation progress and refresh reloads metrics", async ({
+test("library shows active-stage progress and refresh reloads metrics", async ({
   page,
 }) => {
   const login = await page.request.post(`${base}/api/auth/login`, {
@@ -31,26 +31,37 @@ test("library has separate analysis/translation progress and refresh reloads met
     projects.find((p: { title: string }) => p.title.endsWith("Vol. 1")) ||
     projects[0];
   test.skip(!project, "This read-only UI check needs an existing book.");
-  const analysis = page.getByRole("progressbar", {
-    name: `Analyse de ${project.title}`,
+  const analysis = Math.floor(
+    ((project.stats.analyzed_segments + project.stats.synthesized_chapters) /
+      (project.stats.total + project.stats.chapters)) *
+      100,
+  );
+  const translation = Math.floor(
+    (project.stats.translated / project.stats.total) * 100,
+  );
+  const review = Math.floor(
+    ((project.stats.reviewed_segments || 0) / project.stats.total) * 100,
+  );
+  const expected =
+    project.status === "completed"
+      ? { label: "Export", value: 100 }
+      : project.status === "analyzing"
+        ? { label: "Analyse", value: analysis }
+        : project.status === "reviewing" || translation === 100
+          ? { label: "Relecture", value: review }
+          : project.status === "translating" || analysis === 100
+            ? { label: "Traduction", value: translation }
+            : { label: "Analyse", value: analysis };
+  const row = page
+    .getByRole("link", { name: project.title, exact: true })
+    .locator("xpath=ancestor::tr");
+  await expect(row.getByRole("progressbar")).toHaveCount(1);
+  const progress = row.getByRole("progressbar", {
+    name: `${expected.label} de ${project.title}`,
     exact: true,
   });
-  const translation = page.getByRole("progressbar", {
-    name: `Traduction de ${project.title}`,
-    exact: true,
-  });
-  await expect(analysis).toBeVisible();
-  await expect(translation).toBeVisible();
-  expect(Number(await analysis.getAttribute("value"))).toBe(
-    Math.floor(
-      ((project.stats.analyzed_segments + project.stats.synthesized_chapters) /
-        (project.stats.total + project.stats.chapters)) *
-        100,
-    ),
-  );
-  expect(Number(await translation.getAttribute("value"))).toBe(
-    Math.floor((project.stats.translated / project.stats.total) * 100),
-  );
+  await expect(progress).toBeVisible();
+  expect(Number(await progress.getAttribute("value"))).toBe(expected.value);
   await page.screenshot({ path: "/tmp/libris/epub-library-progress.png" });
   await page.goto(`${base}/#project/${project.id}`);
   await page.getByRole("button", { name: /Validations/ }).click();

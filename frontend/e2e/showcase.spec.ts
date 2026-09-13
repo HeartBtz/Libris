@@ -138,6 +138,22 @@ test("capture public Libris showcase", async ({ page }) => {
   await expect(
     page.getByRole("heading", { name: "Bibliothèque", exact: true }),
   ).toBeVisible();
+  await expect(page.getByRole("progressbar")).toHaveCount(3);
+  await expect(
+    page.getByRole("progressbar", {
+      name: "Traduction de Le phare des marées",
+    }),
+  ).toHaveAttribute("value", "75");
+  await expect(
+    page.getByRole("progressbar", {
+      name: "Analyse de Les jardins de cuivre",
+    }),
+  ).toHaveAttribute("value", "35");
+  await expect(
+    page.getByRole("progressbar", {
+      name: "Export de Un atlas pour demain",
+    }),
+  ).toHaveAttribute("value", "100");
   await page.screenshot({ path: resolve(output, "library.png") });
   await page.getByRole("button", { name: /En cours/ }).click();
   await expect(page.locator(".library-table tbody tr")).toHaveCount(1);

@@ -380,6 +380,18 @@ tbody tr:hover {
 .book-progress .translation-progress progress::-moz-progress-bar {
   background: var(--accent);
 }
+.book-progress .review-progress progress::-webkit-progress-value {
+  background: var(--coral);
+}
+.book-progress .review-progress progress::-moz-progress-bar {
+  background: var(--coral);
+}
+.book-progress .export-progress progress::-webkit-progress-value {
+  background: var(--green);
+}
+.book-progress .export-progress progress::-moz-progress-bar {
+  background: var(--green);
+}
 .badge {
   font-size: 0.75rem;
   display: inline-block;

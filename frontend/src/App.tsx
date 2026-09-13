@@ -5,8 +5,10 @@ import { Settings } from "./features/Settings";
 import { Workspace } from "./features/Workspace";
 import { BatchActions } from "./features/BatchActions";
 import { BookProgress } from "./features/BookProgress";
+import { locales, useI18n } from "./i18n";
 
 export function App() {
+  const { locale, setLocale, t } = useI18n();
   const [user, setUser] = useState<User | null>(null);
   const [checking, setChecking] = useState(true);
   const [route, setRoute] = useState(location.hash.slice(1) || "library");
@@ -36,13 +38,13 @@ export function App() {
     localStorage.setItem("theme", theme);
   }, [theme]);
   useEffect(() => {
-    document.title = `${route === "settings" ? "Paramètres" : route === "library" ? "Bibliothèque" : "Projet"} · Libris`;
-  }, [route]);
+    document.title = `${route === "settings" ? t("app.settings") : route === "library" ? t("app.library") : t("app.project")} · Libris`;
+  }, [route, t]);
   if (checking)
     return (
       <main className="loading">
         <img src="/assets/libris-icon.png" alt="" />
-        Ouverture de Libris…
+        {t("app.loading")}
       </main>
     );
   return (
@@ -59,14 +61,14 @@ export function App() {
                 href="#library"
                 aria-current={route === "library" ? "page" : undefined}
               >
-                Bibliothèque
+                {t("app.library")}
               </a>
               {user.admin && (
                 <a
                   href="#settings"
                   aria-current={route === "settings" ? "page" : undefined}
                 >
-                  Paramètres
+                  {t("app.settings")}
                 </a>
               )}
               <span className="muted">{user.username}</span>
@@ -74,11 +76,21 @@ export function App() {
           )}
           <button
             className="quiet"
-            aria-label="Changer de thème"
+            aria-label={t("app.theme")}
             onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
           >
-            {theme === "dark" ? "Clair" : "Sombre"}
+            {theme === "dark" ? t("app.light") : t("app.dark")}
           </button>
+          <label className="locale-select">
+            <span className="sr-only">{t("app.language")}</span>
+            <select value={locale} onChange={(event) => setLocale(event.target.value as typeof locale)}>
+              {locales.map((value) => (
+                <option key={value} value={value}>
+                  {t(value === "fr" ? "language.french" : "language.english")}
+                </option>
+              ))}
+            </select>
+          </label>
           {user && (
             <button
               className="quiet"
@@ -89,15 +101,15 @@ export function App() {
                 })
               }
             >
-              Déconnexion
+              {t("app.logout")}
             </button>
           )}
         </nav>
       </header>
       {error && (
         <div className="error-banner" role="alert">
-          <strong>L’opération n’a pas abouti.</strong> {error}
-          <button onClick={() => setError("")} aria-label="Fermer l’erreur">
+          <strong>{t("app.error")}</strong> {error}
+          <button onClick={() => setError("")} aria-label={t("app.closeError")}>
             ×
           </button>
         </div>
@@ -116,6 +128,7 @@ export function App() {
 }
 
 function Login({ run, onLogin }: { run: Run; onLogin: (user: User) => void }) {
+  const { t } = useI18n();
   const [username, setUsername] = useState("admin");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
@@ -129,10 +142,10 @@ function Login({ run, onLogin }: { run: Run; onLogin: (user: User) => void }) {
         />
       </div>
       <div className="login-card">
-        <p className="eyebrow">Traduction littéraire · Mémoire contextuelle</p>
-        <h1>Retrouvez vos livres</h1>
+        <p className="eyebrow">{t("login.eyebrow")}</p>
+        <h1>{t("login.title")}</h1>
         <p className="muted">
-          Traduisez avec continuité, de la première page au dernier volume.
+          {t("login.description")}
         </p>
         <form
           onSubmit={(e) => {
@@ -144,7 +157,7 @@ function Login({ run, onLogin }: { run: Run; onLogin: (user: User) => void }) {
           }}
         >
           <label>
-            Utilisateur
+            {t("login.username")}
             <input
               autoComplete="username"
               value={username}
@@ -153,7 +166,7 @@ function Login({ run, onLogin }: { run: Run; onLogin: (user: User) => void }) {
             />
           </label>
           <label>
-            Mot de passe
+            {t("login.password")}
             <input
               type="password"
               autoComplete="current-password"
@@ -163,12 +176,11 @@ function Login({ run, onLogin }: { run: Run; onLogin: (user: User) => void }) {
             />
           </label>
           <button className="primary" disabled={busy}>
-            {busy ? "Connexion…" : "Se connecter"}
+            {busy ? t("login.submitting") : t("login.submit")}
           </button>
         </form>
         <small className="muted">
-          Premier accès : identifiants définis dans le fichier .env de
-          l’installation.
+          {t("login.firstAccess")}
         </small>
       </div>
     </main>
@@ -176,6 +188,7 @@ function Login({ run, onLogin }: { run: Run; onLogin: (user: User) => void }) {
 }
 
 function Library({ run, user }: { run: Run; user: User }) {
+  const { locale } = useI18n();
   const [books, setBooks] = useState<Project[]>([]);
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState("all");
@@ -192,12 +205,12 @@ function Library({ run, user }: { run: Run; user: User }) {
     value
       .normalize("NFD")
       .replace(/[\u0300-\u036f]/g, "")
-      .toLocaleLowerCase();
+      .toLocaleLowerCase(locale);
   const availableBooks = books.filter((project) => !project.archived_at);
   const archivedBooks = books.filter((project) => !!project.archived_at);
   const seriesNames = Array.from(
     new Set(books.map((project) => project.series_name).filter(Boolean)),
-  ).sort((a, b) => a.localeCompare(b, "fr", { numeric: true }));
+  ).sort((a, b) => a.localeCompare(b, locale, { numeric: true }));
   const visibleBooks = books
     .filter(
       (p) =>
@@ -216,16 +229,16 @@ function Library({ run, user }: { run: Run; user: User }) {
     )
     .sort((a, b) =>
       sort === "title"
-        ? a.title.localeCompare(b.title, "fr", { numeric: true })
+        ? a.title.localeCompare(b.title, locale, { numeric: true })
         : sort === "series"
           ? (a.series_name || a.title).localeCompare(
               b.series_name || b.title,
-              "fr",
+               locale,
               { numeric: true },
             ) ||
             (a.volume_number ?? Number.MAX_SAFE_INTEGER) -
               (b.volume_number ?? Number.MAX_SAFE_INTEGER) ||
-            a.title.localeCompare(b.title, "fr", { numeric: true })
+             a.title.localeCompare(b.title, locale, { numeric: true })
           : b.updated_at - a.updated_at,
     );
   const selectableBooks = visibleBooks.filter(
@@ -240,7 +253,7 @@ function Library({ run, user }: { run: Run; user: User }) {
             (a, b) =>
               (a.volume_number ?? Number.MAX_SAFE_INTEGER) -
                 (b.volume_number ?? Number.MAX_SAFE_INTEGER) ||
-              a.title.localeCompare(b.title, "fr", { numeric: true }),
+               a.title.localeCompare(b.title, locale, { numeric: true }),
           );
   const numberedVolumes = seriesBooks
     .map((project) => project.volume_number)

@@ -1,3 +1,5 @@
+import { getLocale, message } from "./i18n";
+
 export class ApiError extends Error {
   constructor(
     public status: number,
@@ -48,31 +50,11 @@ export function download(name: string, value: unknown) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 export function date(timestamp: number) {
-  return new Date(timestamp * 1000).toLocaleString("fr-FR");
+  return new Date(timestamp * 1000).toLocaleString(getLocale());
 }
 export function number(value: number) {
-  return value.toLocaleString("fr-FR", { maximumFractionDigits: 1 });
+  return value.toLocaleString(getLocale(), { maximumFractionDigits: 1 });
 }
-export const labels: Record<string, string> = {
-  waiting: "Service indisponible · reprise prévue",
-  blocked: "Intervention requise",
-  refused: "Refus du provider",
-  source_retained: "Original conservé",
-  interrupted: "Interrompue",
-  abandoned: "Interrompue",
-  pending: "En attente",
-  ready: "Prêt",
-  analyzing: "Analyse",
-  translating: "Traduction",
-  reviewing: "Relecture",
-  completed: "Terminé",
-  paused: "En pause",
-  cancelled: "Annulé",
-  failed: "Échec",
-  error: "Erreur",
-  ok: "Contrôles OK",
-  check: "À vérifier",
-  success: "Réussie",
-  running: "En cours",
-  syncing: "Synchronisation",
-};
+export const labels: Record<string, string> = new Proxy({}, {
+  get: (_target, status: string) => message(`status.${status}` as Parameters<typeof message>[0]),
+});

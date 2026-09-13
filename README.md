@@ -25,6 +25,7 @@ Libris combines a persistent translation pipeline with a book bible, character m
 - **Failure isolation:** after five invalid responses, try checkpointed small-batch repair before skipping the passage; stop after ten consecutive failed passages. See [recovery](docs/recovery.md).
 - **Completion report:** see missing passages and remaining alerts, select failed passages and retry them with a chosen provider from **Bilan & récupération**.
 - **Series library:** assign and number a selection atomically, inspect reading-order gaps, and reuse accepted terminology and human decisions from earlier volumes without sharing narrative spoilers.
+- **Interface locale:** French and English catalogs, persistent language choice, and locale-aware date, number, sorting, and status formatting. New interface text is added through `frontend/src/i18n.tsx`.
 - **Reversible archives:** hide inactive projects without deleting their EPUB, translations, memory or history; restore them from the Archives view.
 - **EPUB preservation:** preserve resources and inline structure, with EPUBCheck validation on export.
 - **Optional external memory:** use internal SQL memory alone, or connect your own OpenViking instance.

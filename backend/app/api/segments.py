@@ -154,6 +154,43 @@ def accept_critique(
     return row(segment)
 
 
+@router.post("/segments/{sid}/critique/{index}/reject")
+def reject_critique(
+    sid: str, index: int, body: AcceptCritiqueInput, user: CurrentUser, db: DB
+):
+    segment, _ = get_segment(db, sid, user, write=True)
+    if segment.revision != body.revision:
+        raise HTTPException(409, "Le passage a été modifié. Rechargez-le avant de refuser la proposition.")
+    if index < 0 or index >= len(segment.critique):
+        raise HTTPException(404, "Proposition IA introuvable.")
+    if not segment.translated_units:
+        raise HTTPException(409, "Aucune traduction à conserver pour ce passage.")
+    if not save_version(
+        db,
+        sid,
+        [dict(unit) for unit in segment.translated_units],
+        "human",
+        body.revision,
+        author_id=user.id,
+        validated=False,
+        stage="done",
+    ):
+        db.rollback()
+        raise HTTPException(409, "Modification concurrente détectée.")
+    db.refresh(segment)
+    segment.critique = [item for item_index, item in enumerate(segment.critique) if item_index != index]
+    unresolved_issue = db.scalar(
+        select(Issue.id).where(Issue.segment_id == sid, Issue.resolved.is_(False)).limit(1)
+    )
+    segment.status = (
+        "check" if segment.critique or segment.uncertainties or unresolved_issue else "ok"
+    )
+    emit(db, segment.project_id, segment_id=sid, status="ai_suggestion_rejected")
+    db.commit()
+    db.refresh(segment)
+    return row(segment)
+
+
 @router.put("/segments/{sid}/instructions")
 def instruction(sid: str, body: InstructionInput, user: CurrentUser, db: DB):
     segment, project = get_segment(db, sid, user, write=True)

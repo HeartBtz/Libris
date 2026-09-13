@@ -89,6 +89,14 @@ test("library has separate analysis/translation progress and refresh reloads met
           })
           .first(),
       ).toBeVisible();
+      await expect(
+        firstAdvice
+          .getByRole("button", {
+            name: "Refuser cette proposition",
+            exact: true,
+          })
+          .first(),
+      ).toBeVisible();
     }
     const draft = page.locator(".validation-item textarea").first();
     const original = await draft.inputValue();

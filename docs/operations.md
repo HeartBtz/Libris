@@ -41,7 +41,7 @@ Les refus explicites du provider, les filtres de contenu et les réponses conten
 
 L’onglet **Validations** regroupe les passages refusés. Une reprise ciblée permet de choisir un autre provider, notamment un modèle non censuré, et de retraduire uniquement ces passages. Le provider principal du livre n’est pas modifié. Chaque nouvelle reprise dispose à nouveau de deux tentatives par passage et laisse les autres traductions intactes.
 
-La file de validation reste stable pendant le traitement en arrière-plan afin de préserver les brouillons. Chaque avis IA expose son doute et sa correction proposée. **Accepter cette proposition** remplace uniquement l’unité concernée, préserve les marqueurs EPUB et crée une correction humaine protégée ; la validation éditoriale finale reste une action distincte.
+La file de validation reste stable pendant le traitement en arrière-plan afin de préserver les brouillons. Chaque avis IA expose son doute et sa correction proposée. **Accepter cette proposition** remplace uniquement l’unité concernée et préserve les marqueurs EPUB. **Refuser cette proposition** conserve le texte courant. Les deux décisions créent une correction humaine protégée ; lorsque la dernière proposition est arbitrée et qu’aucun autre motif ne subsiste, le passage disparaît de la file. La validation éditoriale finale reste une action distincte.
 
 Résolutions dans le workspace :
 

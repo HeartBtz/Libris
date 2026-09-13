@@ -254,29 +254,58 @@ export function ValidationPanel({
                             <strong>Proposition</strong>
                             {critique.suggestion}
                           </blockquote>
-                          <button
-                            className="accept-ai-suggestion"
-                            disabled={accepting === `${segment.id}-${index}`}
-                            onClick={() => {
-                              const key = `${segment.id}-${index}`;
-                              setAccepting(key);
-                              void run(async () => {
-                                try {
-                                  await send(
-                                    `/segments/${segment.id}/critique/${index}/accept`,
-                                    { revision: segment.revision },
-                                  );
-                                  refreshAfterAction();
-                                } finally {
-                                  setAccepting("");
-                                }
-                              });
-                            }}
-                          >
-                            {accepting === `${segment.id}-${index}`
-                              ? "Application…"
-                              : "Accepter cette proposition"}
-                          </button>
+                          <div className="ai-suggestion-actions">
+                            <button
+                              className="accept-ai-suggestion"
+                              disabled={accepting.endsWith(
+                                `${segment.id}-${index}`,
+                              )}
+                              onClick={() => {
+                                const key = `accept-${segment.id}-${index}`;
+                                setAccepting(key);
+                                void run(async () => {
+                                  try {
+                                    await send(
+                                      `/segments/${segment.id}/critique/${index}/accept`,
+                                      { revision: segment.revision },
+                                    );
+                                    refreshAfterAction();
+                                  } finally {
+                                    setAccepting("");
+                                  }
+                                });
+                              }}
+                            >
+                              {accepting === `accept-${segment.id}-${index}`
+                                ? "Application…"
+                                : "Accepter cette proposition"}
+                            </button>
+                            <button
+                              className="reject-ai-suggestion"
+                              disabled={accepting.endsWith(
+                                `${segment.id}-${index}`,
+                              )}
+                              onClick={() => {
+                                const key = `reject-${segment.id}-${index}`;
+                                setAccepting(key);
+                                void run(async () => {
+                                  try {
+                                    await send(
+                                      `/segments/${segment.id}/critique/${index}/reject`,
+                                      { revision: segment.revision },
+                                    );
+                                    refreshAfterAction();
+                                  } finally {
+                                    setAccepting("");
+                                  }
+                                });
+                              }}
+                            >
+                              {accepting === `reject-${segment.id}-${index}`
+                                ? "Refus…"
+                                : "Refuser cette proposition"}
+                            </button>
+                          </div>
                         </article>
                       ))}
                     </div>

@@ -159,3 +159,34 @@ def test_accepting_ai_critique_applies_protected_human_correction(seeded):
     assert saved["human"] and not saved["validated"] and saved["status"] == "ok"
     assert "Texte corrigé." in saved["translated_units"][0]["text"]
     assert saved["critique"] == []
+
+
+def test_rejecting_ai_critique_keeps_and_protects_current_translation(seeded):
+    pid = seeded[0]
+    with SessionLocal() as db:
+        segment = db.scalar(select(Segment).where(Segment.project_id == pid).order_by(Segment.position))
+        translated = [{"id": unit["id"], "text": unit["text"]} for unit in segment.units]
+        segment.translated_units = translated
+        segment.translation = "\n\n".join(unit["text"] for unit in translated)
+        segment.status = "check"
+        segment.critique = [
+            {
+                "unit_id": segment.units[0]["id"],
+                "category": "style",
+                "severity": "warning",
+                "description": "Une autre formulation est possible.",
+                "suggestion": "Écrire : « Autre formulation. »",
+            }
+        ]
+        sid, original = segment.id, segment.translation
+        db.commit()
+
+    with TestClient(app) as client:
+        client.post("/api/auth/login", json={"username": "tester", "password": "test-password-123456789"})
+        response = client.post(f"/api/segments/{sid}/critique/0/reject", json={"revision": 0})
+
+    assert response.status_code == 200, response.text
+    saved = response.json()
+    assert saved["translation"] == original
+    assert saved["human"] and not saved["validated"] and saved["status"] == "ok"
+    assert saved["critique"] == []

@@ -4,6 +4,7 @@ import pytest
 import respx
 from sqlalchemy import select
 
+from app.config import settings
 from app.db import SessionLocal
 from app.engines.translation import final_review, pipeline
 from app.jobs.queue import claim, enqueue
@@ -162,14 +163,14 @@ async def test_human_edit_during_final_review_wins(seeded, monkeypatch):
 
 @respx.mock
 async def test_searxng_disabled_makes_no_request(monkeypatch):
-    monkeypatch.setattr(final_review.settings(), "searxng_url", "")
+    monkeypatch.setattr(settings(), "searxng_url", "")
     evidence = await final_review.web_evidence(["some term"])
     assert not evidence["enabled"] and not respx.calls
 
 
 @respx.mock
 async def test_searxng_is_bounded_and_failure_is_not_evidence(monkeypatch):
-    monkeypatch.setattr(final_review.settings(), "searxng_url", "https://search.test")
+    monkeypatch.setattr(settings(), "searxng_url", "https://search.test")
     route = respx.get("https://search.test/search").respond(503)
     evidence = await final_review.web_evidence(["term one", "term two", "term three"])
     assert route.call_count == 2 and evidence["unavailable"] and not evidence["sources"]

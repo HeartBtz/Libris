@@ -134,4 +134,8 @@ test("library has separate analysis/translation progress and refresh reloads met
     })
     .click();
   expect((await metrics).status()).toBe(200);
+  await page.goto(`${base}/#settings`);
+  await page.getByRole("button", {name: "SearXNG", exact: true}).click();
+  await expect(page.getByLabel("URL de l’instance SearXNG")).toBeEnabled();
+  await expect(page.getByRole("button", {name: "Tester la connexion", exact: true})).toBeVisible();
 });

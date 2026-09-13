@@ -62,6 +62,7 @@ export function Settings({ run }: { run: Run }) {
         {[
           ["providers", "Providers LLM"],
           ["memory", "Mémoire · OpenViking"],
+          ["search", "SearXNG"],
           ["prompts", "Prompts"],
           ["users", "Utilisateurs"],
         ].map(([id, label]) => (
@@ -80,10 +81,112 @@ export function Settings({ run }: { run: Run }) {
         <MemorySettings run={run} />
       ) : tab === "prompts" ? (
         <Prompts run={run} />
+      ) : tab === "search" ? (
+        <SearchSettings run={run} />
       ) : (
         <Users run={run} />
       )}
     </main>
+  );
+}
+
+function SearchSettings({ run }: { run: Run }) {
+  const [value, setValue] = useState({ base_url: "", enabled: false });
+  const [ready, setReady] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState("");
+  useEffect(() => {
+    void run(async () => {
+      setValue(await api("/settings/searxng"));
+      setReady(true);
+    });
+  }, [run]);
+  async function action(test: boolean) {
+    setBusy(true);
+    setResult("");
+    await run(async () => {
+      try {
+        if (test) {
+          const response = await send<{ message: string; results: number }>(
+            "/settings/searxng/test",
+            value,
+          );
+          setResult(
+            `${response.message} ${response.results} résultat(s). Le test ne modifie pas la configuration.`,
+          );
+        } else {
+          setValue(await send("/settings/searxng", value, "PUT"));
+          setResult(
+            "Configuration enregistrée. Prise en compte par le worker aux prochaines recherches.",
+          );
+        }
+      } finally {
+        setBusy(false);
+      }
+    });
+  }
+  return (
+    <section>
+      <h2>Recherche web · SearXNG</h2>
+      <p className="muted">
+        Recherche terminologique facultative pendant la revue finale. Les termes
+        recherchés sont transmis à votre instance et à ses moteurs amont.
+      </p>
+      <form
+        onSubmit={(event) => {
+          event.preventDefault();
+          void action(false);
+        }}
+      >
+        <label>
+          URL de l’instance SearXNG
+          <input
+            type="url"
+            placeholder="https://search.example.com"
+            value={value.base_url}
+            disabled={!ready || busy}
+            onChange={(event) => {
+              setValue({ ...value, base_url: event.target.value });
+              setResult("");
+            }}
+          />
+        </label>
+        <label>
+          <input
+            type="checkbox"
+            checked={value.enabled}
+            disabled={!ready || busy}
+            onChange={(event) => {
+              setValue({ ...value, enabled: event.target.checked });
+              setResult("");
+            }}
+          />{" "}
+          Activer la recherche pendant la revue finale
+        </label>
+        <p className="muted">
+          Le format JSON doit être autorisé dans search.formats sur SearXNG.
+          Deux recherches maximum par passage. Aucune recherche lorsque cette
+          option est désactivée.
+        </p>
+        <div className="actions">
+          <button className="primary" disabled={!ready || busy}>
+            Enregistrer
+          </button>
+          <button
+            type="button"
+            disabled={!ready || busy || !value.base_url}
+            onClick={() => void action(true)}
+          >
+            Tester la connexion
+          </button>
+        </div>
+        {result && (
+          <p role="status" className="notice">
+            {result}
+          </p>
+        )}
+      </form>
+    </section>
   );
 }
 

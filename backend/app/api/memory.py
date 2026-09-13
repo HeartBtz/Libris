@@ -2,6 +2,7 @@ import csv
 import io
 import json
 from typing import Literal
+from urllib.parse import urlsplit
 
 import httpx
 from fastapi import APIRouter, HTTPException, Response, UploadFile
@@ -16,10 +17,63 @@ from app.engines.memory.identities import canonical_bible, identities, upsert_pr
 from app.engines.memory.store import invalidate_after_decision
 from app.models import AppSetting, BibleRevision, Entity, Glossary, Outbox, Prompt
 from app.providers.openviking import OpenVikingClient, project_uri, validate_root
+from app.providers.search import search_config
 from app.schemas import BookBible, Character, GlossaryInput, ProviderInput
 from app.security import DB, Admin, CurrentUser, access, encrypt
 
 router = APIRouter(prefix="/api")
+
+
+class SearchConfigInput(BaseModel):
+    base_url: str = Field(default="", max_length=2000)
+    enabled: bool = False
+
+
+def validate_search_config(body: SearchConfigInput) -> dict:
+    url = body.base_url.strip().rstrip("/")
+    parts = urlsplit(url)
+    if url and (parts.scheme not in {"http", "https"} or not parts.hostname or parts.username
+                or parts.password or parts.query or parts.fragment):
+        raise HTTPException(422, "URL HTTP(S) sans identifiants, paramètres ou fragment requise.")
+    if body.enabled and not url:
+        raise HTTPException(422, "Renseignez l’URL avant d’activer SearXNG.")
+    return {"base_url": url, "enabled": body.enabled}
+
+
+@router.get("/settings/searxng")
+def get_search_config(user: Admin):
+    return search_config()
+
+
+@router.put("/settings/searxng")
+def save_search_config(body: SearchConfigInput, user: Admin, db: DB):
+    data = validate_search_config(body)
+    saved = db.get(AppSetting, "searxng")
+    if saved:
+        saved.value = data
+    else:
+        db.add(AppSetting(key="searxng", value=data))
+    db.commit()
+    return data
+
+
+@router.post("/settings/searxng/test")
+async def test_search_config(body: SearchConfigInput, user: Admin):
+    config = validate_search_config(body)
+    if not config["base_url"]:
+        raise HTTPException(422, "Renseignez une URL à tester.")
+    try:
+        async with httpx.AsyncClient(timeout=15, follow_redirects=False) as client:
+            response = await client.get(config["base_url"] + "/search", params={"q": "dictionary", "format": "json"})
+            if response.status_code == 403:
+                raise HTTPException(422, "SearXNG refuse la requête (403). Activez search.formats: [html, json] et vérifiez les restrictions d’accès.")
+            response.raise_for_status()
+            data = response.json()
+            if not isinstance(data, dict) or not isinstance(data.get("results"), list):
+                raise ValueError("Invalid search response")
+            return {"ok": True, "results": len(data["results"]), "message": "API JSON SearXNG accessible."}
+    except (httpx.HTTPError, ValueError):
+        raise HTTPException(422, "Test SearXNG échoué : vérifiez l’URL, le réseau et le format JSON.") from None
 
 
 @router.get("/projects/{pid}/bible")

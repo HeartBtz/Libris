@@ -149,10 +149,12 @@ def get_project(project_id: str, user: CurrentUser, db: DB):
 
 @router.get("/{project_id}/final-review")
 def final_review_info(project_id: str, user: CurrentUser, db: DB):
+    from app.providers.search import search_config
+
     access(db, project_id, user)
     return {
         "automatic": settings().final_review_enabled,
-        "web_enabled": bool(settings().searxng_url),
+        "web_enabled": bool(search_config()["enabled"]),
         "eligible": db.scalar(select(func.count(Segment.id)).where(
             Segment.project_id == project_id, Segment.status == "check",
             Segment.translation != "", Segment.human.is_(False),

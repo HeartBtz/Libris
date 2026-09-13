@@ -16,6 +16,8 @@ Chaque passage fait l'objet d'au plus un cycle logique de correction par job. Le
 
 ## Recherche web optionnelle : SearXNG
 
+Dans **Paramètres → SearXNG**, renseignez l’URL, testez la connexion JSON, cochez l’activation puis enregistrez. La configuration est persistée en base et prise en compte aux prochaines recherches sans redémarrage. Les réglages enregistrés prennent le dessus sur les variables d’environnement, y compris lorsque la recherche est désactivée. L’administration de cette intégration est réservée aux administrateurs.
+
 ```dotenv
 FINAL_REVIEW_ENABLED=true
 SEARXNG_URL=http://your-searxng:8080

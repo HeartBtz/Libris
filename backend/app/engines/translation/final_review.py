@@ -3,7 +3,6 @@
 import httpx
 from sqlalchemy import delete, select
 
-from app.config import settings
 from app.db import SessionLocal
 from app.engines.context.builder import build_context
 from app.engines.quality.checks import checks, validate_translation
@@ -11,13 +10,15 @@ from app.engines.translation.versions import save_version
 from app.jobs.queue import checkpoint, emit, fence
 from app.models import Glossary, Issue, Job, Project, Segment
 from app.providers.llm import LLMError, ProviderAuthenticationRequired, ProviderUnavailable, llm
+from app.providers.search import search_config
 from app.schemas import FinalReviewResult
 
 CHECK_CODES = ("unchanged", "length", "repetition", "locked_term")
 
 
 async def web_evidence(queries: list[str]) -> dict:
-    url = settings().searxng_url
+    config = search_config()
+    url = config["base_url"] if config["enabled"] else ""
     evidence: dict = {"enabled": bool(url), "queries": [], "sources": [], "unavailable": False}
     if not url:
         return evidence

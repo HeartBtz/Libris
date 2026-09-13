@@ -103,6 +103,26 @@ export function CompletionPanel({
           complète ne garantit pas la qualité littéraire.
         </p>
       </div>
+      {project.progress && (
+        <div
+          className="review-outcome"
+          aria-label="Résultat de la revue finale"
+        >
+          {[
+            ["Examinés", project.progress.review.examined],
+            ["Résolus", project.progress.review.resolved],
+            ["Corrigés", project.progress.review.revised],
+            ["Restants", project.progress.review.remaining],
+            ["Protégés", project.progress.review.protected],
+            ["Échecs", project.progress.review.failed],
+          ].map(([label, value]) => (
+            <span key={label}>
+              <strong>{value}</strong>
+              <small>{label}</small>
+            </span>
+          ))}
+        </div>
+      )}
       <h3>Passages à récupérer</h3>
       <div className="actions">
         <label>

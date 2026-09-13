@@ -1,10 +1,11 @@
 import { lazy, Suspense, useCallback, useEffect, useState } from "react";
-import { api, date, labels, number, send } from "../api";
+import { api, date, labels, send } from "../api";
 import type { Chapter, Job, Project, Run, Segment, User } from "../types";
 import { Editor } from "./Editor";
 import { ValidationPanel } from "./ValidationPanel";
 import { CompletionPanel } from "./CompletionPanel";
 import { StageProgress, type ExportState } from "./StageProgress";
+import { duration, projectProgress } from "./progress";
 const CharacterGraph = lazy(() => import("./CharacterGraph"));
 const stageLabels: Record<string, string> = {
   chapter_analysis: "Analyse des passages",
@@ -102,9 +103,7 @@ export function Workspace({
     await send(`/projects/${id}/jobs`, { operation, force });
     refresh();
   }
-  const progress = project.stats.total
-    ? Math.round((project.stats.translated / project.stats.total) * 100)
-    : 0;
+  const canonicalProgress = projectProgress(project);
   async function exportFile(format: string, allowSource = false) {
     if (exportState === "running") return;
     setExportState("running");
@@ -163,11 +162,14 @@ export function Workspace({
           )}
         </div>
         <div className="workspace-progress">
-          <strong>{progress}%</strong>
-          <span>
-            {number(project.stats.translated)} / {number(project.stats.total)}{" "}
-            passages traduits
-          </span>
+          <strong>{canonicalProgress.current.percent}%</strong>
+          <span>{canonicalProgress.current.label}</span>
+          {canonicalProgress.estimate.remaining_seconds !== null &&
+            canonicalProgress.current.percent < 100 && (
+              <small>
+                {duration(canonicalProgress.estimate.remaining_seconds)}
+              </small>
+            )}
         </div>
       </div>
       <div className="pipeline-bar">

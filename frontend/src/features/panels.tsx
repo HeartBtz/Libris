@@ -3,6 +3,7 @@ import { api, download, labels, number, send } from "../api";
 import type { Issue, LLMRequest, Project, Provider, Run, Term } from "../types";
 import { RequestDetails } from "./Editor";
 import { MemoryPanel } from "./MemoryPanel";
+import { duration, projectProgress } from "./progress";
 
 export function ProjectSettings({
   project,
@@ -701,6 +702,7 @@ export function Observability({
   const [metrics, setMetrics] = useState<Record<string, number>>({});
   const [selected, setSelected] = useState<LLMRequest | null>(null);
   const [offset, setOffset] = useState(0);
+  const progress = projectProgress(project);
   useEffect(() => {
     void run(async () => {
       const [r, m] = await Promise.all([
@@ -714,6 +716,33 @@ export function Observability({
   return (
     <section>
       <h2>Observabilité</h2>
+      <div className="metric-strip" aria-label="Estimations du travail actif">
+        <div>
+          <strong>{duration(progress.estimate.remaining_seconds)}</strong>
+          <small>temps restant estimé</small>
+        </div>
+        <div>
+          <strong>{number(progress.estimate.spent_cost)}</strong>
+          <small>coût tarifaire consommé</small>
+        </div>
+        <div>
+          <strong>
+            {progress.estimate.remaining_cost === null
+              ? "—"
+              : number(progress.estimate.remaining_cost)}
+          </strong>
+          <small>coût restant estimé</small>
+        </div>
+        <div>
+          <strong>{progress.estimate.confidence}</strong>
+          <small>confiance de l’estimation</small>
+        </div>
+      </div>
+      <p className="muted">
+        Estimations fondées sur les requêtes réussies de l’étape active et les
+        tarifs actuellement configurés. Elles sont indisponibles tant que
+        l’échantillon est insuffisant.
+      </p>
       <div className="metric-strip">
         {Object.entries(metrics).map(([k, v]) => (
           <div key={k}>

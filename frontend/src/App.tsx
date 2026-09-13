@@ -231,6 +231,35 @@ function Library({ run, user }: { run: Run; user: User }) {
   const selectableBooks = visibleBooks.filter(
     (project) => !project.archived_at,
   );
+  const seriesBooks =
+    seriesFilter === "all"
+      ? []
+      : availableBooks
+          .filter((project) => project.series_name === seriesFilter)
+          .sort(
+            (a, b) =>
+              (a.volume_number ?? Number.MAX_SAFE_INTEGER) -
+                (b.volume_number ?? Number.MAX_SAFE_INTEGER) ||
+              a.title.localeCompare(b.title, "fr", { numeric: true }),
+          );
+  const numberedVolumes = seriesBooks
+    .map((project) => project.volume_number)
+    .filter((value): value is number => value !== null);
+  const duplicateVolumes = Array.from(
+    new Set(
+      numberedVolumes.filter(
+        (volume, index) => numberedVolumes.indexOf(volume) !== index,
+      ),
+    ),
+  );
+  const missingVolumes = numberedVolumes.length
+      ? Array.from(
+        {
+          length: Math.max(...numberedVolumes),
+        },
+        (_, index) => index + 1,
+      ).filter((volume) => !numberedVolumes.includes(volume))
+    : [];
   const [busy, setBusy] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [imports, setImports] = useState<{ name: string; state: string }[]>([]);
@@ -415,6 +444,46 @@ function Library({ run, user }: { run: Run; user: User }) {
         </label>
         <span role="status">{visibleBooks.length} livre(s) affiché(s)</span>
       </div>
+      {!!seriesBooks.length && (
+        <section
+          className="series-workspace"
+          aria-label={`Série ${seriesFilter}`}
+        >
+          <div>
+            <p className="eyebrow">Collection active</p>
+            <h2>{seriesFilter}</h2>
+            <p className="muted">
+              {seriesBooks.length} volume(s), classés dans l’ordre de lecture.
+              Les conventions acceptées et décisions humaines des volumes
+              antérieurs alimentent les volumes suivants, sans importer leur
+              narration.
+            </p>
+          </div>
+          <ol className="series-volumes">
+            {seriesBooks.map((project) => (
+              <li key={project.id}>
+                <strong>{project.volume_number ?? "?"}</strong>
+                <span>{project.title}</span>
+              </li>
+            ))}
+          </ol>
+          {(missingVolumes.length > 0 || duplicateVolumes.length > 0) && (
+            <p className="series-warning" role="status">
+              {missingVolumes.length > 0 &&
+                `Volumes manquants dans cette bibliothèque : ${missingVolumes.join(", ")}. `}
+              {duplicateVolumes.length > 0 &&
+                `Numéros dupliqués : ${duplicateVolumes.join(", ")}.`}
+            </p>
+          )}
+          <button
+            onClick={() =>
+              setSelected(new Set(seriesBooks.map((project) => project.id)))
+            }
+          >
+            Sélectionner toute la série
+          </button>
+        </section>
+      )}
       {!!imports.length && (
         <ul className="muted" role="status">
           {imports.map((item, i) => (
@@ -435,6 +504,9 @@ function Library({ run, user }: { run: Run; user: User }) {
               ids.forEach((id) => next.delete(id));
               return next;
             })
+          }
+          scopeLabel={
+            seriesFilter !== "all" ? `Série ${seriesFilter}` : undefined
           }
         />
       )}

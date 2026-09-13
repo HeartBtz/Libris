@@ -24,7 +24,7 @@ Libris combines a persistent translation pipeline with a book bible, character m
 - **Refusal recovery:** after two translation refusals, continue the book and retry refused passages later with a chosen provider.
 - **Failure isolation:** after five invalid responses, try checkpointed small-batch repair before skipping the passage; stop after ten consecutive failed passages. See [recovery](docs/recovery.md).
 - **Completion report:** see missing passages and remaining alerts, select failed passages and retry them with a chosen provider from **Bilan & récupération**.
-- **Series library:** assign a series and volume number, then search, filter or sort related books in reading order.
+- **Series library:** assign and number a selection atomically, inspect reading-order gaps, and reuse accepted terminology and human decisions from earlier volumes without sharing narrative spoilers.
 - **Reversible archives:** hide inactive projects without deleting their EPUB, translations, memory or history; restore them from the Archives view.
 - **EPUB preservation:** preserve resources and inline structure, with EPUBCheck validation on export.
 - **Optional external memory:** use internal SQL memory alone, or connect your own OpenViking instance.
@@ -50,6 +50,8 @@ Libris combines a persistent translation pipeline with a book bible, character m
 
 <details>
 <summary>Series metadata and reversible archives</summary>
+
+![Series reading order and shared conventions](docs/screenshots/series.png)
 
 ![Archived projects can be restored or permanently deleted](docs/screenshots/archives.png)
 
@@ -85,6 +87,18 @@ Clone this repository using the HTTPS or SSH URL shown by your Git hosting servi
 python3 scripts/setup.py
 docker compose up -d --build --wait
 ```
+
+For routine application updates, avoid interrupting long inference jobs:
+
+```bash
+# Frontend/API change only: keep the current worker process running.
+scripts/deploy.sh --api-only
+
+# Worker change: wait up to 10 minutes for a clean idle boundary.
+scripts/deploy.sh --worker-when-idle
+```
+
+`--force-worker` is reserved for resumable fixes that must be deployed immediately. Persistent checkpoints prevent completed segments from being repeated, but the interrupted in-flight request is audited and may be retried.
 
 Open **http://localhost:8088** on the Docker host. The initial username is `admin`; find the generated password in the local `.env` under `BOOTSTRAP_PASSWORD`. The setup script creates this file with restricted permissions and never overwrites an existing installation.
 

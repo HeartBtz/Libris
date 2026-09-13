@@ -119,6 +119,9 @@ async def test_final_review_applies_only_verified_correction(seeded, monkeypatch
         assert segment.translation == ("Retour au phare" if verified else "Le retour")
         assert segment.status == ("ok" if verified else "check")
         assert sid in db.get(Job, jid).checkpoint["final_review_done"]
+        outcome = db.get(Job, jid).checkpoint["final_review_outcomes"][sid]
+        assert outcome["outcome"] == ("resolved" if verified else "needs_human")
+        assert outcome["revised"] is verified
 
 
 async def test_final_review_retains_non_recomputed_issues(seeded, monkeypatch):

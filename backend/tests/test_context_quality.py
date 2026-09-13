@@ -10,6 +10,7 @@ from app.engines.context.providers import InternalContextProvider
 from app.engines.quality.checks import checks, validate_translation
 from app.engines.translation.versions import save_version
 from app.models import Glossary, Memory, Project, Provider, Segment
+from app.models.common import uid
 from app.providers.llm import LLMError, llm
 from app.schemas import BookBible, TranslationResult
 
@@ -50,6 +51,83 @@ async def test_relevant_glossary_and_future_memory_filter(seeded):
     assert "Unrelated Volcano" not in text
     assert "FUTURE_SECRET_REVELATION" not in text
     assert "PREVIOUS_CONTEXT" in text and "NEXT_CONTEXT" in text
+
+
+async def test_series_context_uses_only_prior_volume_conventions(seeded):
+    pid, owner_id, _ = seeded
+    with SessionLocal() as db:
+        current = db.get(Project, pid)
+        current.series_name, current.volume_number = "Silver Tower", 2
+        prior = Project(
+            id=uid(),
+            owner_id=owner_id,
+            title="Silver Tower Vol. 1",
+            author=current.author,
+            series_name=current.series_name,
+            volume_number=1,
+            source_language=current.source_language,
+            target_language=current.target_language,
+            provider_id=current.provider_id,
+            original_hash="prior",
+            original_path=current.original_path,
+        )
+        future = Project(
+            id=uid(),
+            owner_id=owner_id,
+            title="Silver Tower Vol. 3",
+            author=current.author,
+            series_name=current.series_name,
+            volume_number=3,
+            source_language=current.source_language,
+            target_language=current.target_language,
+            provider_id=current.provider_id,
+            original_hash="future",
+            original_path=current.original_path,
+        )
+        db.add_all([prior, future])
+        db.flush()
+        db.add_all(
+            [
+                Glossary(
+                    project_id=prior.id,
+                    source="Silver Tower",
+                    translation="Tour d’argent",
+                    accepted=True,
+                    locked=True,
+                ),
+                Memory(
+                    project_id=prior.id,
+                    position=0,
+                    kind="human_decision",
+                    validated=True,
+                    content={"source": "Alice", "translation": "Alice"},
+                ),
+                Memory(
+                    project_id=prior.id,
+                    position=0,
+                    kind="narrative",
+                    content={"text": "PRIOR_NARRATIVE_SECRET"},
+                ),
+                Glossary(
+                    project_id=future.id,
+                    source="Silver Tower",
+                    translation="FUTURE_TRANSLATION_SECRET",
+                    accepted=True,
+                    locked=True,
+                ),
+            ]
+        )
+        target = db.scalar(
+            select(Segment).where(Segment.project_id == pid, Segment.source.contains("Alice entered"))
+        )
+        db.commit()
+    built = await build_context(pid, target.id)
+    text = json.dumps(built.messages, ensure_ascii=False)
+    assert "SERIES_CONVENTIONS" in text
+    assert "Tour d’argent" in text
+    assert any('"source_volume": 1' in message["content"] for message in built.messages)
+    assert "PRIOR_NARRATIVE_SECRET" not in text
+    assert "FUTURE_TRANSLATION_SECRET" not in text
 
 
 async def test_superseded_human_memory_not_retrieved(seeded):

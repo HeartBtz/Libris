@@ -83,6 +83,18 @@ async def resolve_validations(job: Job, owner: str) -> None:
             segment = db.get(Segment, sid)
             project = db.get(Project, job.project_id)
             if segment.human or segment.validated or segment.retained_source:
+                current_job = fence(db, job.id, owner)
+                outcomes = dict(current_job.checkpoint.get("final_review_outcomes", {}))
+                outcomes[sid] = {"outcome": "protected", "revised": False}
+                current_job.checkpoint = {
+                    **current_job.checkpoint,
+                    "final_review_done": [
+                        *current_job.checkpoint.get("final_review_done", []),
+                        sid,
+                    ],
+                    "final_review_outcomes": outcomes,
+                }
+                db.commit()
                 continue
             terms = list(
                 db.scalars(
@@ -162,6 +174,17 @@ async def resolve_validations(job: Job, owner: str) -> None:
                 current_job = fence(db, job.id, owner)
                 current = db.scalar(select(Segment).where(Segment.id == sid).with_for_update())
                 if current.revision != segment.revision or current.human or current.validated:
+                    outcomes = dict(current_job.checkpoint.get("final_review_outcomes", {}))
+                    outcomes[sid] = {"outcome": "protected", "revised": False}
+                    current_job.checkpoint = {
+                        **current_job.checkpoint,
+                        "final_review_done": [
+                            *current_job.checkpoint.get("final_review_done", []),
+                            sid,
+                        ],
+                        "final_review_outcomes": outcomes,
+                    }
+                    db.commit()
                     continue
                 if candidate is not None:
                     if not save_version(db, sid, candidate, "final_review", segment.revision, stage="done"):
@@ -186,13 +209,20 @@ async def resolve_validations(job: Job, owner: str) -> None:
                 current.uncertainties = verdict.uncertainties
                 current.status = "check" if remaining or verdict.issues or verdict.uncertainties else "ok"
                 outcome = "resolved" if current.status == "ok" else "needs_human"
+                outcomes = dict(current_job.checkpoint.get("final_review_outcomes", {}))
+                outcomes[sid] = {
+                    "outcome": outcome,
+                    "revised": candidate is not None,
+                }
                 current_job.checkpoint = {
                     **current_job.checkpoint,
                     "final_review_done": [*current_job.checkpoint.get("final_review_done", []), sid],
+                    "final_review_outcomes": outcomes,
                 }
                 emit(
                     db,
                     project.id,
+                    job_id=job.id,
                     segment_id=sid,
                     status="final_review",
                     outcome=outcome,
@@ -207,13 +237,21 @@ async def resolve_validations(job: Job, owner: str) -> None:
             # A review refusal or invalid response must not stop the entire book or erase its translation.
             with SessionLocal() as db:
                 current_job = fence(db, job.id, owner)
+                outcomes = dict(current_job.checkpoint.get("final_review_outcomes", {}))
+                outcomes[sid] = {
+                    "outcome": "failed",
+                    "revised": False,
+                    "reason": type(exc).__name__,
+                }
                 current_job.checkpoint = {
                     **current_job.checkpoint,
                     "final_review_done": [*current_job.checkpoint.get("final_review_done", []), sid],
+                    "final_review_outcomes": outcomes,
                 }
                 emit(
                     db,
                     project.id,
+                    job_id=job.id,
                     segment_id=sid,
                     status="final_review",
                     outcome="needs_human",

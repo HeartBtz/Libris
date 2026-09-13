@@ -64,25 +64,17 @@ def test_owner_can_assign_series_archive_and_restore_project(seeded):
     pid = seeded[0]
     with TestClient(app) as client:
         client.post("/api/auth/login", json={"username": "tester", "password": "test-password-123456789"})
-        current = client.get(f"/api/projects/{pid}").json()
-        config = {
-            key: current[key]
-            for key in (
-                "title",
-                "author",
-                "source_language",
-                "target_language",
-                "provider_id",
-                "quality",
-                "context_backend",
-                "instructions",
-            )
-        }
-        config.update(series_name="Mushoku Tensei", volume_number=1)
-        configured = client.put(f"/api/projects/{pid}", json=config)
+        configured = client.put(
+            "/api/projects/batch/series",
+            json={"project_ids": [pid], "series_name": "Mushoku Tensei", "first_volume": 1},
+        )
         assert configured.status_code == 200
-        assert configured.json()["series_name"] == "Mushoku Tensei"
-        assert configured.json()["volume_number"] == 1
+        assert configured.json()[0]["series_name"] == "Mushoku Tensei"
+        assert configured.json()[0]["volume_number"] == 1
+        assert client.put(
+            "/api/projects/batch/series",
+            json={"project_ids": [pid, pid], "series_name": "Duplicate", "first_volume": 1},
+        ).status_code == 422
 
         archived = client.post(f"/api/projects/{pid}/archive")
         assert archived.status_code == 200 and archived.json()["archived_at"] is not None

@@ -7,21 +7,41 @@ export function BatchActions({
   run,
   refresh,
   onDeleted,
+  scopeLabel,
 }: {
   books: Project[];
   run: Run;
   refresh: () => Promise<void>;
   onDeleted: (ids: string[]) => void;
+  scopeLabel?: string;
 }) {
   const [providers, setProviders] = useState<Provider[]>([]);
   const [provider, setProvider] = useState("");
   const [language, setLanguage] = useState("fr");
   const [quality, setQuality] = useState("high");
+  const [seriesName, setSeriesName] = useState(books[0]?.series_name || "");
+  const [firstVolume, setFirstVolume] = useState(1);
+  const [commonInstructions, setCommonInstructions] = useState("");
   const [results, setResults] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
+  const selectionKey = books
+    .map((book) => book.id)
+    .sort()
+    .join(":");
   useEffect(() => {
     void run(async () => setProviders(await api("/providers")));
   }, [run]);
+  useEffect(() => {
+    const commonSeries = books.every(
+      (book) => book.series_name === books[0]?.series_name,
+    )
+      ? books[0]?.series_name || ""
+      : "";
+    setSeriesName(commonSeries);
+    setFirstVolume(
+      Math.min(...books.map((book) => book.volume_number || 1)),
+    );
+  }, [selectionKey, scopeLabel]);
   async function apply(
     action:
       | "configure"
@@ -31,6 +51,8 @@ export function BatchActions({
       | "resume"
       | "cancel_analysis"
       | "cancel_translation"
+      | "assign_series"
+      | "archive"
       | "delete",
   ) {
     if (
@@ -42,6 +64,31 @@ export function BatchActions({
       return;
     setBusy(true);
     setResults([]);
+    if (action === "assign_series") {
+      const ordered = [...books].sort((a, b) =>
+        a.title.localeCompare(b.title, "fr", { numeric: true }),
+      );
+      try {
+        await send(
+          "/projects/batch/series",
+          {
+            project_ids: ordered.map((book) => book.id),
+            series_name: seriesName.trim(),
+            first_volume: firstVolume,
+          },
+          "PUT",
+        );
+        setResults([
+          `${ordered.length} livre(s) numéroté(s) dans ${seriesName.trim()}.`,
+        ]);
+        await run(refresh);
+      } catch (error) {
+        setResults([error instanceof Error ? error.message : String(error)]);
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
     const removed: string[] = [];
     const outcomes = await Promise.all(
       books.map(async (p) => {
@@ -50,6 +97,11 @@ export function BatchActions({
             await api(`/projects/${p.id}?stop_jobs=true`, { method: "DELETE" });
             removed.push(p.id);
             return `${p.title} : supprimé.`;
+          }
+          if (action === "archive") {
+            await send(`/projects/${p.id}/archive`);
+            removed.push(p.id);
+            return `${p.title} : archivé.`;
           }
           if (
             [
@@ -107,12 +159,14 @@ export function BatchActions({
               {
                 title: p.title,
                 author: p.author,
+                series_name: p.series_name,
+                volume_number: p.volume_number,
                 source_language: p.source_language,
                 target_language: language,
                 provider_id: provider || p.provider_id,
                 quality,
                 context_backend: p.context_backend,
-                instructions: p.instructions,
+                instructions: commonInstructions || p.instructions,
               },
               "PUT",
             );
@@ -136,7 +190,36 @@ export function BatchActions({
   }
   return (
     <section className="notice" aria-label="Actions sur plusieurs livres">
-      <h3>{books.length} livre(s) sélectionné(s)</h3>
+      <h3>
+        {scopeLabel ? `${scopeLabel} · ` : ""}
+        {books.length} livre(s) sélectionné(s)
+      </h3>
+      <div className="actions">
+        <label>
+          Série commune
+          <input
+            value={seriesName}
+            onChange={(event) => setSeriesName(event.target.value)}
+          />
+        </label>
+        <label>
+          Premier volume
+          <input
+            type="number"
+            min="1"
+            value={firstVolume}
+            onChange={(event) =>
+              setFirstVolume(Number(event.target.value) || 1)
+            }
+          />
+        </label>
+        <button
+          disabled={busy || !seriesName.trim()}
+          onClick={() => void apply("assign_series")}
+        >
+          Numéroter la sélection
+        </button>
+      </div>
       <div className="actions">
         <label>
           Provider commun
@@ -168,6 +251,14 @@ export function BatchActions({
             <option value="maximum">Maximum</option>
           </select>
         </label>
+        <label>
+          Instructions communes
+          <input
+            value={commonInstructions}
+            onChange={(event) => setCommonInstructions(event.target.value)}
+            placeholder="Conserver si vide"
+          />
+        </label>
         <button disabled={busy} onClick={() => void apply("configure")}>
           Configurer la sélection
         </button>
@@ -197,6 +288,9 @@ export function BatchActions({
           onClick={() => void apply("cancel_translation")}
         >
           Annuler les traductions
+        </button>
+        <button disabled={busy} onClick={() => void apply("archive")}>
+          Archiver la sélection
         </button>
         <button
           disabled={busy}

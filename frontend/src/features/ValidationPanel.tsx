@@ -30,8 +30,27 @@ export function ValidationPanel({
     automatic: false,
     web_enabled: false,
     eligible: 0,
+    summary: project.progress?.review || {
+      examined: 0,
+      total: 0,
+      resolved: 0,
+      needs_human: 0,
+      remaining: 0,
+      protected: 0,
+      revised: 0,
+      failed: 0,
+    },
   });
   const [startingReview, setStartingReview] = useState(false);
+
+  useEffect(() => {
+    if (project.progress?.review) {
+      setFinalReview((current) => ({
+        ...current,
+        summary: project.progress!.review,
+      }));
+    }
+  }, [project.progress?.review]);
 
   useEffect(() => {
     let active = true;
@@ -136,6 +155,22 @@ export function ValidationPanel({
             <small>à vérifier</small>
           </span>
         </div>
+      </div>
+
+      <div className="review-outcome" aria-label="Bilan de la revue finale">
+        {[
+          ["Examinés", finalReview.summary.examined],
+          ["Résolus", finalReview.summary.resolved],
+          ["Corrigés", finalReview.summary.revised],
+          ["À vérifier", finalReview.summary.remaining],
+          ["Protégés", finalReview.summary.protected],
+          ["Échecs", finalReview.summary.failed],
+        ].map(([label, value]) => (
+          <span key={label}>
+            <strong>{value}</strong>
+            <small>{label}</small>
+          </span>
+        ))}
       </div>
 
       <div className="notice">

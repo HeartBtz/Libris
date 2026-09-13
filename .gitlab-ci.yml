@@ -1,6 +1,27 @@
 stages:
   - test
 
+migration-postgres:
+  stage: test
+  image: python:3.13
+  services:
+    - name: postgres:17-bookworm
+      alias: postgres
+  variables:
+    POSTGRES_DB: libris_test
+    POSTGRES_USER: libris
+    POSTGRES_PASSWORD: libris_test_password
+    DATABASE_URL: postgresql+psycopg://libris:libris_test_password@postgres:5432/libris_test
+    SECRET_KEY: ci-only-secret-key-with-more-than-32-characters
+    BOOTSTRAP_PASSWORD: ci-only-password-with-more-than-16-characters
+  before_script:
+    - pip install -r backend/requirements.lock
+  script:
+    - cd backend
+    - alembic upgrade head
+    - alembic downgrade c93b8c242df1
+    - alembic upgrade head
+
 backend:
   stage: test
   image: python:3.13

@@ -42,6 +42,38 @@ export interface Project {
     validation?: unknown;
   };
   bible: Record<string, unknown>;
+  progress?: ProjectProgress;
+}
+export interface ProgressStage {
+  key: "import" | "analysis" | "translation" | "review" | "export";
+  label: string;
+  done: number;
+  total: number;
+  percent: number;
+}
+export interface ProjectProgress {
+  active_stage: ProgressStage["key"];
+  state: string;
+  operation: string | null;
+  job_id: string | null;
+  current: ProgressStage;
+  stages: ProgressStage[];
+  review: {
+    examined: number;
+    total: number;
+    resolved: number;
+    needs_human: number;
+    remaining: number;
+    protected: number;
+    revised: number;
+    failed: number;
+  };
+  estimate: {
+    remaining_seconds: number | null;
+    remaining_cost: number | null;
+    spent_cost: number;
+    confidence: "insufficient" | "low" | "medium" | "high" | "complete";
+  };
 }
 export interface Provider {
   kind: "openai" | "openai_responses" | "codex_chatgpt";

@@ -2,9 +2,12 @@
 
 Vérifications exécutées pendant l’implémentation :
 
-- 102 tests backend réussis : import/reconstruction, accès, providers, concurrence indépendante par provider, changement de provider après pause, Codex, reprise, interruptions, refus avec poursuite du livre et provider de remplacement, acceptation ou rejet des propositions IA, couverture, identités, graphes, catalogues, séries, archivage réversible et revue finale bornée (corrections vérifiées, choix humains protégés, reprise et SearXNG facultatif).
+- 104 tests backend réussis : import/reconstruction, accès, providers, concurrence indépendante par provider, changement de provider après pause, Codex, reprise, interruptions, refus avec poursuite du livre et provider de remplacement, acceptation ou rejet des propositions IA, couverture, identités, graphes, catalogues, séries, archivage réversible, progression canonique et revue finale bornée (corrections vérifiées, choix humains protégés, reprise et SearXNG facultatif).
 - TypeScript strict, build Vite et Ruff validés.
-- Migrations SQLite de développement et PostgreSQL Docker vérifiées.
+- Schéma SQLite de développement validé ; chaîne Alembic montée, rétrogradée puis remontée sur PostgreSQL 17 temporaire. Le même contrôle est exécuté dans GitLab CI.
+- Mémoire inter-volumes vérifiée : glossaire accepté et décision humaine validée du volume antérieur présents, mémoire narrative et convention du volume futur absentes.
+- Calcul centralisé de l’étape active, du bilan de revue et des estimations temps/coût validé par le backend et consommé sans recalcul divergent par l’interface.
+- Déploiement différencié validé syntaxiquement : mise à jour API sans interruption du worker ou attente d’une absence de job actif avant son redémarrage.
 - Test Docker réel : HTTP 503 → attente persistante ; pause volontaire conservée après redémarrage ; SIGTERM pendant l’inférence → reprise sans retraduire les étapes terminées ; pause en cours de requête → interruption auditée.
 - Test navigateur import multiple, graphe, fusion, alias, lien validé, conservation d’un brouillon lors d’Actualiser et suppression depuis la bibliothèque : réussi.
 - Test navigateur sélection multiple : pause, reprise, annulation des analyses, annulation des traductions et suppression confirmée : réussi.

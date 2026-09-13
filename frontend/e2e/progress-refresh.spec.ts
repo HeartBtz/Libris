@@ -44,16 +44,20 @@ test("library shows active-stage progress and refresh reloads metrics", async ({
       (project.stats.review_total || project.stats.total)) *
       100,
   );
-  const expected =
-    project.status === "completed" && !project.stats.flagged
+  const expected = project.progress?.current
+    ? {
+        label: project.progress.current.label,
+        value: project.progress.current.percent,
+      }
+    : project.status === "completed" && !project.stats.flagged
       ? { label: "Export", value: 100 }
       : project.status === "analyzing"
-        ? { label: "Analyse", value: analysis }
+        ? { label: "Analyse & mémoire", value: analysis }
         : project.status === "reviewing" || translation === 100
           ? { label: "Relecture", value: review }
           : project.status === "translating" || analysis === 100
             ? { label: "Traduction", value: translation }
-            : { label: "Analyse", value: analysis };
+            : { label: "Analyse & mémoire", value: analysis };
   const row = page
     .getByRole("link", { name: project.title, exact: true })
     .locator("xpath=ancestor::tr");

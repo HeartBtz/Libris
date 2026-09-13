@@ -147,7 +147,21 @@ test("capture public Libris showcase", async ({ page }) => {
       data = url.searchParams.get("status") === "refused" ? [] : [segment];
     else if (path === "/api/providers") data = [];
     else if (path.endsWith("/final-review"))
-      data = { automatic: true, web_enabled: false, eligible: 1 };
+      data = {
+        automatic: true,
+        web_enabled: false,
+        eligible: 1,
+        summary: {
+          examined: 16,
+          total: 24,
+          resolved: 11,
+          needs_human: 5,
+          remaining: 1,
+          protected: 12,
+          revised: 7,
+          failed: 0,
+        },
+      };
     await route.fulfill({ json: data });
   });
   await page.setViewportSize({ width: 1440, height: 1040 });
@@ -166,9 +180,9 @@ test("capture public Libris showcase", async ({ page }) => {
   ).toHaveAttribute("value", "75");
   await expect(
     page.getByRole("progressbar", {
-      name: "Analyse de Les jardins de cuivre",
+      name: "Analyse & mémoire de Les jardins de cuivre",
     }),
-  ).toHaveAttribute("value", "35");
+  ).toHaveAttribute("value", "36");
   await expect(
     page.getByRole("progressbar", {
       name: "Export de Un atlas pour demain",
@@ -190,6 +204,10 @@ test("capture public Libris showcase", async ({ page }) => {
     .getByRole("combobox", { name: "Série", exact: true })
     .selectOption("Chroniques des marées");
   await expect(page.locator(".library-table tbody tr")).toHaveCount(2);
+  await page.screenshot({
+    path: resolve(output, "series.png"),
+    fullPage: true,
+  });
   await page
     .getByRole("combobox", { name: "Série", exact: true })
     .selectOption("all");
@@ -234,11 +252,11 @@ test("capture public Libris showcase", async ({ page }) => {
     ["3 · Traduction", "18/24 passages traduits · 0 conservés en original."],
     [
       "4 · Relecture",
-      "16/24 passages ayant reçu une relecture IA ou une validation humaine · 1 à vérifier.",
+      "16/24 passages examinés · 0 résolus · 1 à vérifier.",
     ],
     [
       "5 · Export",
-      "Choisissez un format dans Exporter. Aucun fichier généré dans cette session.",
+      "Terminez les alertes restantes avant l’export final.",
     ],
   ]) {
     await page.getByRole("button", { name: button, exact: true }).click();

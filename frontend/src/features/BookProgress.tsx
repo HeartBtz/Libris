@@ -1,70 +1,36 @@
 import type { Project } from "../types";
+import { duration, projectProgress } from "./progress";
 
 export function BookProgress({ project }: { project: Project }) {
-  const stats = project.stats;
-  const analysisTotal = stats.total + stats.chapters;
-  const analysisDone =
-    (stats.analyzed_segments || 0) + (stats.synthesized_chapters || 0);
-  const analysis = analysisTotal
-    ? Math.min(100, Math.floor((analysisDone / analysisTotal) * 100))
-    : 0;
-  const translation = stats.total
-    ? Math.min(100, Math.floor((stats.translated / stats.total) * 100))
-    : 0;
-  const reviewTotal = stats.review_total || stats.total;
-  const review = reviewTotal
-    ? Math.min(
-        100,
-        Math.floor(((stats.reviewed_segments || 0) / reviewTotal) * 100),
-      )
-    : 0;
-  const analysisStage = {
-    key: "analysis",
-    label: "Analyse",
-    value: analysis,
-    detail: `${stats.analyzed_segments || 0}/${stats.total} passages · ${stats.synthesized_chapters || 0}/${stats.chapters} sections`,
-  };
-  let stage: { key: string; label: string; value: number; detail: string };
-  if (project.status === "completed" && !stats.flagged) {
-    stage = {
-      key: "export",
-      label: "Export",
-      value: 100,
-      detail: "Livre prêt à exporter",
-    };
-  } else if (project.status === "analyzing") {
-    stage = analysisStage;
-  } else if (project.status === "reviewing" || translation === 100) {
-    stage = {
-      key: "review",
-      label: "Relecture",
-      value: review,
-      detail: `${stats.reviewed_segments || 0}/${reviewTotal} passages relus${stats.flagged ? ` · ${stats.flagged} à vérifier` : ""}`,
-    };
-  } else if (project.status === "translating" || analysis === 100) {
-    stage = {
-      key: "translation",
-      label: "Traduction",
-      value: translation,
-      detail: `${stats.translated}/${stats.total} passages traduits`,
-    };
-  } else {
-    stage = analysisStage;
-  }
+  const progress = projectProgress(project);
+  const stage = progress.current;
+  const detail =
+    stage.key === "analysis"
+      ? `${project.stats.analyzed_segments}/${project.stats.total} passages · ${project.stats.synthesized_chapters}/${project.stats.chapters} sections`
+      : stage.key === "translation"
+        ? `${project.stats.translated}/${project.stats.total} passages traduits`
+        : stage.key === "review"
+          ? `${progress.review.examined}/${progress.review.total} examinés · ${progress.review.remaining} à vérifier`
+          : stage.key === "export"
+            ? "Livre prêt à exporter"
+            : "EPUB importé";
   return (
     <div className="book-progress">
-      <div className={`${stage.key}-progress`} title={stage.detail}>
+      <div className={`${stage.key}-progress`} title={detail}>
         <div className="progress-label">
           <span>{stage.label}</span>
-          <strong>{stage.value} %</strong>
+          <strong>{stage.percent} %</strong>
         </div>
         <progress
           aria-label={`${stage.label} de ${project.title}`}
           max={100}
-          value={stage.value}
+          value={stage.percent}
         />
       </div>
-      <small>{stage.detail}</small>
+      <small>{detail}</small>
+      {progress.estimate.remaining_seconds !== null && stage.percent < 100 && (
+        <small>{duration(progress.estimate.remaining_seconds)}</small>
+      )}
     </div>
   );
 }

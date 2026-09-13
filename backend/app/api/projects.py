@@ -28,7 +28,8 @@ from app.models import (
     User,
 )
 from app.models.common import uid
-from app.schemas import InstructionInput, JobInput, ProjectConfig
+from app.progress import project_progress
+from app.schemas import InstructionInput, JobInput, ProjectConfig, SeriesBatchInput
 from app.security import DB, CurrentUser, access
 
 router = APIRouter(prefix="/api/projects")
@@ -102,8 +103,12 @@ def stats(db, project: Project) -> dict:
 
 
 def project_view(db, project: Project) -> dict:
+    values = stats(db, project)
     return dict(
-        row(project, ("original_path",)), stats=stats(db, project), bible=canonical_bible(db, project)
+        row(project, ("original_path",)),
+        stats=values,
+        progress=project_progress(db, project, values),
+        bible=canonical_bible(db, project),
     )
 
 
@@ -168,6 +173,20 @@ async def upload(file: UploadFile, user: CurrentUser, db: DB):
     return project_view(db, project)
 
 
+@router.put("/batch/series")
+def configure_series(body: SeriesBatchInput, user: CurrentUser, db: DB):
+    if len(set(body.project_ids)) != len(body.project_ids):
+        raise HTTPException(422, "Chaque livre doit apparaître une seule fois.")
+    if body.first_volume + len(body.project_ids) - 1 > 10000:
+        raise HTTPException(422, "La numérotation dépasse le volume 10000.")
+    projects = [access(db, project_id, user, write=True) for project_id in body.project_ids]
+    for offset, project in enumerate(projects):
+        project.series_name = body.series_name
+        project.volume_number = body.first_volume + offset
+    db.commit()
+    return [project_view(db, project) for project in projects]
+
+
 @router.get("/{project_id}")
 def get_project(project_id: str, user: CurrentUser, db: DB):
     return project_view(db, access(db, project_id, user))
@@ -177,7 +196,8 @@ def get_project(project_id: str, user: CurrentUser, db: DB):
 def final_review_info(project_id: str, user: CurrentUser, db: DB):
     from app.providers.search import search_config
 
-    access(db, project_id, user)
+    project = access(db, project_id, user)
+    values = stats(db, project)
     return {
         "automatic": settings().final_review_enabled,
         "web_enabled": bool(search_config()["enabled"]),
@@ -186,6 +206,7 @@ def final_review_info(project_id: str, user: CurrentUser, db: DB):
             Segment.translation != "", Segment.human.is_(False),
             Segment.validated.is_(False), Segment.retained_source.is_(False),
         )),
+        "summary": project_progress(db, project, values)["review"],
     }
 
 

@@ -127,3 +127,35 @@ def test_explicit_original_retention_and_human_analysis_keep_coverage_honest(see
         )
         assert manual.status_code == 200
         assert sid not in client.get(f"/api/projects/{pid}/coverage").json()["analysis_missing"]
+
+
+def test_accepting_ai_critique_applies_protected_human_correction(seeded):
+    pid = seeded[0]
+    with SessionLocal() as db:
+        segment = db.scalar(select(Segment).where(Segment.project_id == pid).order_by(Segment.position))
+        segment.translated_units = [
+            {"id": unit["id"], "text": unit["text"]} for unit in segment.units
+        ]
+        segment.translation = "\n\n".join(unit["text"] for unit in segment.units)
+        segment.status = "check"
+        segment.critique = [
+            {
+                "unit_id": segment.units[0]["id"],
+                "category": "grammar",
+                "severity": "warning",
+                "description": "La formulation est maladroite.",
+                "suggestion": "Écrire : « Texte corrigé. »",
+            }
+        ]
+        sid = segment.id
+        db.commit()
+
+    with TestClient(app) as client:
+        client.post("/api/auth/login", json={"username": "tester", "password": "test-password-123456789"})
+        response = client.post(f"/api/segments/{sid}/critique/0/accept", json={"revision": 0})
+
+    assert response.status_code == 200, response.text
+    saved = response.json()
+    assert saved["human"] and not saved["validated"] and saved["status"] == "check"
+    assert "Texte corrigé." in saved["translated_units"][0]["text"]
+    assert saved["critique"] == []

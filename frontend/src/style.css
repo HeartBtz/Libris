@@ -951,6 +951,11 @@ pre {
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
+.validation-heading-actions {
+  display: flex;
+  align-items: stretch;
+  gap: 0.75rem;
+}
 .validation-queue {
   display: grid;
   gap: 1.5rem;
@@ -1109,6 +1114,11 @@ pre {
   font-size: 0.68rem;
   letter-spacing: 0.08em;
   text-transform: uppercase;
+}
+.accept-ai-suggestion {
+  margin-top: 0.75rem;
+  border-color: color-mix(in srgb, var(--accent) 65%, var(--line));
+  color: var(--text);
 }
 .technical-guidance {
   padding: 0.9rem 1.25rem;
@@ -1429,6 +1439,10 @@ hr {
   .validation-count {
     min-width: 0;
     width: 100%;
+  }
+  .validation-heading-actions {
+    width: 100%;
+    flex-direction: column-reverse;
   }
   .validation-reasons {
     justify-content: flex-start;

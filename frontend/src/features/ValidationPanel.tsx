@@ -10,13 +10,11 @@ export function ValidationPanel({
   chapters,
   run,
   refresh,
-  tick,
 }: {
   project: Project;
   chapters: Chapter[];
   run: Run;
   refresh: () => void;
-  tick: number;
 }) {
   const [segments, setSegments] = useState<Segment[]>([]);
   const [issues, setIssues] = useState<Issue[]>([]);
@@ -25,10 +23,12 @@ export function ValidationPanel({
   const [recoveryProvider, setRecoveryProvider] = useState("");
   const [selected, setSelected] = useState<Segment | null>(null);
   const [loading, setLoading] = useState(true);
+  const [reloading, setReloading] = useState(false);
+  const [reload, setReload] = useState(0);
+  const [accepting, setAccepting] = useState("");
 
   useEffect(() => {
     let active = true;
-    setLoading(true);
     void run(async () => {
       async function segmentsWithStatus(status: string) {
         const found: Segment[] = [];
@@ -67,13 +67,27 @@ export function ValidationPanel({
             ? found.find((segment) => segment.id === current.id) || null
             : null,
         );
+      }
+    }).finally(() => {
+      if (active) {
         setLoading(false);
+        setReloading(false);
       }
     });
     return () => {
       active = false;
     };
-  }, [project.id, run, tick]);
+  }, [project.id, run, reload]);
+
+  function refreshQueue() {
+    setReloading(true);
+    setReload((value) => value + 1);
+  }
+
+  function refreshAfterAction() {
+    refresh();
+    refreshQueue();
+  }
 
   const chapterNames = new Map(
     chapters.map((chapter) => [chapter.id, chapter.title]),
@@ -97,13 +111,18 @@ export function ValidationPanel({
             cette file une fois la décision enregistrée.
           </p>
         </div>
-        <span
-          className="validation-count"
-          aria-label={`${segments.length} passages à vérifier`}
-        >
-          {segments.length}
-          <small>à vérifier</small>
-        </span>
+        <div className="validation-heading-actions">
+          <button disabled={reloading} onClick={refreshQueue}>
+            {reloading ? "Actualisation…" : "Actualiser la file"}
+          </button>
+          <span
+            className="validation-count"
+            aria-label={`${segments.length} passages à vérifier`}
+          >
+            {segments.length}
+            <small>à vérifier</small>
+          </span>
+        </div>
       </div>
 
       {!!refused.length && (
@@ -154,7 +173,7 @@ export function ValidationPanel({
                     refused_only: true,
                     force: true,
                   });
-                  refresh();
+                  refreshAfterAction();
                 })
               }
             >
@@ -235,6 +254,29 @@ export function ValidationPanel({
                             <strong>Proposition</strong>
                             {critique.suggestion}
                           </blockquote>
+                          <button
+                            className="accept-ai-suggestion"
+                            disabled={accepting === `${segment.id}-${index}`}
+                            onClick={() => {
+                              const key = `${segment.id}-${index}`;
+                              setAccepting(key);
+                              void run(async () => {
+                                try {
+                                  await send(
+                                    `/segments/${segment.id}/critique/${index}/accept`,
+                                    { revision: segment.revision },
+                                  );
+                                  refreshAfterAction();
+                                } finally {
+                                  setAccepting("");
+                                }
+                              });
+                            }}
+                          >
+                            {accepting === `${segment.id}-${index}`
+                              ? "Application…"
+                              : "Accepter cette proposition"}
+                          </button>
                         </article>
                       ))}
                     </div>
@@ -253,7 +295,7 @@ export function ValidationPanel({
                   segment={segment}
                   project={project}
                   run={run}
-                  refresh={refresh}
+                  refresh={refreshAfterAction}
                   inspect={() => setSelected(segment)}
                 />
               </section>
@@ -275,7 +317,7 @@ export function ValidationPanel({
           segment={selected}
           run={run}
           close={() => setSelected(null)}
-          refresh={refresh}
+          refresh={refreshAfterAction}
         />
       )}
     </section>

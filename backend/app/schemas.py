@@ -94,6 +94,10 @@ class EditInput(StrictModel):
     validated: bool = False
 
 
+class AcceptCritiqueInput(StrictModel):
+    revision: int = Field(ge=0)
+
+
 class Fact(StrictModel):
     text: str
     known_by: list[str] = Field(default_factory=list)

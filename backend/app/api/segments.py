@@ -1,3 +1,5 @@
+import re
+
 from fastapi import APIRouter, HTTPException, Query
 from sqlalchemy import Text, cast, select
 
@@ -7,7 +9,7 @@ from app.engines.translation.versions import save_version
 from app.jobs.queue import HELD, emit
 from app.models import Issue, Job, RequestLog, Segment, TranslationVersion
 from app.providers.llm import llm
-from app.schemas import AskInput, AskResult, EditInput, InstructionInput
+from app.schemas import AcceptCritiqueInput, AskInput, AskResult, EditInput, InstructionInput
 from app.security import DB, CurrentUser, access
 
 router = APIRouter(prefix="/api")
@@ -78,6 +80,70 @@ def edit(sid: str, body: EditInput, user: CurrentUser, db: DB):
             **job.checkpoint,
             "finished_ids": list(dict.fromkeys([*job.checkpoint.get("finished_ids", []), sid])),
         }
+    db.commit()
+    db.refresh(segment)
+    return row(segment)
+
+
+@router.post("/segments/{sid}/critique/{index}/accept")
+def accept_critique(
+    sid: str, index: int, body: AcceptCritiqueInput, user: CurrentUser, db: DB
+):
+    segment, _ = get_segment(db, sid, user, write=True)
+    if segment.revision != body.revision:
+        raise HTTPException(409, "Le passage a été modifié. Rechargez-le avant d’accepter la proposition.")
+    if index < 0 or index >= len(segment.critique):
+        raise HTTPException(404, "Proposition IA introuvable.")
+    critique = segment.critique[index]
+    unit_id = str(critique.get("unit_id", ""))
+    suggestion = str(critique.get("suggestion", "")).strip()
+    if not suggestion:
+        raise HTTPException(409, "Cette remarque IA ne contient pas de remplacement applicable.")
+    suggestion = re.sub(
+        r"^(?:écrire(?:\s+(?:plutôt|par exemple))?|proposition)\s*:\s*",
+        "",
+        suggestion,
+        flags=re.IGNORECASE,
+    ).strip()
+    if suggestion.startswith("«") and suggestion.endswith("»"):
+        suggestion = suggestion[1:-1].strip()
+    elif len(suggestion) >= 2 and suggestion[0] == suggestion[-1] in {'"', "'"}:
+        suggestion = suggestion[1:-1].strip()
+
+    units = [dict(unit) for unit in segment.translated_units]
+    target = next((unit for unit in units if unit["id"] == unit_id), None)
+    if not target:
+        raise HTTPException(409, "L’unité visée par la proposition n’existe plus.")
+    current_codes = re.findall(r"⟦[^⟧]+⟧", target["text"])
+    suggestion_codes = re.findall(r"⟦[^⟧]+⟧", suggestion)
+    if current_codes and not suggestion_codes:
+        stripped = target["text"].strip()
+        if len(current_codes) == 2 and stripped.startswith(current_codes[0]) and stripped.endswith(
+            current_codes[1]
+        ):
+            suggestion = f"{current_codes[0]}{suggestion}{current_codes[1]}"
+        else:
+            raise HTTPException(
+                409,
+                "Cette proposition ne préserve pas les marqueurs internes ; appliquez-la manuellement.",
+            )
+    target["text"] = suggestion
+    if not save_version(
+        db,
+        sid,
+        units,
+        "human",
+        body.revision,
+        author_id=user.id,
+        validated=False,
+        stage="done",
+    ):
+        db.rollback()
+        raise HTTPException(409, "Modification concurrente détectée.")
+    db.refresh(segment)
+    segment.critique = [item for item_index, item in enumerate(segment.critique) if item_index != index]
+    segment.status = "check"
+    emit(db, segment.project_id, segment_id=sid, status="ai_suggestion_accepted")
     db.commit()
     db.refresh(segment)
     return row(segment)

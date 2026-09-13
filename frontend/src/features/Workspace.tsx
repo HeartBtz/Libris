@@ -448,7 +448,6 @@ export function Workspace({
               chapters={chapters}
               run={run}
               refresh={refresh}
-              tick={tick}
             />
           ) : tab === "requests" ? (
             <Observability project={project} run={run} tick={tick} />

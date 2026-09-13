@@ -81,7 +81,26 @@ test("library has separate analysis/translation progress and refresh reloads met
       await expect(
         firstAdvice.getByText("Proposition", { exact: true }).first(),
       ).toBeVisible();
+      await expect(
+        firstAdvice
+          .getByRole("button", {
+            name: "Accepter cette proposition",
+            exact: true,
+          })
+          .first(),
+      ).toBeVisible();
     }
+    const draft = page.locator(".validation-item textarea").first();
+    const original = await draft.inputValue();
+    await draft.fill(`${original} [brouillon de test]`);
+    await page
+      .getByRole("button", {
+        name: "Actualiser les données du livre",
+        exact: true,
+      })
+      .click();
+    await page.waitForTimeout(750);
+    await expect(draft).toHaveValue(`${original} [brouillon de test]`);
   }
   await page.screenshot({ path: "/tmp/opencode/libris-validations.png" });
   await page.setViewportSize({ width: 390, height: 844 });

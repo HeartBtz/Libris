@@ -10,7 +10,7 @@ from app.engines.translation import pipeline, repair
 from app.jobs.execution import execution
 from app.jobs.queue import claim, enqueue
 from app.main import app
-from app.models import Job, Project, Segment
+from app.models import Job, Project, Provider, Segment
 from app.providers.llm import ProviderUnavailable
 from app.schemas import TranslationResult
 
@@ -108,6 +108,41 @@ async def test_full_translation_stops_before_review_when_recovery_is_required(se
         current = db.get(Job, jid)
         assert current.checkpoint["step"] == "recovery_required"
         assert current.checkpoint["recovery_required"] == 1
+
+
+def test_recovery_provider_is_replaced_before_pipeline_continues(seeded):
+    with SessionLocal() as db:
+        project = db.get(Project, seeded[0])
+        recovery_provider = Provider(
+            name="Recovery only",
+            base_url="https://recovery.test/v1",
+            model="recovery-model",
+        )
+        db.add(recovery_provider)
+        db.flush()
+        job = enqueue(
+            db,
+            project,
+            "translate",
+            {
+                "segment_ids": [db.scalar(select(Segment.id).where(Segment.project_id == project.id))],
+                "provider_id": recovery_provider.id,
+                "continue_pipeline": True,
+            },
+        )
+        job.provider_id = recovery_provider.id
+        project_provider_id = project.provider_id
+        jid = job.id
+        recovery_provider_id = recovery_provider.id
+        db.commit()
+    claimed = claim()
+    assert claimed and claimed[0] == jid
+    pipeline.restore_project_provider(jid, claimed[1], project_provider_id)
+    with SessionLocal() as db:
+        current = db.get(Job, jid)
+        assert current.provider_id == project_provider_id
+        assert "provider_id" not in current.options
+        assert current.options["recovery_provider_id"] == recovery_provider_id
 
 
 @pytest.mark.parametrize("valid", [True, False])

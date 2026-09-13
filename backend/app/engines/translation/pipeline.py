@@ -22,6 +22,19 @@ from app.providers.llm import (
 from app.schemas import ContextNeeds, ReviewResult, TranslationResult
 
 
+def restore_project_provider(job_id: str, owner: str, provider_id: str | None) -> Job:
+    with SessionLocal() as db:
+        job = fence(db, job_id, owner)
+        options = dict(job.options)
+        recovery_provider_id = options.pop("provider_id", None)
+        if recovery_provider_id:
+            options["recovery_provider_id"] = recovery_provider_id
+        job.options = options
+        job.provider_id = provider_id
+        db.commit()
+        return job
+
+
 async def translation_call(
     project: Project,
     segment: Segment,
@@ -351,6 +364,8 @@ async def translate(job: Job, owner: str) -> None:
         job.options.get(key)
         for key in ("segment_id", "chapter_id", "refused_only", "segment_ids")
     )
+    if job.options.get("continue_pipeline") and job.options.get("segment_ids"):
+        job = restore_project_provider(job.id, owner, project.provider_id)
     if (
         project.quality in {"high", "maximum"}
         and continue_pipeline

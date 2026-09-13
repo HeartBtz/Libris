@@ -383,7 +383,7 @@ export function Workspace({
           ["editor", "Traduction"],
           [
             "validations",
-            `Validations${project.stats.flagged ? ` (${project.stats.flagged})` : ""}`,
+            `Validations${project.stats.flagged + project.stats.refused ? ` (${project.stats.flagged + project.stats.refused})` : ""}`,
           ],
           ["bible", "Book Bible"],
           ["characters", "Personnages & liens"],

@@ -73,6 +73,15 @@ test("library has separate analysis/translation progress and refresh reloads met
         .first()
         .getByRole("button", { name: "Valider", exact: true }),
     ).toBeVisible();
+    const firstAdvice = page.locator(".ai-guidance").first();
+    if (await firstAdvice.count()) {
+      await expect(
+        firstAdvice.getByText("Avis de l’IA", { exact: true }),
+      ).toBeVisible();
+      await expect(
+        firstAdvice.getByText("Proposition", { exact: true }).first(),
+      ).toBeVisible();
+    }
   }
   await page.screenshot({ path: "/tmp/opencode/libris-validations.png" });
   await page.setViewportSize({ width: 390, height: 844 });

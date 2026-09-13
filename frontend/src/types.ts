@@ -12,6 +12,7 @@ export interface Stats {
   validated: number;
   flagged: number;
   errors: number;
+  refused: number;
   chapters: number;
   glossary: number;
 }

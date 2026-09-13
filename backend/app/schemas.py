@@ -199,6 +199,8 @@ class JobInput(StrictModel):
     instruction: str = Field(default="", max_length=8000)
     deep: bool = False
     force: bool = False
+    provider_id: str | None = None
+    refused_only: bool = False
 
 
 class AskInput(StrictModel):

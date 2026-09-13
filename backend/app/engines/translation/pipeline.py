@@ -56,7 +56,7 @@ async def translation_call(
 
     return await llm.complete(
         project_id=project.id,
-        provider_id=project.provider_id,
+        provider_id=job.options.get("provider_id") or project.provider_id,
         segment_id=segment.id,
         operation=operation,
         messages=built.messages,
@@ -106,11 +106,14 @@ def persist(
 
 async def translate(job: Job, owner: str) -> None:
     with SessionLocal() as db:
+        project = db.get(Project, job.project_id)
         query = select(Segment.id).where(Segment.project_id == job.project_id).order_by(Segment.position)
         if job.options.get("chapter_id"):
             query = query.where(Segment.chapter_id == job.options["chapter_id"])
         if job.options.get("segment_id"):
             query = query.where(Segment.id == job.options["segment_id"])
+        if job.options.get("refused_only"):
+            query = query.where(Segment.status == "refused", Segment.retained_source.is_(False))
         ids = list(db.scalars(query))
     for number, sid in enumerate(ids):
         job = checkpoint(
@@ -134,7 +137,7 @@ async def translate(job: Job, owner: str) -> None:
             built = await build_context(project.id, sid, "context_planner")
             plan = await llm.complete(
                 project_id=project.id,
-                provider_id=project.provider_id,
+                provider_id=job.options.get("provider_id") or project.provider_id,
                 segment_id=sid,
                 operation="context_planner",
                 messages=built.messages,
@@ -166,7 +169,7 @@ async def translate(job: Job, owner: str) -> None:
                     )
                     review = await llm.complete(
                         project_id=project.id,
-                        provider_id=project.provider_id,
+                        provider_id=job.options.get("provider_id") or project.provider_id,
                         segment_id=sid,
                         operation="translation_review",
                         messages=built.messages,
@@ -253,6 +256,36 @@ async def translate(job: Job, owner: str) -> None:
 
             if isinstance(exc, JobStopped):
                 raise
+            if isinstance(exc, ProviderContentRefused):
+                with SessionLocal() as db:
+                    current_job = fence(db, job.id, owner)
+                    current = db.get(Segment, sid)
+                    if current and not current.human:
+                        current.status, current.error = "refused", str(exc)[:1500]
+                    db.execute(
+                        delete(Issue).where(Issue.segment_id == sid, Issue.code == "content_refusal")
+                    )
+                    db.add(
+                        Issue(
+                            project_id=job.project_id,
+                            segment_id=sid,
+                            severity="error",
+                            code="content_refusal",
+                            message=(
+                                "Traduction refusée deux fois par le provider. "
+                                "Passage ignoré ; reprise ciblée avec un autre provider disponible."
+                            ),
+                        )
+                    )
+                    current_job.checkpoint = {
+                        **current_job.checkpoint,
+                        "finished_ids": list(
+                            dict.fromkeys([*current_job.checkpoint.get("finished_ids", []), sid])
+                        ),
+                    }
+                    db.commit()
+                finish_segment(job.id, owner, sid)
+                continue
             with SessionLocal() as db:
                 fence(db, job.id, owner)
                 segment = db.get(Segment, sid)
@@ -268,7 +301,11 @@ async def translate(job: Job, owner: str) -> None:
                 segment.error = str(exc)[:1500]
                 db.commit()
             raise
-    if project.quality in {"high", "maximum"} and not job.options.get("segment_id"):
+    if (
+        project.quality in {"high", "maximum"}
+        and not job.options.get("segment_id")
+        and not job.options.get("refused_only")
+    ):
         await consistency(job, owner)
 
 
@@ -341,7 +378,7 @@ async def consistency(job: Job, owner: str) -> None:
             system, _ = load_prompt("consistency_check", project.source_language, project.target_language)
             review = await llm.complete(
                 project_id=project.id,
-                provider_id=project.provider_id,
+                provider_id=job.options.get("provider_id") or project.provider_id,
                 operation="consistency_check",
                 messages=[
                     {"role": "system", "content": system},

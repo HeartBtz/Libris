@@ -11,7 +11,7 @@ from app.db import SessionLocal
 from app.engines.translation.versions import save_version
 from app.jobs.queue import JobStopped, claim, enqueue, fence
 from app.jobs.worker import execute
-from app.models import Job, Project, RequestLog, Segment, TranslationVersion
+from app.models import Job, Project, Provider, RequestLog, Segment, TranslationVersion
 from app.providers.llm import llm
 from app.schemas import BookBible, BookOverview, ChapterAnalysis, ReviewResult, TranslationResult
 
@@ -188,3 +188,40 @@ async def test_schema_fallback_only_for_capability_error(seeded, monkeypatch):
     )
     assert result.summary == "fine"
     assert len(calls) == 2 and calls[-1]["response_format"]["type"] == "json_object"
+
+
+@respx.mock
+async def test_refused_only_job_uses_override_provider_without_touching_other_passages(seeded):
+    pid = seeded[0]
+    with SessionLocal() as db:
+        target = db.scalar(
+            select(Segment).where(Segment.project_id == pid, Segment.source.contains("Chapter"))
+        )
+        target.status = "refused"
+        alternate = Provider(
+            name="Uncensored recovery",
+            base_url="https://uncensored.test/v1",
+            model="recovery-model",
+            capabilities={"supports_json_schema": True},
+            context_window=64000,
+        )
+        db.add(alternate)
+        db.commit()
+        alternate_id, target_id = alternate.id, target.id
+    route = respx.post("https://uncensored.test/v1/chat/completions").mock(side_effect=mock_completion)
+
+    job = await run_job(
+        pid,
+        "translate",
+        refused_only=True,
+        provider_id=alternate_id,
+        force=True,
+    )
+
+    with SessionLocal() as db:
+        translated = list(db.scalars(select(Segment).where(Segment.project_id == pid, Segment.translation != "")))
+        request = db.scalar(select(RequestLog).where(RequestLog.segment_id == target_id))
+        assert job.status == "completed"
+        assert [segment.id for segment in translated] == [target_id]
+        assert request.provider_id == alternate_id
+    assert route.call_count == 1

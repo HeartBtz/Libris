@@ -35,13 +35,14 @@ router = APIRouter(prefix="/api/projects")
 
 
 def stats(db, project: Project) -> dict:
-    total, done, validated, flagged, errors = db.execute(
+    total, done, validated, flagged, errors, refused = db.execute(
         select(
             func.count(Segment.id),
             func.count(Segment.id).filter(Segment.translation != "", Segment.retained_source.is_(False)),
             func.count(Segment.id).filter(Segment.validated.is_(True)),
             func.count(Segment.id).filter(Segment.status == "check"),
             func.count(Segment.id).filter(Segment.status == "error"),
+            func.count(Segment.id).filter(Segment.status == "refused"),
         ).where(Segment.project_id == project.id)
     ).one()
     return {
@@ -63,6 +64,7 @@ def stats(db, project: Project) -> dict:
         "validated": validated,
         "flagged": flagged,
         "errors": errors,
+        "refused": refused,
         "chapters": db.scalar(
             select(func.count()).select_from(Chapter).where(Chapter.project_id == project.id)
         ),
@@ -241,8 +243,12 @@ def start_job(project_id: str, body: JobInput, user: CurrentUser, db: DB):
                     db.add(prior)
                     db.commit()
                 return {**row(prior), "message": "Analyse déjà terminée ; aucun nouvel appel au modèle."}
-    if not project.provider_id and body.operation != "sync_memory":
+    if not (body.provider_id or project.provider_id) and body.operation != "sync_memory":
         raise HTTPException(422, "Configurez un provider LLM pour ce projet.")
+    if body.provider_id and not db.get(Provider, body.provider_id):
+        raise HTTPException(404, "Provider de reprise introuvable.")
+    if body.refused_only and body.operation != "translate":
+        raise HTTPException(422, "Le filtre des refus est réservé à la traduction.")
     if body.operation == "translate" and not project.bible:
         raise HTTPException(409, "Lancez l’analyse du livre avant sa traduction.")
     if body.chapter_id:

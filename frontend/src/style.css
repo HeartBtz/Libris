@@ -955,6 +955,41 @@ pre {
   display: grid;
   gap: 1.5rem;
 }
+.refusal-recovery {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 380px);
+  gap: 2rem;
+  margin-bottom: 2rem;
+  padding: 1.25rem;
+  border: 1px solid color-mix(in srgb, var(--danger) 55%, var(--line));
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--danger) 7%, var(--surface));
+}
+.refusal-recovery h3 {
+  margin: 0 0 0.6rem;
+  color: var(--danger);
+  font-size: 1.1rem;
+}
+.refusal-recovery details {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+.refusal-recovery ol {
+  max-height: 180px;
+  overflow: auto;
+  color: var(--muted);
+}
+.refusal-recovery-action {
+  padding: 1rem;
+  border-radius: 12px;
+  background: var(--input);
+}
+.refusal-recovery-action label {
+  margin-bottom: 0.8rem;
+}
+.refusal-recovery-action button {
+  width: 100%;
+}
 .validation-item {
   overflow: clip;
   border: 1px solid var(--line);
@@ -996,6 +1031,90 @@ pre {
 }
 .validation-item .segment-row {
   border-bottom: 0;
+}
+.ai-guidance {
+  display: grid;
+  grid-template-columns: 190px minmax(0, 1fr);
+  gap: 1.25rem;
+  padding: 1.15rem 1.25rem;
+  border-bottom: 1px solid var(--line);
+  background: color-mix(in srgb, var(--accent-bg) 54%, var(--surface));
+}
+.ai-guidance-title {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.7rem;
+}
+.ai-guidance-title img {
+  width: 34px;
+  height: 34px;
+  flex: 0 0 auto;
+}
+.ai-guidance-title strong,
+.ai-doubt strong,
+.ai-suggestion-label strong {
+  display: block;
+  color: var(--text);
+  font-size: 0.78rem;
+  letter-spacing: 0.04em;
+}
+.ai-guidance-title small {
+  margin-top: 0.25rem;
+  line-height: 1.4;
+}
+.ai-guidance-list {
+  display: grid;
+  gap: 0.75rem;
+}
+.ai-guidance-list article {
+  padding: 0.8rem 0.9rem;
+  border: 1px solid color-mix(in srgb, var(--line) 78%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+}
+.ai-guidance-list p {
+  margin: 0.4rem 0 0;
+  color: var(--muted);
+  line-height: 1.55;
+}
+.ai-doubt {
+  border-left: 3px solid var(--coral) !important;
+}
+.ai-suggestion.error {
+  border-left: 3px solid var(--danger);
+}
+.ai-suggestion-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+.ai-suggestion-label span {
+  color: var(--accent);
+  font-size: 0.7rem;
+  text-transform: capitalize;
+}
+.ai-suggestion blockquote {
+  margin: 0.75rem 0 0;
+  padding: 0.7rem 0.8rem;
+  border-left: 2px solid var(--accent);
+  background: var(--input);
+  color: var(--text);
+  line-height: 1.55;
+}
+.ai-suggestion blockquote strong {
+  display: block;
+  margin-bottom: 0.3rem;
+  color: var(--accent);
+  font-size: 0.68rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.technical-guidance {
+  padding: 0.9rem 1.25rem;
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 0.8rem;
 }
 .validation-empty img {
   width: 76px;
@@ -1300,6 +1419,12 @@ hr {
   .validation-item > header {
     align-items: flex-start;
     flex-direction: column;
+  }
+  .ai-guidance {
+    grid-template-columns: 1fr;
+  }
+  .refusal-recovery {
+    grid-template-columns: 1fr;
   }
   .validation-count {
     min-width: 0;

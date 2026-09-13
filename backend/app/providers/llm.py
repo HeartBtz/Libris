@@ -361,6 +361,13 @@ class OpenAIProvider:
                 return parsed
             last_error = error
             if content_refused:
+                if operation in {
+                    "translation",
+                    "translation_review",
+                    "translation_revision",
+                    "polishing",
+                } and attempt < 2:
+                    continue
                 raise ProviderContentRefused(error)
             if authentication_required:
                 raise ProviderAuthenticationRequired(error)

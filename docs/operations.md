@@ -19,22 +19,25 @@ Cliquer **Analyser** sur un livre entièrement analysé est une opération sans 
 
 ## Arrêts et erreurs
 
-| Situation | État / suite |
-|---|---|
-| Pause volontaire | `paused`, reprise explicite uniquement |
-| Annulation | `cancelled`, résultats conservés ; reprise explicite possible |
-| Arrêt propre du worker | requête interrompue, travail remis en attente au checkpoint |
-| Arrêt brutal | récupération après expiration du bail de 60 s |
+| Situation                     | État / suite                                                                                                     |
+| ----------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| Pause volontaire              | `paused`, reprise explicite uniquement                                                                           |
+| Annulation                    | `cancelled`, résultats conservés ; reprise explicite possible                                                    |
+| Arrêt propre du worker        | requête interrompue, travail remis en attente au checkpoint                                                      |
+| Arrêt brutal                  | récupération après expiration du bail de 60 s                                                                    |
 | Réseau, timeout, HTTP 429/5xx | `waiting`, nouvelle tentative planifiée, délai progressif de 30 s à 15 min ; `Retry-After` respecté jusqu’à 24 h |
-| Authentification invalide | `blocked`, reconnexion et reprise nécessaires |
-| Refus de contenu | `blocked` / `content_refusal`, intervention humaine et suivi du passage |
-| JSON ou structure invalide | retries bornés, puis erreur localisée |
+| Authentification invalide     | `blocked`, reconnexion et reprise nécessaires                                                                    |
+| Refus pendant l’analyse       | `blocked` / `content_refusal`, intervention humaine nécessaire                                                   |
+| Refus pendant la traduction   | deuxième essai, puis passage marqué `refused` et poursuite du livre                                              |
+| JSON ou structure invalide    | retries bornés, puis erreur localisée                                                                            |
 
 Un contrôle de bail toutes les deux secondes détecte les pauses et annulations. Les écritures sont protégées par la révision du passage et le détenteur du bail. Un résultat tardif ne remplace pas une correction humaine ou un état annulé. Les étapes initiale, critique, révision et synthèse ont leurs checkpoints.
 
 ## Refus et absence de trous silencieux
 
-Les refus explicites du provider, les filtres de contenu et les réponses contenant un refus à la place d’un résultat sont distingués des pannes. Le texte original est toujours conservé dans le projet. Un refus n’est pas comptabilisé comme une analyse ou une traduction réussie.
+Les refus explicites du provider, les filtres de contenu et les réponses contenant un refus à la place d’un résultat sont distingués des pannes. Le texte original est toujours conservé dans le projet. Pour une traduction, Libris effectue exactement deux tentatives, marque ensuite le passage comme refusé et continue avec le passage suivant. Un refus n’est pas comptabilisé comme une traduction réussie.
+
+L’onglet **Validations** regroupe les passages refusés. Une reprise ciblée permet de choisir un autre provider, notamment un modèle non censuré, et de retraduire uniquement ces passages. Le provider principal du livre n’est pas modifié. Chaque nouvelle reprise dispose à nouveau de deux tentatives par passage et laisse les autres traductions intactes.
 
 Résolutions dans le workspace :
 

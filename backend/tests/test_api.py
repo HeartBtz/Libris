@@ -3,7 +3,9 @@ import zipfile
 
 from fastapi.testclient import TestClient
 
+from app.db import SessionLocal
 from app.main import app
+from app.models import Provider, RequestLog
 
 
 def logged_client():
@@ -79,6 +81,44 @@ def test_csrf_origin_rejected():
             json={"username": "admin", "password": "test-password-123456789"},
         )
         assert result.status_code == 403
+
+
+def test_model_statistics_aggregate_registered_models(seeded):
+    pid, _, provider_id = seeded
+    with SessionLocal() as db:
+        db.add(
+            RequestLog(
+                project_id=pid,
+                provider_id=provider_id,
+                operation="translation",
+                model="test-model",
+                fingerprint="test-fingerprint",
+                parameters={},
+                messages=[],
+                prompt_tokens=120,
+                completion_tokens=80,
+            )
+        )
+        db.add(Provider(name="Idle", base_url="https://idle.test", model="idle-model"))
+        db.commit()
+
+    with TestClient(app) as client:
+        login = client.post(
+            "/api/auth/login", json={"username": "tester", "password": "test-password-123456789"}
+        )
+        assert login.status_code == 200, login.text
+        response = client.get("/api/statistics/models")
+
+    assert response.status_code == 200, response.text
+    models = {item["model"]: item for item in response.json()}
+    assert models["test-model"] == {
+        "model": "test-model",
+        "requests": 1,
+        "input_tokens": 120,
+        "output_tokens": 80,
+        "total_tokens": 200,
+    }
+    assert models["idle-model"]["total_tokens"] == 0
 
 
 def test_export_reimport_restores_translations(book_bytes):

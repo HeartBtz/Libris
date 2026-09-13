@@ -105,8 +105,20 @@ def project_progress(db, project: Project, stats: dict) -> dict:
         review_done_ids.update(candidate_checkpoint.get("final_review_done", []))
         for sid, value in candidate_checkpoint.get("final_review_outcomes", {}).items():
             outcomes.setdefault(sid, value)
+    if review_targets:
+        review_done_ids.intersection_update(review_targets)
     review_done = len(review_done_ids) or stats["reviewed_segments"]
     review_total = len(review_targets) or stats["review_total"]
+    active_review = bool(
+        active_job
+        and (
+            checkpoint.get("step") in {"final_review", "critique_acceptance"}
+            or active_job.operation in {"review", "consistency", "resolve_validations", "accept_critiques"}
+        )
+        and checkpoint.get("total")
+    )
+    review_stage_done = int(checkpoint.get("current", 0)) if active_review else review_done
+    review_stage_total = int(checkpoint["total"]) if active_review else review_total
     export_ready = bool(
         stats["total"]
         and stats["translated"] == stats["total"]
@@ -131,9 +143,9 @@ def project_progress(db, project: Project, stats: dict) -> dict:
         {
             "key": "review",
             "label": "Relecture",
-            "done": review_done,
-            "total": review_total,
-            "percent": _percent(review_done, review_total),
+            "done": review_stage_done,
+            "total": review_stage_total,
+            "percent": _percent(review_stage_done, review_stage_total),
         },
         {
             "key": "export",
@@ -150,7 +162,7 @@ def project_progress(db, project: Project, stats: dict) -> dict:
         active = "analysis"
     elif active_job and (
         step == "final_review"
-        or active_job.operation in {"review", "consistency", "resolve_validations"}
+        or active_job.operation in {"review", "consistency", "resolve_validations", "accept_critiques"}
     ):
         active = "review"
     elif active_job and active_job.operation == "translate" and (
@@ -166,6 +178,8 @@ def project_progress(db, project: Project, stats: dict) -> dict:
     else:
         active = "export"
     current = next(stage for stage in stages if stage["key"] == active)
+    provider_id = job.provider_id if job else project.provider_id
+    model = db.scalar(select(Provider.model).where(Provider.id == provider_id)) if provider_id else None
     statuses = {
         sid: (status, human, validated)
         for sid, status, human, validated in db.execute(
@@ -201,6 +215,7 @@ def project_progress(db, project: Project, stats: dict) -> dict:
         "state": job.status if job else project.status,
         "operation": job.operation if job else None,
         "job_id": job.id if job else None,
+        "model": model,
         "current": current,
         "stages": stages,
         "review": review,

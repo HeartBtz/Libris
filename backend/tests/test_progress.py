@@ -1,9 +1,11 @@
+import time
+
 from sqlalchemy import select
 
 from app.api.projects import project_view
 from app.db import SessionLocal
-from app.jobs.queue import enqueue
-from app.models import Chapter, Project, Segment
+from app.jobs.queue import checkpoint, enqueue
+from app.models import Chapter, Job, Project, Provider, Segment
 
 
 def test_canonical_progress_tracks_active_job_and_review_outcomes(seeded):
@@ -25,9 +27,10 @@ def test_canonical_progress_tracks_active_job_and_review_outcomes(seeded):
         job.status = "reviewing"
         job.checkpoint = {
             "step": "final_review",
+            "current": 2,
             "total": len(targets),
             "final_review_targets": targets,
-            "final_review_done": targets[:2],
+            "final_review_done": [*targets[:2], "obsolete-segment"],
             "final_review_outcomes": {
                 targets[0]: {"outcome": "resolved", "revised": True},
                 targets[1]: {"outcome": "failed", "revised": False},
@@ -62,6 +65,21 @@ def test_canonical_progress_tracks_active_job_and_review_outcomes(seeded):
         assert cumulative["protected"] == 1
 
 
+def test_active_review_bar_uses_the_current_job_checkpoint(seeded):
+    pid = seeded[0]
+    with SessionLocal() as db:
+        project = db.get(Project, pid)
+        project.status = "reviewing"
+        job = enqueue(db, project, "resolve_validations", {})
+        job.status = "reviewing"
+        job.checkpoint = {"step": "final_review", "current": 15, "total": 38}
+        db.flush()
+
+        progress = project_view(db, project)["progress"]
+        assert progress["current"]["done"] == 15
+        assert progress["current"]["total"] == 38
+        assert progress["current"]["percent"] == 39
+
 def test_progress_does_not_regress_to_analysis_after_translation_started(seeded):
     pid = seeded[0]
     with SessionLocal() as db:
@@ -73,3 +91,39 @@ def test_progress_does_not_regress_to_analysis_after_translation_started(seeded)
         db.flush()
         progress = project_view(db, project)["progress"]
         assert progress["active_stage"] == "translation"
+
+
+def test_checkpoint_syncs_translation_job_status_to_final_review(seeded):
+    pid = seeded[0]
+    owner = "test-worker"
+    with SessionLocal() as db:
+        project = db.get(Project, pid)
+        job = enqueue(db, project, "translate", {})
+        job.status = "translating"
+        job.lease_owner = owner
+        job.lease_until = time.time() + 60
+        job_id = job.id
+        db.commit()
+
+    checkpoint(job_id, owner, {"step": "final_review", "current": 1, "total": 2})
+
+    with SessionLocal() as db:
+        assert db.get(Job, job_id).status == "reviewing"
+        assert db.get(Project, pid).status == "reviewing"
+
+
+def test_progress_exposes_the_active_job_model(seeded):
+    pid = seeded[0]
+    with SessionLocal() as db:
+        project = db.get(Project, pid)
+        primary = Provider(name="Primary", model="book-model", base_url="https://example.test")
+        recovery = Provider(name="Recovery", model="recovery-model", base_url="https://example.test")
+        db.add_all([primary, recovery])
+        db.flush()
+        project.provider_id = primary.id
+        job = enqueue(db, project, "translate", {"provider_id": recovery.id})
+        job.provider_id = recovery.id
+        job.status = "translating"
+        db.flush()
+
+        assert project_view(db, project)["progress"]["model"] == "recovery-model"

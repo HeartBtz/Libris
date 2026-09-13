@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, download, labels, number, send } from "../api";
+import { api, date, download, labels, number, send } from "../api";
 import { registerTranslations, useI18n } from "../i18n";
 import type { Issue, LLMRequest, Project, Provider, Run, Term } from "../types";
 import { RequestDetails } from "./Editor";
@@ -18,6 +18,7 @@ registerTranslations(translations);
 registerTranslations({
   "Configuration enregistrée.": "Configuration saved.",
   Cache: "Cache",
+  Heure: "Time",
 });
 
 export function ProjectSettings({
@@ -773,6 +774,7 @@ export function Observability({
         <table>
           <thead>
             <tr>
+              <th>{t("Heure")}</th>
               <th>{t("Opération")}</th>
               <th>{t("Modèle")}</th>
               <th>{t("État")}</th>
@@ -785,6 +787,7 @@ export function Observability({
           <tbody>
             {requests.map((r) => (
               <tr key={r.id}>
+                <td data-label={t("Heure")}>{date(r.created_at)}</td>
                 <td>
                   <button
                     className="link"

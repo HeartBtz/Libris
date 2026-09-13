@@ -65,6 +65,9 @@ const translations: Record<string, string> = {
   Proposition: "Proposal",
   "Application…": "Applying…",
   "Accepter cette proposition": "Accept this proposal",
+  "En attente de l’IA": "Queued for AI",
+  "Tout accepter": "Accept all",
+  "Acceptation en file…": "Queuing acceptances…",
   "Refus…": "Rejecting…",
   "Refuser cette proposition": "Reject this proposal",
   "Ce passage a été signalé par un contrôle technique. Le détail est affiché ci-dessus ; aucune proposition IA n’a été enregistrée pour ce signalement.":
@@ -98,6 +101,7 @@ export function ValidationPanel({
   const [reloading, setReloading] = useState(false);
   const [reload, setReload] = useState(0);
   const [accepting, setAccepting] = useState("");
+  const [acceptingAll, setAcceptingAll] = useState(false);
   const [finalReview, setFinalReview] = useState({
     automatic: false,
     web_enabled: false,
@@ -217,6 +221,23 @@ export function ValidationPanel({
           </p>
         </div>
         <div className="validation-heading-actions">
+          <button
+            className="primary"
+            disabled={acceptingAll || !segments.some((segment) => segment.critique.some((item) => !item.queued))}
+            onClick={() => {
+              setAcceptingAll(true);
+              void run(async () => {
+                try {
+                  await send(`/projects/${project.id}/critiques/accept-all`);
+                  refreshAfterAction();
+                } finally {
+                  setAcceptingAll(false);
+                }
+              });
+            }}
+          >
+            {acceptingAll ? t("Acceptation en file…") : t("Tout accepter")}
+          </button>
           <button disabled={reloading} onClick={refreshQueue}>
             {reloading ? t("Actualisation…") : t("Actualiser la file")}
           </button>
@@ -483,7 +504,7 @@ export function ValidationPanel({
                           <div className="ai-suggestion-actions">
                             <button
                               className="accept-ai-suggestion"
-                              disabled={accepting.endsWith(
+                              disabled={critique.queued || accepting.endsWith(
                                 `${segment.id}-${index}`,
                               )}
                               onClick={() => {
@@ -504,6 +525,8 @@ export function ValidationPanel({
                             >
                               {accepting === `accept-${segment.id}-${index}`
                                 ? t("Application…")
+                                : critique.queued
+                                  ? t("En attente de l’IA")
                                 : t("Accepter cette proposition")}
                             </button>
                             <button

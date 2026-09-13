@@ -261,7 +261,7 @@ async def translate(job: Job, owner: str) -> None:
                 db.execute(delete(Issue).where(Issue.segment_id == sid))
                 for issue in findings:
                     db.add(Issue(project_id=project.id, segment_id=sid, **issue))
-                segment.status = "check" if findings or segment.uncertainties or segment.critique else "ok"
+                segment.status = "check" if findings or segment.critique else "ok"
                 segment.stage = "done"
                 segment.error = ""
                 current_job.checkpoint = {

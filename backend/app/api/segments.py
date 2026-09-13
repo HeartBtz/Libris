@@ -5,22 +5,60 @@ from sqlalchemy import Text, cast, select
 
 from app.api.common import row
 from app.engines.context.builder import build_context
-from app.engines.quality.checks import validate_translation
 from app.engines.translation.versions import save_version
-from app.jobs.queue import HELD, emit
+from app.jobs.queue import HELD, emit, enqueue
 from app.models import Issue, Job, RequestLog, Segment, TranslationVersion
-from app.providers.llm import LLMError, llm
+from app.providers.llm import llm
 from app.schemas import (
     AcceptCritiqueInput,
     AskInput,
     AskResult,
     EditInput,
     InstructionInput,
-    TranslationResult,
 )
 from app.security import DB, CurrentUser, access
 
 router = APIRouter(prefix="/api")
+
+
+def explicit_replacement(target: str, suggestion: str) -> str | None:
+    match = re.search(
+        r"(?:remplacer|corriger)\s+[«\"](?P<old>.+?)[»\"]\s+(?:par|avec)\s+[«\"](?P<new>.+?)[»\"]",
+        suggestion,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    if not match:
+        return None
+    old, new = match["old"].strip(), match["new"].strip()
+    if not old or old not in target:
+        return None
+    return target.replace(old, new, 1)
+
+
+def queue_critique(db, project, segment, critique, author_id):
+    item = {
+        "segment_id": segment.id,
+        "unit_id": str(critique.get("unit_id", "")),
+        "suggestion": str(critique.get("suggestion", "")),
+        "author_id": author_id,
+    }
+    active = db.scalar(
+        select(Job)
+        .where(Job.project_id == project.id, Job.status.in_(HELD))
+        .order_by(Job.created_at.desc())
+        .limit(1)
+    )
+    if active and active.operation != "accept_critiques":
+        raise HTTPException(409, "Un autre travail occupe ce livre ; réessayez une fois terminé.")
+    job = active or enqueue(db, project, "accept_critiques", {})
+    queued = list(job.options.get("critique_acceptances", []))
+    if item not in queued:
+        queued.append(item)
+        job.options = {**job.options, "critique_acceptances": queued}
+    segment.critique = [
+        {**value, "queued": True} if value == critique else value for value in segment.critique
+    ]
+    return job
 
 
 def get_segment(db, sid, user, write=False):
@@ -105,6 +143,11 @@ async def accept_critique(sid: str, index: int, body: AcceptCritiqueInput, user:
     suggestion = str(critique.get("suggestion", "")).strip()
     if not suggestion:
         raise HTTPException(409, "Cette remarque IA ne contient pas de remplacement applicable.")
+    explicit_text = bool(
+        re.match(r"^(?:écrire(?:\s+(?:plutôt|par exemple))?|proposition)\s*:\s*", suggestion, re.I)
+        or (suggestion.startswith("«") and suggestion.endswith("»"))
+        or (len(suggestion) >= 2 and suggestion[0] == suggestion[-1] in {'"', "'"})
+    )
     suggestion = re.sub(
         r"^(?:écrire(?:\s+(?:plutôt|par exemple))?|proposition)\s*:\s*",
         "",
@@ -120,6 +163,10 @@ async def accept_critique(sid: str, index: int, body: AcceptCritiqueInput, user:
     target = next((unit for unit in units if unit["id"] == unit_id), None)
     if not target:
         raise HTTPException(409, "L’unité visée par la proposition n’existe plus.")
+    replacement = explicit_replacement(target["text"], suggestion)
+    if replacement:
+        suggestion = replacement
+        explicit_text = True
     current_codes = re.findall(r"⟦[^⟧]+⟧", target["text"])
     suggestion_codes = re.findall(r"⟦[^⟧]+⟧", suggestion)
     if current_codes and not suggestion_codes:
@@ -132,37 +179,11 @@ async def accept_critique(sid: str, index: int, body: AcceptCritiqueInput, user:
             suggestion = f"{current_codes[0]}{suggestion}{current_codes[1]}"
         else:
             suggestion_codes = []
-    if re.findall(r"⟦[^⟧]+⟧", suggestion) != current_codes:
-        source = next(unit for unit in segment.units if unit["id"] == unit_id)
-        built = await build_context(
-            project.id,
-            sid,
-            "translation_revision",
-            extra={
-                "TARGET_TEXT": [{"id": unit_id, "text": source["text"]}],
-                "CURRENT_TRANSLATION": [target],
-                "REVIEW": [critique],
-                "APPLICATION_SCOPE": "Apply this accepted editorial advice to this one unit. Return its complete corrected text with every immutable marker. Never insert the advice itself as prose.",
-            },
-        )
-        try:
-            result = await llm.complete(
-                project_id=project.id,
-                provider_id=project.provider_id,
-                segment_id=sid,
-                operation="translation_revision",
-                messages=built.messages,
-                context=built.inspector,
-                response_model=TranslationResult,
-                validator=lambda value: validate_translation([source], value),
-                temperature=0.1,
-            )
-            suggestion = result.units[0].text
-        except (LLMError, ValueError):
-            raise HTTPException(
-                422,
-                "La correction structurée n’a pas pu être vérifiée. Le texte est conservé ; vous pouvez réessayer.",
-            ) from None
+    if re.findall(r"⟦[^⟧]+⟧", suggestion) != current_codes or not explicit_text:
+        # Provider calls run in the worker so several proposals can be queued without blocking.
+        job = queue_critique(db, project, segment, critique, user.id)
+        db.commit()
+        return {"queued": True, "job_id": job.id}
     target["text"] = suggestion
     if not save_version(
         db,
@@ -181,11 +202,25 @@ async def accept_critique(sid: str, index: int, body: AcceptCritiqueInput, user:
     unresolved_issue = db.scalar(
         select(Issue.id).where(Issue.segment_id == sid, Issue.resolved.is_(False)).limit(1)
     )
-    segment.status = "check" if segment.critique or segment.uncertainties or unresolved_issue else "ok"
+    segment.status = "check" if segment.critique or unresolved_issue else "ok"
     emit(db, segment.project_id, segment_id=sid, status="ai_suggestion_accepted")
     db.commit()
     db.refresh(segment)
     return row(segment)
+
+
+@router.post("/projects/{project_id}/critiques/accept-all")
+def accept_all_critiques(project_id: str, user: CurrentUser, db: DB):
+    project = access(db, project_id, user, write=True)
+    queued = 0
+    for segment in db.scalars(select(Segment).where(Segment.project_id == project.id, Segment.status == "check")):
+        for critique in segment.critique:
+            if critique.get("queued") or not critique.get("suggestion"):
+                continue
+            queue_critique(db, project, segment, critique, user.id)
+            queued += 1
+    db.commit()
+    return {"queued": queued}
 
 
 @router.post("/segments/{sid}/critique/{index}/reject")
@@ -214,7 +249,7 @@ def reject_critique(sid: str, index: int, body: AcceptCritiqueInput, user: Curre
     unresolved_issue = db.scalar(
         select(Issue.id).where(Issue.segment_id == sid, Issue.resolved.is_(False)).limit(1)
     )
-    segment.status = "check" if segment.critique or segment.uncertainties or unresolved_issue else "ok"
+    segment.status = "check" if segment.critique or unresolved_issue else "ok"
     emit(db, segment.project_id, segment_id=sid, status="ai_suggestion_rejected")
     db.commit()
     db.refresh(segment)

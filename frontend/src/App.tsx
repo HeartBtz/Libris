@@ -5,6 +5,7 @@ import { Settings } from "./features/Settings";
 import { Workspace } from "./features/Workspace";
 import { BatchActions } from "./features/BatchActions";
 import { BookProgress } from "./features/BookProgress";
+import { Statistics } from "./features/Statistics";
 import { locales, registerTranslations, useI18n } from "./i18n";
 
 const translations: Record<string, string> = {
@@ -44,6 +45,7 @@ const translations: Record<string, string> = {
   "Langues": "Languages",
   "Avancement": "Progress",
   "Statut": "Status",
+  "Modèle": "Model",
   "Modifié": "Modified",
   "Sélectionner {title}": "Select {title}",
   "Livre": "Book",
@@ -100,7 +102,7 @@ export function App() {
     localStorage.setItem("theme", theme);
   }, [theme]);
   useEffect(() => {
-    document.title = `${route === "settings" ? t("app.settings") : route === "library" ? t("app.library") : t("app.project")} · Libris`;
+    document.title = `${route === "settings" ? t("app.settings") : route === "statistics" ? t("app.statistics") : route === "library" ? t("app.library") : t("app.project")} · Libris`;
   }, [route, t]);
   if (checking)
     return (
@@ -131,6 +133,14 @@ export function App() {
                   aria-current={route === "settings" ? "page" : undefined}
                 >
                   {t("app.settings")}
+                </a>
+              )}
+              {user.admin && (
+                <a
+                  href="#statistics"
+                  aria-current={route === "statistics" ? "page" : undefined}
+                >
+                  {t("app.statistics")}
                 </a>
               )}
               <span className="muted">{user.username}</span>
@@ -180,6 +190,8 @@ export function App() {
         <Login run={run} onLogin={setUser} />
       ) : route === "settings" && user.admin ? (
         <Settings run={run} />
+      ) : route === "statistics" && user.admin ? (
+        <Statistics run={run} />
       ) : route.startsWith("project/") ? (
         <Workspace key={route} id={route.split("/")[1]} user={user} run={run} />
       ) : (
@@ -616,6 +628,7 @@ function Library({ run, user }: { run: Run; user: User }) {
                 <th>{t("Langues")}</th>
                 <th>{t("Avancement")}</th>
                 <th>{t("Statut")}</th>
+                <th>{t("Modèle")}</th>
                 <th>{t("Modifié")}</th>
                 <th />
               </tr>
@@ -668,6 +681,9 @@ function Library({ run, user }: { run: Run; user: User }) {
                     >
                       {p.archived_at ? t("Archivé") : labels[p.status] || p.status}
                     </span>
+                  </td>
+                  <td className="muted" data-label={t("Modèle")}>
+                    {p.progress?.model || "—"}
                   </td>
                   <td className="muted" data-label={t("Modifié")}>
                     {date(p.updated_at)}

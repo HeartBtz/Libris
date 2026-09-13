@@ -62,6 +62,7 @@ export function projectProgress(project: Project): ProjectProgress {
     state: project.status,
     operation: null,
     job_id: null,
+    model: null,
     current: stages.find((stage) => stage.key === active_stage)!,
     stages,
     review: {

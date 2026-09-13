@@ -4,11 +4,11 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
-from app.api import segments as segment_api
 from app.db import SessionLocal
-from app.engines.translation import pipeline, repair
+from app.engines.translation import critique_queue, pipeline, repair
 from app.jobs.execution import execution
 from app.jobs.queue import claim, enqueue
+from app.jobs.worker import execute
 from app.main import app
 from app.models import Job, Project, Provider, Segment
 from app.providers.llm import ProviderUnavailable
@@ -146,7 +146,7 @@ def test_recovery_provider_is_replaced_before_pipeline_continues(seeded):
 
 
 @pytest.mark.parametrize("valid", [True, False])
-def test_accept_advice_repairs_internal_markers(seeded, monkeypatch, valid):
+async def test_accept_advice_repairs_internal_markers(seeded, monkeypatch, valid):
     with SessionLocal() as db:
         s = db.scalar(select(Segment).where(Segment.project_id == seeded[0]))
         s.units = [{"id": "u1", "text": "The ⟦t0⟧light⟦/t0⟧ shines."}]
@@ -173,16 +173,17 @@ def test_accept_advice_repairs_internal_markers(seeded, monkeypatch, valid):
         kwargs["validator"](result)
         return result
 
-    monkeypatch.setattr(segment_api, "build_context", context)
-    monkeypatch.setattr(segment_api.llm, "complete", answer)
+    monkeypatch.setattr(critique_queue, "build_context", context)
+    monkeypatch.setattr(critique_queue.llm, "complete", answer)
     with TestClient(app) as client:
         client.post("/api/auth/login", json={"username": "tester", "password": "test-password-123456789"})
         response = client.post(f"/api/segments/{sid}/critique/0/accept", json={"revision": 0})
-        if not valid:
-            assert response.status_code == 422
-            with SessionLocal() as db:
-                assert db.get(Segment, sid).translation == "La ⟦t0⟧lumière⟦/t0⟧ brille."
-            return
         assert response.status_code == 200, response.text
-        assert response.json()["translation"] == "Le ⟦t0⟧feu⟦/t0⟧ brille."
-        assert response.json()["human"]
+        assert response.json()["queued"]
+    await execute(*claim())
+    with SessionLocal() as db:
+        saved = db.get(Segment, sid)
+        expected = "Le ⟦t0⟧feu⟦/t0⟧ brille." if valid else "La ⟦t0⟧lumière⟦/t0⟧ brille."
+        assert saved.translation == expected
+        assert saved.human is valid
+        assert bool(saved.critique) is not valid

@@ -56,6 +56,7 @@ export interface ProjectProgress {
   state: string;
   operation: string | null;
   job_id: string | null;
+  model: string | null;
   current: ProgressStage;
   stages: ProgressStage[];
   review: {
@@ -118,6 +119,7 @@ export interface Critique {
   severity: "warning" | "error";
   description: string;
   suggestion: string;
+  queued?: boolean;
 }
 export interface Segment {
   retained_source: boolean;

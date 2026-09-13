@@ -12,6 +12,7 @@ const translations: Record<string, string> = {
   "sections": "sections",
   "passages traduits": "segments translated",
   "examinés": "reviewed",
+  "propositions IA": "AI proposals",
   "à vérifier": "to review",
   "Livre prêt à exporter": "Book ready to export",
   "EPUB importé": "EPUB imported",
@@ -30,7 +31,9 @@ export function BookProgress({ project }: { project: Project }) {
       : stage.key === "translation"
         ? `${project.stats.translated}/${project.stats.total} ${t("passages traduits")}`
         : stage.key === "review"
-          ? `${progress.review.examined}/${progress.review.total} ${t("examinés")} · ${progress.review.remaining} ${t("à vérifier")}`
+          ? progress.operation === "accept_critiques" && progress.state !== "completed"
+            ? `${stage.done}/${stage.total} ${t("propositions IA")}`
+            : `${stage.done}/${stage.total} ${t("examinés")} · ${progress.review.remaining} ${t("à vérifier")}`
           : stage.key === "export"
             ? t("Livre prêt à exporter")
             : t("EPUB importé");

@@ -207,7 +207,7 @@ async def resolve_validations(job: Job, owner: str) -> None:
                 )
                 current.critique = [issue.model_dump() for issue in verdict.issues]
                 current.uncertainties = verdict.uncertainties
-                current.status = "check" if remaining or verdict.issues or verdict.uncertainties else "ok"
+                current.status = "check" if remaining or verdict.issues else "ok"
                 outcome = "resolved" if current.status == "ok" else "needs_human"
                 outcomes = dict(current_job.checkpoint.get("final_review_outcomes", {}))
                 outcomes[sid] = {

@@ -85,6 +85,10 @@ async def execute(job_id: str, owner: str) -> None:
             from app.engines.translation.final_review import resolve_validations
 
             await resolve_validations(job, owner)
+        elif job.operation == "accept_critiques":
+            from app.engines.translation.critique_queue import accept_queued_critiques
+
+            await accept_queued_critiques(job, owner)
         else:
             await sync_outbox(job.project_id)
         with SessionLocal() as db:
@@ -201,7 +205,7 @@ async def worker_slot(stopped: asyncio.Event, operations: tuple[str, ...] | None
 
 
 async def provider_dispatcher(stopped: asyncio.Event) -> None:
-    operations = ("analyze", "translate", "review", "consistency", "resolve_validations")
+    operations = ("analyze", "translate", "review", "consistency", "resolve_validations", "accept_critiques")
     running: set[asyncio.Task] = set()
     shutdown = asyncio.create_task(stopped.wait())
     try:

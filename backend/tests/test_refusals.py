@@ -8,13 +8,32 @@ from fastapi.testclient import TestClient
 from sqlalchemy import func, select
 
 from app.db import SessionLocal
+from app.engines.translation.critique_queue import matches_acceptance, validate_accepted_revision
 from app.jobs.queue import claim, enqueue
 from app.jobs.worker import execute
 from app.main import app
 from app.models import Issue, Job, Memory, Project, RequestLog, Segment
 from app.providers.llm import ProviderContentRefused, llm
 from app.providers.refusals import refusal_text
-from app.schemas import ChapterAnalysis
+from app.schemas import ChapterAnalysis, TranslationResult
+
+
+def test_queued_critique_matches_after_database_reload():
+    acceptance = {"unit_id": "unit-1", "suggestion": "Corriger ceci."}
+    reloaded = {"unit_id": "unit-1", "suggestion": "Corriger ceci.", "queued": True}
+
+    assert reloaded is not acceptance
+    assert matches_acceptance(reloaded, acceptance)
+
+
+def test_queued_critique_rejects_editorial_instruction_as_translation():
+    source = [{"id": "unit-1", "text": "⟦t0⟧Source text.⟦/t0⟧"}]
+    result = TranslationResult(
+        units=[{"id": "unit-1", "text": "⟦t0⟧Remplacer par « Texte corrigé. »⟦/t0⟧"}]
+    )
+
+    with pytest.raises(ValueError, match="consigne éditoriale"):
+        validate_accepted_revision(source, result)
 
 
 @respx.mock
@@ -147,6 +166,7 @@ def test_accepting_ai_critique_applies_protected_human_correction(seeded):
                 "suggestion": "Écrire : « Texte corrigé. »",
             }
         ]
+        segment.uncertainties = ["Information narrative non bloquante."]
         sid = segment.id
         db.commit()
 
@@ -159,6 +179,73 @@ def test_accepting_ai_critique_applies_protected_human_correction(seeded):
     assert saved["human"] and not saved["validated"] and saved["status"] == "ok"
     assert "Texte corrigé." in saved["translated_units"][0]["text"]
     assert saved["critique"] == []
+    assert saved["uncertainties"] == ["Information narrative non bloquante."]
+
+
+def test_accepting_explicit_replacement_preserves_epub_markers(seeded):
+    pid = seeded[0]
+    with SessionLocal() as db:
+        segment = next(
+            item
+            for item in db.scalars(select(Segment).where(Segment.project_id == pid).order_by(Segment.position))
+            if any("Silver Tower" in unit["text"] for unit in item.units)
+        )
+        source = next(unit for unit in segment.units if "Silver Tower" in unit["text"])
+        segment.translated_units = [{"id": source["id"], "text": source["text"]}]
+        segment.translation = segment.translated_units[0]["text"]
+        segment.status = "check"
+        segment.critique = [
+            {
+                "unit_id": source["id"],
+                "category": "grammar",
+                "severity": "warning",
+                "description": "A correction is available.",
+                "suggestion": "Remplacer « Silver Tower » par « Tour d'argent ».",
+            }
+        ]
+        sid = segment.id
+        db.commit()
+
+    with TestClient(app) as client:
+        client.post("/api/auth/login", json={"username": "tester", "password": "test-password-123456789"})
+        response = client.post(f"/api/segments/{sid}/critique/0/accept", json={"revision": 0})
+
+    assert response.status_code == 200, response.text
+    assert response.json()["translated_units"][0]["text"] == source["text"].replace(
+        "Silver Tower", "Tour d'argent"
+    )
+
+
+def test_accepting_ambiguous_critique_queues_ai_work(seeded):
+    pid = seeded[0]
+    with SessionLocal() as db:
+        segment = db.scalar(select(Segment).where(Segment.project_id == pid).order_by(Segment.position))
+        segment.translated_units = [{"id": unit["id"], "text": unit["text"]} for unit in segment.units]
+        segment.translation = "\n\n".join(unit["text"] for unit in segment.translated_units)
+        segment.status = "check"
+        segment.critique = [
+            {
+                "unit_id": segment.units[0]["id"],
+                "category": "style",
+                "severity": "warning",
+                "description": "A rewrite needs context.",
+                "suggestion": "Rendre cette formulation plus naturelle.",
+            }
+        ]
+        sid = segment.id
+        db.commit()
+
+    with TestClient(app) as client:
+        client.post("/api/auth/login", json={"username": "tester", "password": "test-password-123456789"})
+        response = client.post(f"/api/segments/{sid}/critique/0/accept", json={"revision": 0})
+
+    assert response.status_code == 200, response.text
+    assert response.json()["queued"] is True
+    with SessionLocal() as db:
+        job = db.scalar(select(Job).where(Job.project_id == pid))
+        assert job.operation == "accept_critiques"
+        assert job.options["critique_acceptances"][0]["segment_id"] == sid
+        assert db.get(Segment, sid).critique[0]["queued"] is True
 
 
 def test_rejecting_ai_critique_keeps_and_protects_current_translation(seeded):

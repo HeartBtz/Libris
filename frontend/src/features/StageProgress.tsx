@@ -16,6 +16,7 @@ const translations: Record<string, string> = {
   "passages traduits": "segments translated",
   "conservés en original.": "retained in the original.",
   "passages examinés": "segments reviewed",
+  "propositions IA traitées": "AI proposals processed",
   "résolus": "resolved",
   "à vérifier.": "to review.",
   "Génération et réception du fichier en cours…": "Generating and receiving the file…",
@@ -75,7 +76,9 @@ export function StageProgress({
             ? `${Number(_job.checkpoint.recovery_required) || 0} ${t("passage(s) doivent être récupérés avant la revue finale.").replace("segment(s)", Number(_job.checkpoint.recovery_required) === 1 ? "segment" : "segments")}`
             : `${project.stats.translated}/${project.stats.total} ${t("passages traduits")} · ${project.stats.retained_source} ${t("conservés en original.")}`
           : stage.key === "review"
-            ? `${progress.review.examined}/${progress.review.total} ${t("passages examinés")} · ${progress.review.resolved} ${t("résolus")} · ${progress.review.remaining} ${t("à vérifier.")}`
+            ? progress.operation === "accept_critiques" && progress.state !== "completed"
+              ? `${stage.done}/${stage.total} ${t("propositions IA traitées")}`
+              : `${stage.done}/${stage.total} ${t("passages examinés")} · ${progress.review.resolved} ${t("résolus")} · ${progress.review.remaining} ${t("à vérifier.")}`
             : exportState === "running"
               ? t("Génération et réception du fichier en cours…")
               : exportState === "done"

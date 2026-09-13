@@ -10,6 +10,15 @@ from app.models.common import uid
 RUNNING = ("analyzing", "translating", "reviewing", "syncing")
 ACTIVE = ("pending", "waiting", *RUNNING)
 HELD = (*ACTIVE, "paused", "blocked")
+STEP_STATUS = {
+    "chapter_analysis": "analyzing",
+    "book_bible": "analyzing",
+    "translation": "translating",
+    "recovery_required": "translating",
+    "final_review": "reviewing",
+    "consistency": "reviewing",
+    "critique_acceptance": "reviewing",
+}
 
 
 class JobStopped(Exception):
@@ -91,6 +100,7 @@ def claim(operations: tuple[str, ...] | None = None) -> tuple[str, str] | None:
             "consistency": "reviewing",
             "sync_memory": "syncing",
             "resolve_validations": "reviewing",
+            "accept_critiques": "reviewing",
         }[job.operation]
         result = db.execute(
             update(Job)
@@ -121,6 +131,10 @@ def checkpoint(job_id: str, owner: str, progress: dict | None = None) -> Job:
         job.lease_until = time.time() + 60
         if progress is not None:
             job.checkpoint = {**job.checkpoint, **progress}
+            state = STEP_STATUS.get(progress.get("step"))
+            if state and state != job.status:
+                job.status = state
+                db.get(Project, job.project_id).status = state
             emit(db, job.project_id, job_id=job.id, status=job.status, **progress)
         db.commit()
         return job

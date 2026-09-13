@@ -9,9 +9,35 @@ from sqlalchemy import func, select
 from app.api.common import row
 from app.db import SessionLocal
 from app.models import Event, Provider, RequestLog
-from app.security import DB, CurrentUser, access, current_user
+from app.security import Admin, DB, CurrentUser, access, current_user
 
 router = APIRouter(prefix="/api")
+
+
+@router.get("/statistics/models")
+def model_statistics(_admin: Admin, db: DB):
+    rows = db.execute(
+        select(
+            Provider.model,
+            func.count(RequestLog.id),
+            func.coalesce(func.sum(RequestLog.prompt_tokens), 0),
+            func.coalesce(func.sum(RequestLog.completion_tokens), 0),
+        )
+        .select_from(Provider)
+        .outerjoin(RequestLog, RequestLog.provider_id == Provider.id)
+        .group_by(Provider.model)
+        .order_by(Provider.model)
+    ).all()
+    return [
+        {
+            "model": model,
+            "requests": requests,
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
+            "total_tokens": input_tokens + output_tokens,
+        }
+        for model, requests, input_tokens, output_tokens in rows
+    ]
 
 
 @router.get("/projects/{pid}/metrics")

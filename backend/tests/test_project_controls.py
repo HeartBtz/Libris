@@ -60,21 +60,45 @@ def test_owner_can_confirm_delete_with_active_job(seeded):
         assert db.scalar(select(Job).where(Job.project_id == pid)) is None
 
 
-def test_owner_can_assign_series_archive_and_restore_project(seeded):
+def test_owner_can_assign_series_archive_and_restore_project(seeded, book_bytes):
     pid = seeded[0]
     with TestClient(app) as client:
         client.post("/api/auth/login", json={"username": "tester", "password": "test-password-123456789"})
+        second = client.post(
+            "/api/projects",
+            files={"file": ("second.epub", book_bytes, "application/epub+zip")},
+        ).json()
         configured = client.put(
             "/api/projects/batch/series",
-            json={"project_ids": [pid], "series_name": "Mushoku Tensei", "first_volume": 1},
+            json={
+                "project_ids": [pid, second["id"]],
+                "series_name": "Mushoku Tensei",
+                "first_volume": 3,
+                "mode": "sequential",
+            },
         )
         assert configured.status_code == 200
         assert configured.json()[0]["series_name"] == "Mushoku Tensei"
-        assert configured.json()[0]["volume_number"] == 1
+        assert [project["volume_number"] for project in configured.json()] == [3, 4]
+        renamed = client.put(
+            "/api/projects/batch/series",
+            json={
+                "project_ids": [pid, second["id"]],
+                "series_name": "Mushoku Tensei FR",
+                "mode": "preserve",
+            },
+        ).json()
+        assert [project["series_name"] for project in renamed] == ["Mushoku Tensei FR"] * 2
+        assert [project["volume_number"] for project in renamed] == [3, 4]
         assert client.put(
             "/api/projects/batch/series",
             json={"project_ids": [pid, pid], "series_name": "Duplicate", "first_volume": 1},
         ).status_code == 422
+        cleared = client.put(
+            "/api/projects/batch/series",
+            json={"project_ids": [second["id"]], "mode": "clear"},
+        ).json()
+        assert cleared[0]["series_name"] == "" and cleared[0]["volume_number"] is None
 
         archived = client.post(f"/api/projects/{pid}/archive")
         assert archived.status_code == 200 and archived.json()["archived_at"] is not None

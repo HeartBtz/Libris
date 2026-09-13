@@ -177,12 +177,18 @@ async def upload(file: UploadFile, user: CurrentUser, db: DB):
 def configure_series(body: SeriesBatchInput, user: CurrentUser, db: DB):
     if len(set(body.project_ids)) != len(body.project_ids):
         raise HTTPException(422, "Chaque livre doit apparaître une seule fois.")
-    if body.first_volume + len(body.project_ids) - 1 > 10000:
+    series_name = body.series_name.strip()
+    if body.mode != "clear" and not series_name:
+        raise HTTPException(422, "Le nom de série est requis.")
+    if body.mode == "sequential" and body.first_volume + len(body.project_ids) - 1 > 10000:
         raise HTTPException(422, "La numérotation dépasse le volume 10000.")
     projects = [access(db, project_id, user, write=True) for project_id in body.project_ids]
     for offset, project in enumerate(projects):
-        project.series_name = body.series_name
-        project.volume_number = body.first_volume + offset
+        project.series_name = "" if body.mode == "clear" else series_name
+        if body.mode == "sequential":
+            project.volume_number = body.first_volume + offset
+        elif body.mode == "clear":
+            project.volume_number = None
     db.commit()
     return [project_view(db, project) for project in projects]
 

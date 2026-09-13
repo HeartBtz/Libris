@@ -51,7 +51,9 @@ export function BatchActions({
       | "resume"
       | "cancel_analysis"
       | "cancel_translation"
-      | "assign_series"
+      | "preserve_series"
+      | "number_series"
+      | "clear_series"
       | "archive"
       | "delete",
   ) {
@@ -64,10 +66,26 @@ export function BatchActions({
       return;
     setBusy(true);
     setResults([]);
-    if (action === "assign_series") {
-      const ordered = [...books].sort((a, b) =>
-        a.title.localeCompare(b.title, "fr", { numeric: true }),
-      );
+    if (["preserve_series", "number_series", "clear_series"].includes(action)) {
+      if (
+        action === "clear_series" &&
+        !confirm(`Retirer les ${books.length} livres sélectionnés de leur série ?`)
+      ) {
+        setBusy(false);
+        return;
+      }
+      const ordered =
+        action === "number_series"
+          ? [...books].sort((a, b) =>
+              a.title.localeCompare(b.title, "fr", { numeric: true }),
+            )
+          : books;
+      const mode =
+        action === "number_series"
+          ? "sequential"
+          : action === "clear_series"
+            ? "clear"
+            : "preserve";
       try {
         await send(
           "/projects/batch/series",
@@ -75,11 +93,16 @@ export function BatchActions({
             project_ids: ordered.map((book) => book.id),
             series_name: seriesName.trim(),
             first_volume: firstVolume,
+            mode,
           },
           "PUT",
         );
         setResults([
-          `${ordered.length} livre(s) numéroté(s) dans ${seriesName.trim()}.`,
+          mode === "clear"
+            ? `${ordered.length} livre(s) retiré(s) de leur série.`
+            : mode === "preserve"
+              ? `Série ${seriesName.trim()} appliquée à ${ordered.length} livre(s), numéros conservés.`
+              : `${ordered.length} livre(s) numéroté(s) dans ${seriesName.trim()}.`,
         ]);
         await run(refresh);
       } catch (error) {
@@ -215,9 +238,21 @@ export function BatchActions({
         </label>
         <button
           disabled={busy || !seriesName.trim()}
-          onClick={() => void apply("assign_series")}
+          onClick={() => void apply("preserve_series")}
         >
-          Numéroter la sélection
+          Appliquer sans renuméroter
+        </button>
+        <button
+          disabled={busy || !seriesName.trim()}
+          onClick={() => void apply("number_series")}
+        >
+          Numéroter par titre
+        </button>
+        <button
+          disabled={busy || !books.some((book) => book.series_name)}
+          onClick={() => void apply("clear_series")}
+        >
+          Retirer de la série
         </button>
       </div>
       <div className="actions">

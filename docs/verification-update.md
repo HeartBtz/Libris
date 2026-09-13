@@ -2,7 +2,7 @@
 
 Vérifications exécutées pendant l’implémentation :
 
-- 107 tests backend réussis : import/reconstruction, accès, providers, concurrence indépendante par provider, changement de provider après pause, Codex, reprise, interruptions, refus avec poursuite du livre et provider de remplacement limité à la récupération, récupération obligatoire avant revue finale, acceptation ou rejet des propositions IA, couverture, identités, graphes, catalogues, séries, archivage réversible, progression canonique et revue finale bornée (corrections vérifiées, choix humains protégés, reprise et SearXNG facultatif).
+- 108 tests backend réussis : import/reconstruction, accès, providers, concurrence indépendante par provider, changement de provider après pause, Codex, reprise, interruptions, refus avec poursuite du livre et provider de remplacement limité à la récupération, récupération obligatoire avant revue finale, verdict final obligatoire sans délégation à l’humain, acceptation ou rejet des propositions IA, couverture, identités, graphes, catalogues, séries, archivage réversible, progression canonique et revue finale bornée (corrections vérifiées, choix humains protégés, reprise et SearXNG facultatif).
 - TypeScript strict, build Vite et Ruff validés.
 - Schéma SQLite de développement validé ; chaîne Alembic montée, rétrogradée puis remontée sur PostgreSQL 17 temporaire. Le même contrôle est exécuté dans GitLab CI.
 - Mémoire inter-volumes vérifiée : glossaire accepté et décision humaine validée du volume antérieur présents, mémoire narrative et convention du volume futur absentes.

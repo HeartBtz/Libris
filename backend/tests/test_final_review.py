@@ -40,7 +40,37 @@ async def context(*args, **kwargs):
 
 
 def verdict(issues=None):
-    return FinalReviewResult(issues=issues or [], uncertainties=[], explanation="Réexamen terminé.")
+    return FinalReviewResult(
+        decision="revise" if issues else "accept",
+        issues=issues or [],
+        uncertainties=[],
+        explanation="Réexamen terminé.",
+    )
+
+
+def test_final_review_schema_requires_a_definitive_decision():
+    issue = {
+        "unit_id": "u1",
+        "category": "meaning",
+        "severity": "error",
+        "description": "Meaning is wrong",
+        "suggestion": "Use the source-supported meaning.",
+    }
+    with pytest.raises(ValueError):
+        FinalReviewResult(
+            decision="accept", issues=[issue], explanation="Accept despite the issue."
+        )
+    with pytest.raises(ValueError):
+        FinalReviewResult(
+            decision="revise", issues=[issue], explanation="À l’humain de décider."
+        )
+    with pytest.raises(ValueError):
+        FinalReviewResult(
+            decision="revise",
+            issues=[issue],
+            uncertainties=["Either option may work"],
+            explanation="Révision requise.",
+        )
 
 
 def test_project_stats_use_final_review_checkpoint(seeded):

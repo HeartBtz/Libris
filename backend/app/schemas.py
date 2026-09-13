@@ -78,8 +78,9 @@ class ProjectConfig(StrictModel):
 
 class SeriesBatchInput(StrictModel):
     project_ids: list[str] = Field(min_length=1, max_length=100)
-    series_name: str = Field(min_length=1, max_length=500)
+    series_name: str = Field(default="", max_length=500)
     first_volume: int = Field(default=1, ge=1, le=10000)
+    mode: Literal["preserve", "sequential", "clear"] = "sequential"
 
 
 class GlossaryInput(StrictModel):
@@ -195,9 +196,41 @@ class ReviewResult(StrictModel):
 
 
 class FinalReviewResult(ReviewResult):
-    uncertainties: list[str]
+    decision: Literal["accept", "revise"]
+    uncertainties: list[str] = Field(default_factory=list, max_length=0)
     explanation: str
     search_queries: list[str] = Field(default_factory=list, max_length=2)
+
+    @model_validator(mode="after")
+    def definitive_verdict(self):
+        if self.decision == "accept" and self.issues:
+            raise ValueError("Une décision d’acceptation ne peut pas conserver de problème.")
+        if self.decision == "revise" and not self.issues:
+            raise ValueError("Une décision de révision doit fournir une correction précise.")
+        if self.decision == "revise" and any(not issue.suggestion.strip() for issue in self.issues):
+            raise ValueError("Chaque problème doit fournir une correction directement applicable.")
+        text = " ".join(
+            [
+                self.explanation,
+                *(issue.description for issue in self.issues),
+                *(issue.suggestion for issue in self.issues),
+            ]
+        ).casefold()
+        deferred = (
+            "laisser le choix à l’humain",
+            "laisser le choix a l'humain",
+            "à l’humain de décider",
+            "a l'humain de decider",
+            "au traducteur de décider",
+            "impossible de trancher",
+            "leave the choice to the human",
+            "human should decide",
+            "translator should decide",
+            "cannot decide",
+        )
+        if any(phrase in text for phrase in deferred):
+            raise ValueError("La revue finale doit statuer sans déléguer sa décision.")
+        return self
 
 
 class AskResult(StrictModel):

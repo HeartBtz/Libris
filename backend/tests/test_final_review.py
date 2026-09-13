@@ -110,6 +110,36 @@ async def test_final_review_clears_obsolete_critique_and_keeps_text(seeded, monk
     assert len(calls) == 1
 
 
+async def test_full_review_includes_successful_unflagged_translations(seeded, monkeypatch):
+    sid, jid, _ = prepare(seeded[0])
+    with SessionLocal() as db:
+        second = db.scalar(
+            select(Segment)
+            .where(Segment.project_id == seeded[0], Segment.id != sid)
+            .order_by(Segment.position)
+        )
+        second.translated_units = [
+            {"id": unit["id"], "text": "Traduction valide"} for unit in second.units
+        ]
+        second.translation, second.status, second.stage = "Traduction valide", "ok", "done"
+        db.get(Job, jid).options = {"full_review": True}
+        second_id = second.id
+        db.commit()
+    calls = []
+
+    async def answer(**kwargs):
+        calls.append(kwargs["segment_id"])
+        return verdict()
+
+    monkeypatch.setattr(final_review, "build_context", context)
+    monkeypatch.setattr(final_review.llm, "complete", answer)
+    await execute(*claim())
+
+    assert calls == [sid, second_id]
+    with SessionLocal() as db:
+        assert db.get(Job, jid).checkpoint["final_review_targets"] == [sid, second_id]
+
+
 async def test_final_review_never_calls_model_for_human_text(seeded, monkeypatch):
     sid, _, _ = prepare(seeded[0], human=True)
 

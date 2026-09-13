@@ -52,17 +52,21 @@ async def resolve_validations(job: Job, owner: str) -> None:
     from app.engines.translation.pipeline import translation_call
 
     with SessionLocal() as db:
+        conditions = [
+            Segment.project_id == job.project_id,
+            Segment.translation != "",
+            Segment.human.is_(False),
+            Segment.validated.is_(False),
+            Segment.retained_source.is_(False),
+        ]
+        if job.options.get("full_review"):
+            conditions.append(~Segment.status.in_(("error", "refused", "blocked")))
+        else:
+            conditions.append(Segment.status == "check")
         ids = list(
             db.scalars(
                 select(Segment.id)
-                .where(
-                    Segment.project_id == job.project_id,
-                    Segment.status == "check",
-                    Segment.translation != "",
-                    Segment.human.is_(False),
-                    Segment.validated.is_(False),
-                    Segment.retained_source.is_(False),
-                )
+                .where(*conditions)
                 .order_by(Segment.position)
             )
         )

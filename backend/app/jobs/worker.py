@@ -77,6 +77,9 @@ async def execute(job_id: str, owner: str) -> None:
     try:
         if job.operation == "analyze":
             await analyze(job, owner)
+            job = checkpoint(job.id, owner)
+            if job.options.get("continue_pipeline"):
+                await translate(job, owner)
         elif job.operation in {"translate", "review"}:
             await translate(job, owner)
         elif job.operation == "consistency":

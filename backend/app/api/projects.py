@@ -236,6 +236,7 @@ def configure(project_id: str, body: ProjectConfig, user: CurrentUser, db: DB):
     project = access(db, project_id, user, write=True)
     values = body.model_dump()
     changed = {key for key, value in values.items() if getattr(project, key) != value}
+    provider_selected = project.provider_id is None and body.provider_id is not None
     if changed - {"series_name", "volume_number"} and db.scalar(
         select(Job.id).where(Job.project_id == project_id, Job.status.in_(ACTIVE))
     ):
@@ -247,6 +248,19 @@ def configure(project_id: str, body: ProjectConfig, user: CurrentUser, db: DB):
     for job in db.scalars(select(Job).where(Job.project_id == project_id, Job.status.in_(HELD))):
         if not job.options.get("provider_id"):
             job.provider_id = body.provider_id
+    if provider_selected and not db.scalar(
+        select(Job.id).where(Job.project_id == project_id, Job.status.in_(HELD))
+    ):
+        enqueue(
+            db,
+            project,
+            "analyze",
+            {
+                "continue_pipeline": True,
+                "automatic_recovery": True,
+                "full_review": True,
+            },
+        )
     db.commit()
     return project_view(db, project)
 

@@ -14,6 +14,7 @@ STEP_STATUS = {
     "chapter_analysis": "analyzing",
     "book_bible": "analyzing",
     "translation": "translating",
+    "automatic_recovery": "translating",
     "recovery_required": "translating",
     "final_review": "reviewing",
     "consistency": "reviewing",

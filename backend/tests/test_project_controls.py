@@ -1,7 +1,7 @@
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
-from app.api.projects import import_book
+from app.api.projects import configure, import_book
 from app.db import SessionLocal
 from app.jobs.queue import claim, enqueue
 from app.main import app
@@ -12,6 +12,36 @@ from app.security import password_hash
 
 def test_new_project_configuration_defaults_to_private_memory():
     assert ProjectConfig(title="Private by default").context_backend == "internal"
+
+
+def test_first_provider_selection_starts_automatic_pipeline(seeded):
+    pid, user_id, provider_id = seeded
+    with SessionLocal() as db:
+        project = db.get(Project, pid)
+        project.provider_id = None
+        body = ProjectConfig(
+            title=project.title,
+            author=project.author,
+            series_name=project.series_name,
+            volume_number=project.volume_number,
+            source_language=project.source_language,
+            target_language=project.target_language,
+            provider_id=provider_id,
+            quality=project.quality,
+            context_backend=project.context_backend,
+            instructions=project.instructions,
+        )
+        configured = configure(pid, body, db.get(User, user_id), db)
+        assert configured["provider_id"] == provider_id
+
+    with SessionLocal() as db:
+        job = db.scalar(select(Job).where(Job.project_id == pid))
+        assert job.operation == "analyze" and job.status == "pending"
+        assert job.options == {
+            "continue_pipeline": True,
+            "automatic_recovery": True,
+            "full_review": True,
+        }
 
 
 def test_explicit_resume_of_cancelled_job_keeps_analysis_checkpoint(seeded):

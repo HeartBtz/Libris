@@ -6,12 +6,13 @@ from sqlalchemy import select
 
 from app.db import SessionLocal
 from app.engines.translation import critique_queue, pipeline, repair
+from app.jobs import worker
 from app.jobs.execution import execution
 from app.jobs.queue import claim, enqueue
 from app.jobs.worker import execute
 from app.main import app
 from app.models import Job, Project, Provider, Segment
-from app.providers.llm import ProviderUnavailable
+from app.providers.llm import InvalidResponseExhausted, ProviderUnavailable
 from app.schemas import TranslationResult
 
 
@@ -108,6 +109,90 @@ async def test_full_translation_stops_before_review_when_recovery_is_required(se
         current = db.get(Job, jid)
         assert current.checkpoint["step"] == "recovery_required"
         assert current.checkpoint["recovery_required"] == 1
+
+
+async def test_analysis_job_continues_with_translation(seeded, monkeypatch):
+    with SessionLocal() as db:
+        job = enqueue(
+            db,
+            db.get(Project, seeded[0]),
+            "analyze",
+            {"continue_pipeline": True, "automatic_recovery": True, "full_review": True},
+        )
+        jid = job.id
+        db.commit()
+    calls = []
+
+    async def analyze(*args):
+        calls.append("analyze")
+
+    async def translate(*args):
+        calls.append("translate")
+
+    monkeypatch.setattr(worker, "analyze", analyze)
+    monkeypatch.setattr(worker, "translate", translate)
+    await worker.execute(*claim())
+
+    assert calls == ["analyze", "translate"]
+    with SessionLocal() as db:
+        assert db.get(Job, jid).status == "completed"
+
+
+@pytest.mark.parametrize("recovered", [True, False])
+async def test_automatic_pipeline_retries_missing_segments_once(seeded, monkeypatch, recovered):
+    with SessionLocal() as db:
+        project = db.get(Project, seeded[0])
+        segments = list(db.scalars(select(Segment).where(Segment.project_id == project.id)))
+        for segment in segments:
+            segment.translation = "Traduit"
+            segment.translated_units = [
+                {"id": unit["id"], "text": "Traduit"} for unit in segment.units
+            ]
+            segment.stage, segment.status = "done", "ok"
+        target = segments[0]
+        target.translation, target.translated_units = "", []
+        target.stage, target.status = "pending", "pending"
+        job = enqueue(
+            db,
+            project,
+            "translate",
+            {"automatic_recovery": True, "continue_pipeline": True, "full_review": True},
+        )
+        jid, sid = job.id, target.id
+        db.commit()
+    calls = 0
+    review_calls = 0
+
+    async def translation(project, segment, operation, job, *args, **kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 1 or not recovered:
+            raise InvalidResponseExhausted("invalid")
+        return TranslationResult(
+            units=[{"id": unit["id"], "text": "Récupéré"} for unit in segment.units]
+        )
+
+    async def review(*args):
+        nonlocal review_calls
+        review_calls += 1
+
+    monkeypatch.setattr(pipeline, "translation_call", translation)
+    monkeypatch.setattr("app.engines.translation.final_review.resolve_validations", review)
+    claimed = claim()
+    await pipeline.translate(job, claimed[1])
+
+    assert calls == 2 and review_calls == 1
+    with SessionLocal() as db:
+        current = db.get(Job, jid)
+        segment = db.get(Segment, sid)
+        assert current.checkpoint["automatic_recovery_targets"] == [sid]
+        assert current.checkpoint["automatic_recovery_completed"] is True
+        assert current.checkpoint["automatic_recovery_remaining"] == (0 if recovered else 1)
+        assert bool(segment.translation) is recovered
+        assert segment.status == ("ok" if recovered else "error")
+    if not recovered:
+        await pipeline.translate(current, claimed[1])
+        assert calls == 2
 
 
 def test_recovery_provider_is_replaced_before_pipeline_continues(seeded):

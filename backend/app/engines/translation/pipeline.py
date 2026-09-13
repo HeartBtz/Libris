@@ -125,10 +125,25 @@ def persist(
 
 
 async def translate(job: Job, owner: str) -> None:
+    job = checkpoint(job.id, owner)
+    scoped = any(
+        job.options.get(key)
+        for key in ("segment_id", "chapter_id", "refused_only", "segment_ids")
+    )
+    continue_pipeline = job.options.get("continue_pipeline") or not scoped
+    recovery_targets = job.checkpoint.get("automatic_recovery_targets", [])
+    recovery_pass = bool(
+        recovery_targets
+        and job.checkpoint.get("automatic_recovery_started")
+        and not job.checkpoint.get("automatic_recovery_completed")
+    )
+    force = job.options.get("force") or recovery_pass
     with SessionLocal() as db:
         project = db.get(Project, job.project_id)
         query = select(Segment.id).where(Segment.project_id == job.project_id).order_by(Segment.position)
-        if job.options.get("chapter_id"):
+        if recovery_pass:
+            query = query.where(Segment.id.in_(recovery_targets))
+        elif job.options.get("chapter_id"):
             query = query.where(Segment.chapter_id == job.options["chapter_id"])
         if job.options.get("segment_id"):
             query = query.where(Segment.id == job.options["segment_id"])
@@ -146,9 +161,9 @@ async def translate(job: Job, owner: str) -> None:
         with SessionLocal() as db:
             project = db.get(Project, job.project_id)
             segment = db.get(Segment, sid)
-            if segment.human and not job.options.get("force") and job.operation != "review":
+            if segment.human and not force and job.operation != "review":
                 continue
-            if segment.stage == "done" and not job.options.get("force") and job.operation != "review":
+            if segment.stage == "done" and not force and job.operation != "review":
                 continue
             # A forced rerun is checkpointed per job, including proposal-only runs on human text.
             finished = job.checkpoint.get("finished_ids", [])
@@ -170,7 +185,7 @@ async def translate(job: Job, owner: str) -> None:
             needs = plan.needs
         try:
             if not segment.translation or (
-                job.options.get("force") and sid not in job.checkpoint.get("started_ids", [])
+                force and sid not in job.checkpoint.get("started_ids", [])
             ):
                 result = await translation_call(project, segment, "translation", job, needs=needs)
                 if not persist(job, owner, segment, result, "translation", "translated"):
@@ -313,11 +328,12 @@ async def translate(job: Job, owner: str) -> None:
                         ),
                     }
                     failures = current_job.checkpoint["consecutive_failures"]
-                    if failures >= 10:
+                    stop_after_failures = failures >= 10 and not job.options.get("automatic_recovery")
+                    if stop_after_failures:
                         current_job.stop_reason = "consecutive_failures"
                     db.commit()
                 finish_segment(job.id, owner, sid)
-                if failures >= 10:
+                if stop_after_failures:
                     raise LLMError(
                         "Arrêt après 10 passages consécutifs en échec. Vérifiez le provider avant de reprendre."
                     )
@@ -349,7 +365,63 @@ async def translate(job: Job, owner: str) -> None:
                 ),
             )
         )
-    if recovery_count:
+    if recovery_pass:
+        checkpoint(
+            job.id,
+            owner,
+            {
+                "step": "automatic_recovery",
+                "automatic_recovery_completed": True,
+                "automatic_recovery_remaining": recovery_count,
+                "segment_id": None,
+            },
+        )
+    elif (
+        recovery_count
+        and job.options.get("automatic_recovery")
+        and not scoped
+        and not job.checkpoint.get("automatic_recovery_started")
+    ):
+        with SessionLocal() as db:
+            targets = list(
+                db.scalars(
+                    select(Segment.id)
+                    .where(
+                        Segment.project_id == job.project_id,
+                        Segment.human.is_(False),
+                        Segment.validated.is_(False),
+                        Segment.retained_source.is_(False),
+                        or_(
+                            Segment.status.in_(("error", "refused", "blocked")),
+                            Segment.translation == "",
+                        ),
+                    )
+                    .order_by(Segment.position)
+                )
+            )
+            current_job = fence(db, job.id, owner)
+            current_job.checkpoint = {
+                **current_job.checkpoint,
+                "step": "automatic_recovery",
+                "automatic_recovery_started": True,
+                "automatic_recovery_targets": targets,
+                "finished_ids": [
+                    sid for sid in current_job.checkpoint.get("finished_ids", []) if sid not in targets
+                ],
+                "started_ids": [
+                    sid for sid in current_job.checkpoint.get("started_ids", []) if sid not in targets
+                ],
+                "current": 0,
+                "total": len(targets),
+                "segment_id": None,
+            }
+            db.commit()
+        await translate(checkpoint(job.id, owner), owner)
+        return
+    elif recovery_count and not (
+        job.options.get("automatic_recovery")
+        and job.checkpoint.get("automatic_recovery_completed")
+    ):
         checkpoint(
             job.id,
             owner,
@@ -360,10 +432,6 @@ async def translate(job: Job, owner: str) -> None:
             },
         )
         return
-    continue_pipeline = job.options.get("continue_pipeline") or not any(
-        job.options.get(key)
-        for key in ("segment_id", "chapter_id", "refused_only", "segment_ids")
-    )
     if job.options.get("continue_pipeline") and job.options.get("segment_ids"):
         job = restore_project_provider(job.id, owner, project.provider_id)
     if (

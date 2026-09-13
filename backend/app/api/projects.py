@@ -268,6 +268,17 @@ def start_job(project_id: str, body: JobInput, user: CurrentUser, db: DB):
         raise HTTPException(404, "Provider de reprise introuvable.")
     if body.refused_only and body.operation != "translate":
         raise HTTPException(422, "Le filtre des refus est réservé à la traduction.")
+    if body.segment_ids is not None:
+        if body.operation != "translate" or body.segment_id or body.chapter_id or body.refused_only:
+            raise HTTPException(422, "La sélection de récupération doit être une traduction ciblée seule.")
+        selected = list(db.scalars(select(Segment).where(Segment.project_id == project_id,
+                                                         Segment.id.in_(body.segment_ids))))
+        if len(selected) != len(set(body.segment_ids)):
+            raise HTTPException(422, "La sélection contient un passage inconnu de ce livre.")
+        if any(s.human or s.validated or s.retained_source or
+               (s.translation and s.status not in {"refused", "error", "blocked"}) for s in selected):
+            raise HTTPException(409, "Un passage sélectionné est protégé ou n’a plus besoin de récupération.")
+        body.force = True
     if body.operation == "translate" and not project.bible:
         raise HTTPException(409, "Lancez l’analyse du livre avant sa traduction.")
     if body.chapter_id:

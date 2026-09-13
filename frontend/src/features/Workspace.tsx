@@ -3,6 +3,7 @@ import { api, date, labels, number, send } from "../api";
 import type { Chapter, Job, Project, Run, Segment, User } from "../types";
 import { Editor } from "./Editor";
 import { ValidationPanel } from "./ValidationPanel";
+import { CompletionPanel } from "./CompletionPanel";
 const CharacterGraph = lazy(() => import("./CharacterGraph"));
 const stageLabels: Record<string, string> = {
   chapter_analysis: "Analyse des passages",
@@ -382,6 +383,7 @@ export function Workspace({
       <div className="tabs">
         {[
           ["editor", "Traduction"],
+          ["completion", "Bilan & récupération"],
           [
             "validations",
             `Validations${project.stats.flagged + project.stats.refused ? ` (${project.stats.flagged + project.stats.refused})` : ""}`,
@@ -443,6 +445,8 @@ export function Workspace({
             <Glossary project={project} run={run} tick={tick} />
           ) : tab === "quality" ? (
             <Quality project={project} run={run} tick={tick} />
+          ) : tab === "completion" ? (
+            <CompletionPanel project={project} run={run} refresh={refresh} />
           ) : tab === "validations" ? (
             <ValidationPanel
               project={project}

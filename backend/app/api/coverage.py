@@ -16,6 +16,43 @@ from app.security import DB, CurrentUser, access
 router = APIRouter(prefix="/api")
 
 
+@router.get("/projects/{pid}/completion")
+def completion(pid: str, user: CurrentUser, db: DB):
+    access(db, pid, user)
+    segments = list(db.scalars(select(Segment).where(Segment.project_id == pid).order_by(Segment.position)))
+    chapters = {c.id: c.title for c in db.scalars(select(Chapter).where(Chapter.project_id == pid))}
+    unresolved = list(db.scalars(select(Issue).where(Issue.project_id == pid, Issue.resolved.is_(False))))
+    jobs = list(db.scalars(select(Job).where(Job.project_id == pid).order_by(Job.created_at.desc())))
+    missing = sum(not s.translation for s in segments)
+    retained = sum(s.retained_source for s in segments)
+    return {
+        "total": len(segments),
+        "translated": sum(bool(s.translation) and not s.retained_source for s in segments),
+        "missing": missing,
+        "retained": retained,
+        "coverage_complete": bool(segments) and not missing and not retained,
+        "flagged": sum(s.status == "check" for s in segments),
+        "issues": len(unresolved),
+        "protected": sum(s.human or s.validated for s in segments),
+        "processing": any(j.status in HELD for j in jobs),
+        "last_job_status": jobs[0].status if jobs else "none",
+        "epubcheck": "checked_on_export",
+        "recovery": [
+            {
+                "id": s.id,
+                "position": s.position,
+                "chapter": chapters.get(s.chapter_id, ""),
+                "status": s.status,
+                "error": s.error,
+                "excerpt": s.source[:260],
+                "eligible": not (s.human or s.validated or s.retained_source),
+            }
+            for s in segments
+            if not s.translation or s.status in {"error", "refused", "blocked"}
+        ],
+    }
+
+
 class RevisionInput(BaseModel):
     revision: int = Field(ge=0)
 

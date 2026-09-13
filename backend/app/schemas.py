@@ -206,6 +206,7 @@ class JobInput(StrictModel):
     operation: Literal["analyze", "translate", "review", "consistency", "sync_memory", "resolve_validations"]
     chapter_id: str | None = None
     segment_id: str | None = None
+    segment_ids: list[str] | None = Field(default=None, min_length=1, max_length=200)
     instruction: str = Field(default="", max_length=8000)
     deep: bool = False
     force: bool = False

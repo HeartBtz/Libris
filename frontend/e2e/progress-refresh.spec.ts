@@ -119,6 +119,18 @@ test("library has separate analysis/translation progress and refresh reloads met
     390,
   );
   await page
+    .getByRole("button", { name: "Bilan & récupération", exact: true })
+    .click();
+  await expect(
+    page.getByRole("heading", { name: "Bilan & récupération", exact: true }),
+  ).toBeVisible();
+  await expect(page.getByLabel("Provider de récupération")).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(
+    390,
+  );
+  await page.setViewportSize({ width: 1440, height: 1040 });
+  await page.screenshot({ path: "/tmp/libris/completion.png" });
+  await page
     .getByRole("button", { name: "Observabilité", exact: true })
     .click();
   await expect(
@@ -135,7 +147,9 @@ test("library has separate analysis/translation progress and refresh reloads met
     .click();
   expect((await metrics).status()).toBe(200);
   await page.goto(`${base}/#settings`);
-  await page.getByRole("button", {name: "SearXNG", exact: true}).click();
+  await page.getByRole("button", { name: "SearXNG", exact: true }).click();
   await expect(page.getByLabel("URL de l’instance SearXNG")).toBeEnabled();
-  await expect(page.getByRole("button", {name: "Tester la connexion", exact: true})).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Tester la connexion", exact: true }),
+  ).toBeVisible();
 });

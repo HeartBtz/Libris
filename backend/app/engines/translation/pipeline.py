@@ -56,17 +56,22 @@ async def translation_call(
         if any(i["code"] == "locked_term" for i in findings):
             raise ValueError("Glossaire verrouillé non respecté.")
 
-    return await llm.complete(
-        project_id=project.id,
-        provider_id=job.provider_id,
-        segment_id=segment.id,
-        operation=operation,
-        messages=built.messages,
-        response_model=TranslationResult,
-        context=built.inspector,
-        validator=validate,
-        temperature=0.15 if operation == "translation_revision" else None,
-    )
+    try:
+        return await llm.complete(
+            project_id=project.id,
+            provider_id=job.provider_id,
+            segment_id=segment.id,
+            operation=operation,
+            messages=built.messages,
+            response_model=TranslationResult,
+            context=built.inspector,
+            validator=validate,
+            temperature=0.15 if operation == "translation_revision" else None,
+        )
+    except InvalidResponseExhausted:
+        from app.engines.translation.repair import repair_translation
+
+        return await repair_translation(project, segment, operation, job, extra, glossary)
 
 
 def persist(
@@ -114,6 +119,8 @@ async def translate(job: Job, owner: str) -> None:
             query = query.where(Segment.chapter_id == job.options["chapter_id"])
         if job.options.get("segment_id"):
             query = query.where(Segment.id == job.options["segment_id"])
+        if job.options.get("segment_ids"):
+            query = query.where(Segment.id.in_(job.options["segment_ids"]))
         if job.options.get("refused_only"):
             query = query.where(Segment.status == "refused", Segment.retained_source.is_(False))
         ids = list(db.scalars(query))
@@ -267,7 +274,10 @@ async def translate(job: Job, owner: str) -> None:
                     if current and not current.human:
                         current.status, current.error = ("refused" if refused else "error"), str(exc)[:1500]
                     db.execute(
-                        delete(Issue).where(Issue.segment_id == sid, Issue.code == ("content_refusal" if refused else "invalid_response"))
+                        delete(Issue).where(
+                            Issue.segment_id == sid,
+                            Issue.code == ("content_refusal" if refused else "invalid_response"),
+                        )
                     )
                     db.add(
                         Issue(
@@ -277,7 +287,8 @@ async def translate(job: Job, owner: str) -> None:
                             code="content_refusal" if refused else "invalid_response",
                             message=(
                                 "Traduction refusée deux fois ; passage ignoré."
-                                if refused else "Cinq réponses invalides ; passage ignoré, à reprendre ultérieurement."
+                                if refused
+                                else "Cinq réponses invalides ; passage ignoré, à reprendre ultérieurement."
                             ),
                         )
                     )
@@ -294,7 +305,9 @@ async def translate(job: Job, owner: str) -> None:
                     db.commit()
                 finish_segment(job.id, owner, sid)
                 if failures >= 10:
-                    raise LLMError("Arrêt après 10 passages consécutifs en échec. Vérifiez le provider avant de reprendre.")
+                    raise LLMError(
+                        "Arrêt après 10 passages consécutifs en échec. Vérifiez le provider avant de reprendre."
+                    )
                 continue
             with SessionLocal() as db:
                 fence(db, job.id, owner)
@@ -315,6 +328,7 @@ async def translate(job: Job, owner: str) -> None:
         project.quality in {"high", "maximum"}
         and not job.options.get("segment_id")
         and not job.options.get("refused_only")
+        and not job.options.get("segment_ids")
     ):
         await consistency(job, owner)
     from app.config import settings
@@ -325,6 +339,7 @@ async def translate(job: Job, owner: str) -> None:
         and not job.options.get("segment_id")
         and not job.options.get("chapter_id")
         and not job.options.get("refused_only")
+        and not job.options.get("segment_ids")
     ):
         await resolve_validations(job, owner)
 

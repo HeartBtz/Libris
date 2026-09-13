@@ -5,11 +5,19 @@ from sqlalchemy import Text, cast, select
 
 from app.api.common import row
 from app.engines.context.builder import build_context
+from app.engines.quality.checks import validate_translation
 from app.engines.translation.versions import save_version
 from app.jobs.queue import HELD, emit
 from app.models import Issue, Job, RequestLog, Segment, TranslationVersion
-from app.providers.llm import llm
-from app.schemas import AcceptCritiqueInput, AskInput, AskResult, EditInput, InstructionInput
+from app.providers.llm import LLMError, llm
+from app.schemas import (
+    AcceptCritiqueInput,
+    AskInput,
+    AskResult,
+    EditInput,
+    InstructionInput,
+    TranslationResult,
+)
 from app.security import DB, CurrentUser, access
 
 router = APIRouter(prefix="/api")
@@ -86,10 +94,8 @@ def edit(sid: str, body: EditInput, user: CurrentUser, db: DB):
 
 
 @router.post("/segments/{sid}/critique/{index}/accept")
-def accept_critique(
-    sid: str, index: int, body: AcceptCritiqueInput, user: CurrentUser, db: DB
-):
-    segment, _ = get_segment(db, sid, user, write=True)
+async def accept_critique(sid: str, index: int, body: AcceptCritiqueInput, user: CurrentUser, db: DB):
+    segment, project = get_segment(db, sid, user, write=True)
     if segment.revision != body.revision:
         raise HTTPException(409, "Le passage a été modifié. Rechargez-le avant d’accepter la proposition.")
     if index < 0 or index >= len(segment.critique):
@@ -118,15 +124,45 @@ def accept_critique(
     suggestion_codes = re.findall(r"⟦[^⟧]+⟧", suggestion)
     if current_codes and not suggestion_codes:
         stripped = target["text"].strip()
-        if len(current_codes) == 2 and stripped.startswith(current_codes[0]) and stripped.endswith(
-            current_codes[1]
+        if (
+            len(current_codes) == 2
+            and stripped.startswith(current_codes[0])
+            and stripped.endswith(current_codes[1])
         ):
             suggestion = f"{current_codes[0]}{suggestion}{current_codes[1]}"
         else:
-            raise HTTPException(
-                409,
-                "Cette proposition ne préserve pas les marqueurs internes ; appliquez-la manuellement.",
+            suggestion_codes = []
+    if re.findall(r"⟦[^⟧]+⟧", suggestion) != current_codes:
+        source = next(unit for unit in segment.units if unit["id"] == unit_id)
+        built = await build_context(
+            project.id,
+            sid,
+            "translation_revision",
+            extra={
+                "TARGET_TEXT": [{"id": unit_id, "text": source["text"]}],
+                "CURRENT_TRANSLATION": [target],
+                "REVIEW": [critique],
+                "APPLICATION_SCOPE": "Apply this accepted editorial advice to this one unit. Return its complete corrected text with every immutable marker. Never insert the advice itself as prose.",
+            },
+        )
+        try:
+            result = await llm.complete(
+                project_id=project.id,
+                provider_id=project.provider_id,
+                segment_id=sid,
+                operation="translation_revision",
+                messages=built.messages,
+                context=built.inspector,
+                response_model=TranslationResult,
+                validator=lambda value: validate_translation([source], value),
+                temperature=0.1,
             )
+            suggestion = result.units[0].text
+        except (LLMError, ValueError):
+            raise HTTPException(
+                422,
+                "La correction structurée n’a pas pu être vérifiée. Le texte est conservé ; vous pouvez réessayer.",
+            ) from None
     target["text"] = suggestion
     if not save_version(
         db,
@@ -145,9 +181,7 @@ def accept_critique(
     unresolved_issue = db.scalar(
         select(Issue.id).where(Issue.segment_id == sid, Issue.resolved.is_(False)).limit(1)
     )
-    segment.status = (
-        "check" if segment.critique or segment.uncertainties or unresolved_issue else "ok"
-    )
+    segment.status = "check" if segment.critique or segment.uncertainties or unresolved_issue else "ok"
     emit(db, segment.project_id, segment_id=sid, status="ai_suggestion_accepted")
     db.commit()
     db.refresh(segment)
@@ -155,9 +189,7 @@ def accept_critique(
 
 
 @router.post("/segments/{sid}/critique/{index}/reject")
-def reject_critique(
-    sid: str, index: int, body: AcceptCritiqueInput, user: CurrentUser, db: DB
-):
+def reject_critique(sid: str, index: int, body: AcceptCritiqueInput, user: CurrentUser, db: DB):
     segment, _ = get_segment(db, sid, user, write=True)
     if segment.revision != body.revision:
         raise HTTPException(409, "Le passage a été modifié. Rechargez-le avant de refuser la proposition.")
@@ -182,9 +214,7 @@ def reject_critique(
     unresolved_issue = db.scalar(
         select(Issue.id).where(Issue.segment_id == sid, Issue.resolved.is_(False)).limit(1)
     )
-    segment.status = (
-        "check" if segment.critique or segment.uncertainties or unresolved_issue else "ok"
-    )
+    segment.status = "check" if segment.critique or segment.uncertainties or unresolved_issue else "ok"
     emit(db, segment.project_id, segment_id=sid, status="ai_suggestion_rejected")
     db.commit()
     db.refresh(segment)

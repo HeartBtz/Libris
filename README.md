@@ -22,7 +22,8 @@ Libris combines a persistent translation pipeline with a book bible, character m
 - **Human decisions:** compare source and translation, accept or reject AI suggestions, edit and keep version history.
 - **Final AI review:** automatically revisit flagged translations, attempt one verified correction and leave only unresolved items for review. Optional SearXNG terminology lookup; see [final review](docs/final-review.md).
 - **Refusal recovery:** after two translation refusals, continue the book and retry refused passages later with a chosen provider.
-- **Failure isolation:** skip a passage after five invalid responses; stop after ten consecutive failed passages. See [failure handling](docs/translation-failures.md).
+- **Failure isolation:** after five invalid responses, try checkpointed small-batch repair before skipping the passage; stop after ten consecutive failed passages. See [recovery](docs/recovery.md).
+- **Completion report:** see missing passages and remaining alerts, select failed passages and retry them with a chosen provider from **Bilan & récupération**.
 - **EPUB preservation:** preserve resources and inline structure, with EPUBCheck validation on export.
 - **Optional external memory:** use internal SQL memory alone, or connect your own OpenViking instance.
 

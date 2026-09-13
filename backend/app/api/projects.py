@@ -341,6 +341,8 @@ def control(
     if action in {"resume", "retry"} and not job.options.get("provider_id"):
         job.provider_id = project.provider_id
     job.lease_owner, job.lease_until, job.error = "", 0, ""
+    if action in {"resume", "retry"}:
+        job.checkpoint = {**job.checkpoint, "consecutive_failures": 0}
     job.next_attempt, job.outage_count = 0, 0
     job.stop_reason = (
         "user_pause" if action == "pause" else "user_cancel" if action == "cancel" else "manual_resume"

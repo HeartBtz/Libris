@@ -28,6 +28,11 @@ class LLMError(Exception):
     pass
 
 
+class InvalidResponseExhausted(LLMError):
+    """All five attempts produced unusable output, rather than a service outage."""
+
+
+
 class ProviderUnavailable(LLMError):
     def __init__(self, message: str, retry_after: float = 0):
         super().__init__(message)
@@ -376,7 +381,8 @@ class OpenAIProvider:
             if not transient:
                 break
             await asyncio.sleep(min(2 ** (attempt - 1), 16) + random.random())
-        raise LLMError(f"{last_error} Tentative {attempt}/5. Voir la requête pour le diagnostic.")
+        error_type = InvalidResponseExhausted if attempt == 5 else LLMError
+        raise error_type(f"{last_error} Tentative {attempt}/5. Voir la requête pour le diagnostic.")
 
     async def reserve(
         self,

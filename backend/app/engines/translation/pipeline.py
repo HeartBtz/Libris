@@ -11,6 +11,8 @@ from app.engines.translation.versions import save_version
 from app.jobs.queue import checkpoint, fence, finish_segment
 from app.models import Entity, Glossary, Issue, Job, Project, Segment
 from app.providers.llm import (
+    InvalidResponseExhausted,
+    LLMError,
     ProviderAuthenticationRequired,
     ProviderContentRefused,
     ProviderUnavailable,
@@ -130,7 +132,7 @@ async def translate(job: Job, owner: str) -> None:
                 continue
             # A forced rerun is checkpointed per job, including proposal-only runs on human text.
             finished = job.checkpoint.get("finished_ids", [])
-            if job.options.get("force") and sid in finished:
+            if sid in finished:
                 continue
         needs = None
         if job.options.get("deep"):
@@ -244,6 +246,7 @@ async def translate(job: Job, owner: str) -> None:
                 segment.error = ""
                 current_job.checkpoint = {
                     **current_job.checkpoint,
+                    "consecutive_failures": 0,
                     "finished_ids": list(
                         dict.fromkeys([*current_job.checkpoint.get("finished_ids", []), sid])
                     ),
@@ -256,35 +259,42 @@ async def translate(job: Job, owner: str) -> None:
 
             if isinstance(exc, JobStopped):
                 raise
-            if isinstance(exc, ProviderContentRefused):
+            if isinstance(exc, (ProviderContentRefused, InvalidResponseExhausted)):
+                refused = isinstance(exc, ProviderContentRefused)
                 with SessionLocal() as db:
                     current_job = fence(db, job.id, owner)
                     current = db.get(Segment, sid)
                     if current and not current.human:
-                        current.status, current.error = "refused", str(exc)[:1500]
+                        current.status, current.error = ("refused" if refused else "error"), str(exc)[:1500]
                     db.execute(
-                        delete(Issue).where(Issue.segment_id == sid, Issue.code == "content_refusal")
+                        delete(Issue).where(Issue.segment_id == sid, Issue.code == ("content_refusal" if refused else "invalid_response"))
                     )
                     db.add(
                         Issue(
                             project_id=job.project_id,
                             segment_id=sid,
                             severity="error",
-                            code="content_refusal",
+                            code="content_refusal" if refused else "invalid_response",
                             message=(
-                                "Traduction refusée deux fois par le provider. "
-                                "Passage ignoré ; reprise ciblée avec un autre provider disponible."
+                                "Traduction refusée deux fois ; passage ignoré."
+                                if refused else "Cinq réponses invalides ; passage ignoré, à reprendre ultérieurement."
                             ),
                         )
                     )
                     current_job.checkpoint = {
                         **current_job.checkpoint,
+                        "consecutive_failures": current_job.checkpoint.get("consecutive_failures", 0) + 1,
                         "finished_ids": list(
                             dict.fromkeys([*current_job.checkpoint.get("finished_ids", []), sid])
                         ),
                     }
+                    failures = current_job.checkpoint["consecutive_failures"]
+                    if failures >= 10:
+                        current_job.stop_reason = "consecutive_failures"
                     db.commit()
                 finish_segment(job.id, owner, sid)
+                if failures >= 10:
+                    raise LLMError("Arrêt après 10 passages consécutifs en échec. Vérifiez le provider avant de reprendre.")
                 continue
             with SessionLocal() as db:
                 fence(db, job.id, owner)

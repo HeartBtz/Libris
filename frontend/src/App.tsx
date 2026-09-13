@@ -5,7 +5,69 @@ import { Settings } from "./features/Settings";
 import { Workspace } from "./features/Workspace";
 import { BatchActions } from "./features/BatchActions";
 import { BookProgress } from "./features/BookProgress";
-import { locales, useI18n } from "./i18n";
+import { locales, registerTranslations, useI18n } from "./i18n";
+
+const translations: Record<string, string> = {
+  "En attente": "Pending",
+  "Import / validation…": "Importing / validating…",
+  "Importé": "Imported",
+  "Votre atelier de traduction": "Your translation workspace",
+  "Bibliothèque": "Library",
+  "Retrouvez vos livres et reprenez là où vous en étiez.": "Find your books and resume where you left off.",
+  "Réimporter un projet": "Reimport a project",
+  "Import en cours…": "Importing…",
+  "+ Importer des EPUB": "+ Import EPUBs",
+  "Vue d’ensemble de la bibliothèque": "Library overview",
+  "Tous les livres": "All books",
+  "En cours": "In progress",
+  "À examiner": "Needs attention",
+  "Traduction complète": "Translation complete",
+  "Archives": "Archives",
+  "Rechercher un livre": "Search for a book",
+  "Titre, auteur ou série…": "Title, author, or series…",
+  "Trier par": "Sort by",
+  "Dernière activité": "Recent activity",
+  "Titre": "Title",
+  "Série et volume": "Series and volume",
+  "Série": "Series",
+  "Toutes les séries": "All series",
+  "{count} livre(s) affiché(s)": "{count} book(s) shown",
+  "Série {series}": "Series {series}",
+  "Collection active": "Active collection",
+  "{count} volume(s), classés dans l’ordre de lecture. Les conventions acceptées et décisions humaines des volumes antérieurs alimentent les volumes suivants, sans importer leur narration.": "{count} volume(s), ordered by reading sequence. Approved conventions and human decisions from earlier volumes inform later volumes without importing their narrative.",
+  "Volumes manquants dans cette bibliothèque : {volumes}. ": "Missing volumes in this library: {volumes}. ",
+  "Numéros dupliqués : {volumes}.": "Duplicate numbers: {volumes}.",
+  "Sélectionner toute la série": "Select the entire series",
+  "Sélectionner les livres affichés": "Select displayed books",
+  "Sélectionner tous les livres actifs": "Select all active books",
+  "Livre / auteur": "Book / author",
+  "Langues": "Languages",
+  "Avancement": "Progress",
+  "Statut": "Status",
+  "Modifié": "Modified",
+  "Sélectionner {title}": "Select {title}",
+  "Livre": "Book",
+  "Auteur non renseigné": "Unknown author",
+  " · volume {volume}": " · volume {volume}",
+  "Archivé": "Archived",
+  "Ouvrir →": "Open →",
+  "Restaurer": "Restore",
+  "Archiver": "Archive",
+  "Supprimer {title}": "Delete {title}",
+  "Supprimer définitivement le projet local « {title} » et arrêter ses travaux ? La mémoire OpenViking distante reste séparée.": "Permanently delete local project \"{title}\" and stop its work? Remote OpenViking memory remains separate.",
+  "Supprimer": "Delete",
+  "Aucun livre ne correspond.": "No books match.",
+  "Essayez un autre titre ou affichez tous vos livres.": "Try another title or show all your books.",
+  "Effacer les filtres": "Clear filters",
+  "Votre premier livre commence ici.": "Your first book starts here.",
+  "Importez un EPUB pour examiner sa structure, préparer sa mémoire et traduire avec continuité.": "Import an EPUB to inspect its structure, prepare its memory, and translate consistently.",
+  "Images et balises préservées": "Images and tags preserved",
+  "{count} projet{plural}": "{count} project{plural}",
+  " · {count} archivé(s)": " · {count} archived",
+  "passages traduits": "segments translated",
+};
+
+registerTranslations(translations);
 
 export function App() {
   const { locale, setLocale, t } = useI18n();
@@ -188,7 +250,7 @@ function Login({ run, onLogin }: { run: Run; onLogin: (user: User) => void }) {
 }
 
 function Library({ run, user }: { run: Run; user: User }) {
-  const { locale } = useI18n();
+  const { locale, t } = useI18n();
   const [books, setBooks] = useState<Project[]>([]);
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState("all");
@@ -290,7 +352,7 @@ function Library({ run, user }: { run: Run; user: User }) {
   }, [run, load]);
   async function upload(files: File[], restore = false) {
     setBusy(true);
-    setImports(files.map((f) => ({ name: f.name, state: "En attente" })));
+    setImports(files.map((f) => ({ name: f.name, state: t("En attente") })));
     let cursor = 0;
     const created: string[] = [];
     const workers = Array.from(
@@ -300,7 +362,7 @@ function Library({ run, user }: { run: Run; user: User }) {
           const index = cursor++;
           setImports((values) =>
             values.map((v, i) =>
-              i === index ? { ...v, state: "Import / validation…" } : v,
+                i === index ? { ...v, state: t("Import / validation…") } : v,
             ),
           );
           const form = new FormData();
@@ -313,7 +375,7 @@ function Library({ run, user }: { run: Run; user: User }) {
             created.push(p.id);
             setImports((values) =>
               values.map((v, i) =>
-                i === index ? { ...v, state: "Importé" } : v,
+                i === index ? { ...v, state: t("Importé") } : v,
               ),
             );
           } catch (e) {
@@ -339,10 +401,10 @@ function Library({ run, user }: { run: Run; user: User }) {
     <main className="library">
       <div className="page-heading">
         <div>
-          <p className="eyebrow">Votre atelier de traduction</p>
-          <h1>Bibliothèque</h1>
+          <p className="eyebrow">{t("Votre atelier de traduction")}</p>
+          <h1>{t("Bibliothèque")}</h1>
           <p className="page-lede">
-            Retrouvez vos livres et reprenez là où vous en étiez.
+            {t("Retrouvez vos livres et reprenez là où vous en étiez.")}
           </p>
         </div>
         <div className="actions">
@@ -358,7 +420,7 @@ function Library({ run, user }: { run: Run; user: User }) {
               }
             }}
           >
-            Réimporter un projet
+            {t("Réimporter un projet")}
             <input
               type="file"
               accept=".zip"
@@ -381,7 +443,7 @@ function Library({ run, user }: { run: Run; user: User }) {
               }
             }}
           >
-            {busy ? "Import en cours…" : "+ Importer des EPUB"}
+            {busy ? t("Import en cours…") : t("+ Importer des EPUB")}
             <input
               type="file"
               accept=".epub"
@@ -398,20 +460,20 @@ function Library({ run, user }: { run: Run; user: User }) {
       </div>
       <div
         className="library-overview"
-        aria-label="Vue d’ensemble de la bibliothèque"
+        aria-label={t("Vue d’ensemble de la bibliothèque")}
       >
         {[
-          ["all", "Tous les livres", availableBooks.length],
-          ["active", "En cours", availableBooks.filter(active).length],
-          ["attention", "À examiner", availableBooks.filter(attention).length],
+          ["all", t("Tous les livres"), availableBooks.length],
+          ["active", t("En cours"), availableBooks.filter(active).length],
+          ["attention", t("À examiner"), availableBooks.filter(attention).length],
           [
             "complete",
-            "Traduction complète",
+            t("Traduction complète"),
             availableBooks.filter(
               (p) => p.stats.total > 0 && p.stats.translated === p.stats.total,
             ).length,
           ],
-          ["archived", "Archives", archivedBooks.length],
+          ["archived", t("Archives"), archivedBooks.length],
         ].map(([key, title, count]) => (
           <button
             key={key}
@@ -425,29 +487,29 @@ function Library({ run, user }: { run: Run; user: User }) {
       </div>
       <div className="library-toolbar">
         <label>
-          Rechercher un livre
+          {t("Rechercher un livre")}
           <input
             type="search"
-            placeholder="Titre, auteur ou série…"
+            placeholder={t("Titre, auteur ou série…")}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
         </label>
         <label>
-          Trier par
+          {t("Trier par")}
           <select value={sort} onChange={(e) => setSort(e.target.value)}>
-            <option value="recent">Dernière activité</option>
-            <option value="title">Titre</option>
-            <option value="series">Série et volume</option>
+            <option value="recent">{t("Dernière activité")}</option>
+            <option value="title">{t("Titre")}</option>
+            <option value="series">{t("Série et volume")}</option>
           </select>
         </label>
         <label>
-          Série
+          {t("Série")}
           <select
             value={seriesFilter}
             onChange={(e) => setSeriesFilter(e.target.value)}
           >
-            <option value="all">Toutes les séries</option>
+            <option value="all">{t("Toutes les séries")}</option>
             {seriesNames.map((series) => (
               <option key={series} value={series}>
                 {series}
@@ -455,21 +517,20 @@ function Library({ run, user }: { run: Run; user: User }) {
             ))}
           </select>
         </label>
-        <span role="status">{visibleBooks.length} livre(s) affiché(s)</span>
+        <span role="status">
+          {t("{count} livre(s) affiché(s)").replace("{count}", String(visibleBooks.length))}
+        </span>
       </div>
       {!!seriesBooks.length && (
         <section
           className="series-workspace"
-          aria-label={`Série ${seriesFilter}`}
+          aria-label={t("Série {series}").replace("{series}", seriesFilter)}
         >
           <div>
-            <p className="eyebrow">Collection active</p>
+            <p className="eyebrow">{t("Collection active")}</p>
             <h2>{seriesFilter}</h2>
             <p className="muted">
-              {seriesBooks.length} volume(s), classés dans l’ordre de lecture.
-              Les conventions acceptées et décisions humaines des volumes
-              antérieurs alimentent les volumes suivants, sans importer leur
-              narration.
+              {t("{count} volume(s), classés dans l’ordre de lecture. Les conventions acceptées et décisions humaines des volumes antérieurs alimentent les volumes suivants, sans importer leur narration.").replace("{count}", String(seriesBooks.length))}
             </p>
           </div>
           <ol className="series-volumes">
@@ -483,9 +544,9 @@ function Library({ run, user }: { run: Run; user: User }) {
           {(missingVolumes.length > 0 || duplicateVolumes.length > 0) && (
             <p className="series-warning" role="status">
               {missingVolumes.length > 0 &&
-                `Volumes manquants dans cette bibliothèque : ${missingVolumes.join(", ")}. `}
+                t("Volumes manquants dans cette bibliothèque : {volumes}. ").replace("{volumes}", missingVolumes.join(", "))}
               {duplicateVolumes.length > 0 &&
-                `Numéros dupliqués : ${duplicateVolumes.join(", ")}.`}
+                t("Numéros dupliqués : {volumes}.").replace("{volumes}", duplicateVolumes.join(", "))}
             </p>
           )}
           <button
@@ -493,7 +554,7 @@ function Library({ run, user }: { run: Run; user: User }) {
               setSelected(new Set(seriesBooks.map((project) => project.id)))
             }
           >
-            Sélectionner toute la série
+            {t("Sélectionner toute la série")}
           </button>
         </section>
       )}
@@ -519,7 +580,9 @@ function Library({ run, user }: { run: Run; user: User }) {
             })
           }
           scopeLabel={
-            seriesFilter !== "all" ? `Série ${seriesFilter}` : undefined
+            seriesFilter !== "all"
+              ? t("Série {series}").replace("{series}", seriesFilter)
+              : undefined
           }
         />
       )}
@@ -533,8 +596,8 @@ function Library({ run, user }: { run: Run; user: User }) {
                     type="checkbox"
                     aria-label={
                       query || filter !== "all"
-                        ? "Sélectionner les livres affichés"
-                        : "Sélectionner tous les livres actifs"
+                        ? t("Sélectionner les livres affichés")
+                        : t("Sélectionner tous les livres actifs")
                     }
                     checked={
                       !!selectableBooks.length &&
@@ -549,11 +612,11 @@ function Library({ run, user }: { run: Run; user: User }) {
                     }
                   />
                 </th>
-                <th>Livre / auteur</th>
-                <th>Langues</th>
-                <th>Avancement</th>
-                <th>Statut</th>
-                <th>Modifié</th>
+                <th>{t("Livre / auteur")}</th>
+                <th>{t("Langues")}</th>
+                <th>{t("Avancement")}</th>
+                <th>{t("Statut")}</th>
+                <th>{t("Modifié")}</th>
                 <th />
               </tr>
             </thead>
@@ -566,7 +629,7 @@ function Library({ run, user }: { run: Run; user: User }) {
                   <td className="select-cell">
                     <input
                       type="checkbox"
-                      aria-label={`Sélectionner ${p.title}`}
+                      aria-label={t("Sélectionner {title}").replace("{title}", p.title)}
                       disabled={!!p.archived_at}
                       checked={selected.has(p.id)}
                       onChange={(e) =>
@@ -579,38 +642,38 @@ function Library({ run, user }: { run: Run; user: User }) {
                       }
                     />
                   </td>
-                  <td data-label="Livre">
+                  <td data-label={t("Livre")}>
                     <a className="book-title" href={`#project/${p.id}`}>
                       {p.title}
                     </a>
                     <div className="muted">
-                      {p.author || "Auteur non renseigné"}
+                      {p.author || t("Auteur non renseigné")}
                     </div>
                     {p.series_name && (
                       <div className="series-meta">
                         {p.series_name}
-                        {p.volume_number && ` · volume ${p.volume_number}`}
+                        {p.volume_number && t(" · volume {volume}").replace("{volume}", String(p.volume_number))}
                       </div>
                     )}
                   </td>
-                  <td data-label="Langues">
+                  <td data-label={t("Langues")}>
                     {p.source_language} → {p.target_language}
                   </td>
-                  <td data-label="Avancement">
+                  <td data-label={t("Avancement")}>
                     <BookProgress project={p} />
                   </td>
-                  <td data-label="Statut">
+                  <td data-label={t("Statut")}>
                     <span
                       className={`badge ${p.archived_at ? "archived" : p.status}`}
                     >
-                      {p.archived_at ? "Archivé" : labels[p.status] || p.status}
+                      {p.archived_at ? t("Archivé") : labels[p.status] || p.status}
                     </span>
                   </td>
-                  <td className="muted" data-label="Modifié">
+                  <td className="muted" data-label={t("Modifié")}>
                     {date(p.updated_at)}
                   </td>
                   <td className="book-actions">
-                    <a href={`#project/${p.id}`}>Ouvrir →</a>
+                    <a href={`#project/${p.id}`}>{t("Ouvrir →")}</a>
                     {p.owner_id === user.id && (
                       <button
                         className="quiet"
@@ -628,17 +691,17 @@ function Library({ run, user }: { run: Run; user: User }) {
                           })
                         }
                       >
-                        {p.archived_at ? "Restaurer" : "Archiver"}
+                        {p.archived_at ? t("Restaurer") : t("Archiver")}
                       </button>
                     )}
                     {p.owner_id === user.id && p.archived_at && (
                       <button
                         className="quiet danger"
-                        aria-label={`Supprimer ${p.title}`}
+                        aria-label={t("Supprimer {title}").replace("{title}", p.title)}
                         onClick={() => {
                           if (
                             confirm(
-                              `Supprimer définitivement le projet local « ${p.title} » et arrêter ses travaux ? La mémoire OpenViking distante reste séparée.`,
+                              t("Supprimer définitivement le projet local « {title} » et arrêter ses travaux ? La mémoire OpenViking distante reste séparée.").replace("{title}", p.title),
                             )
                           )
                             void run(async () => {
@@ -654,7 +717,7 @@ function Library({ run, user }: { run: Run; user: User }) {
                             });
                         }}
                       >
-                        Supprimer
+                        {t("Supprimer")}
                       </button>
                     )}
                   </td>
@@ -664,8 +727,8 @@ function Library({ run, user }: { run: Run; user: User }) {
           </table>
           {!visibleBooks.length && (
             <div className="empty">
-              <h2>Aucun livre ne correspond.</h2>
-              <p>Essayez un autre titre ou affichez tous vos livres.</p>
+              <h2>{t("Aucun livre ne correspond.")}</h2>
+              <p>{t("Essayez un autre titre ou affichez tous vos livres.")}</p>
               <button
                 onClick={() => {
                   setQuery("");
@@ -673,31 +736,32 @@ function Library({ run, user }: { run: Run; user: User }) {
                   setSeriesFilter("all");
                 }}
               >
-                Effacer les filtres
+                {t("Effacer les filtres")}
               </button>
             </div>
           )}
         </div>
       ) : (
         <div className="empty">
-          <h2>Votre premier livre commence ici.</h2>
+          <h2>{t("Votre premier livre commence ici.")}</h2>
           <p>
-            Importez un EPUB pour examiner sa structure, préparer sa mémoire et
-            traduire avec continuité.
+            {t("Importez un EPUB pour examiner sa structure, préparer sa mémoire et traduire avec continuité.")}
           </p>
           <p className="muted">
-            EPUB 2 & 3 · Images et balises préservées · Endpoint
+            EPUB 2 & 3 · {t("Images et balises préservées")} · Endpoint
             OpenAI-compatible
           </p>
         </div>
       )}
       <footer className="library-footer">
-        {availableBooks.length} projet{availableBooks.length > 1 ? "s" : ""}
+        {t("{count} projet{plural}")
+          .replace("{count}", String(availableBooks.length))
+          .replace("{plural}", availableBooks.length > 1 ? "s" : "")}
         {archivedBooks.length
-          ? ` · ${archivedBooks.length} archivé(s)`
+          ? t(" · {count} archivé(s)").replace("{count}", String(archivedBooks.length))
           : ""} ·{" "}
         {number(availableBooks.reduce((n, p) => n + p.stats.translated, 0))}{" "}
-        passages traduits
+        {t("passages traduits")}
       </footer>
     </main>
   );

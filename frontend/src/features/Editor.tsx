@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useState } from "react";
 import { api, date, labels, send } from "../api";
+import { registerTranslations, useI18n } from "../i18n";
 import type {
   Chapter,
   LLMRequest,
@@ -9,6 +10,102 @@ import type {
   Unit,
   Version,
 } from "../types";
+
+const translations: Record<string, string> = {
+  "Filtrer les passages": "Filter passages",
+  "Tous les passages": "All passages",
+  "À vérifier": "Needs review",
+  Erreurs: "Errors",
+  Incertitudes: "Uncertainties",
+  "Refus du provider": "Provider refusals",
+  "Originaux conservés": "Source retained",
+  Prévisualiser: "Preview",
+  "Instructions pour cette section": "Instructions for this section",
+  Instructions: "Instructions",
+  "Retraduire cette section ? Les corrections humaines seront conservées et les résultats proposés dans l’historique.":
+    "Retranslate this section? Human corrections will be retained and proposed results will appear in the history.",
+  "Retraduire la section": "Retranslate section",
+  Source: "Source",
+  Traduction: "Translation",
+  "Aucun passage pour ce filtre.": "No passages for this filter.",
+  Précédents: "Previous",
+  "Passages {start}–{end}": "Passages {start}–{end}",
+  Suivants: "Next",
+  "Prévisualisation du chapitre": "Chapter preview",
+  "Rendu simplifié": "Simplified rendering",
+  Fermer: "Close",
+  "Les passages non traduits restent en langue source. CSS simplifiée, scripts et ressources externes désactivés.":
+    "Untranslated passages remain in the source language. Simplified CSS, scripts, and external resources are disabled.",
+  "Rendu du chapitre": "Chapter rendering",
+  "Correction enregistrée. Ajouter une expression au glossaire ?":
+    "Correction saved. Add an expression to the glossary?",
+  "Expression source": "Source expression",
+  "Traduction à conserver": "Translation to retain",
+  "Instruction pour cette retraduction": "Instruction for this retranslation",
+  unité: "unit",
+  s: "s",
+  "Validé humainement": "Human-validated",
+  "Correction humaine protégée": "Protected human correction",
+  "Version {revision}": "Version {revision}",
+  " · Non enregistré": " · Unsaved",
+  "Traduction passage {passage} unité {unit}":
+    "Translation passage {passage} unit {unit}",
+  "La traduction apparaîtra ici…": "The translation will appear here…",
+  "Une nouvelle version est arrivée. Votre saisie est conservée ; enregistrement soumis à vérification de version.":
+    "A new version has arrived. Your input is retained; saving is subject to version verification.",
+  "Original conservé par décision humaine. Ce passage n’est pas compté comme traduit ; utilisez l’export partiel ou saisissez une traduction.":
+    "Source retained by human decision. This passage is not counted as translated; use the partial export or enter a translation.",
+  "Refus enregistré. Vous pouvez saisir une traduction ou ouvrir l’inspecteur pour ajouter une analyse humaine.":
+    "Refusal recorded. You can enter a translation or open the inspector to add a human analysis.",
+  "Conserver le texte source pour ce passage ? Il restera signalé comme non traduit et sera disponible dans l’export partiel. Cela ne remplace pas une analyse humaine manquante.":
+    "Retain the source text for this passage? It will remain marked as untranslated and be available in the partial export. This does not replace missing human analysis.",
+  "Conserver l’original pour l’export": "Retain source for export",
+  "{count} incertitude(s)": "{count} uncertainty(ies)",
+  Enregistrer: "Save",
+  Valider: "Validate",
+  "Retraduire ▾": "Retranslate ▾",
+  Retraduire: "Retranslate",
+  "Avec plus de contexte": "With more context",
+  "Avec une instruction": "With an instruction",
+  "Contexte / historique / Ask AI": "Context / history / Ask AI",
+  tentative: "attempt",
+  "Contexte réellement sélectionné / écarté":
+    "Context actually selected / excluded",
+  "Prompt final": "Final prompt",
+  "Réponse interprétée": "Parsed response",
+  "Réponse brute du provider": "Raw provider response",
+  "Inspecteur du passage": "Passage inspector",
+  "Passage {position}": "Passage {position}",
+  "Fermer l’inspecteur": "Close inspector",
+  Contexte: "Context",
+  Historique: "History",
+  Critique: "Critique",
+  "Analyse humaine": "Human analysis",
+  "Requête enregistrée": "Saved request",
+  "Aucune requête enregistrée pour ce passage.":
+    "No saved request for this passage.",
+  "Appliquée lors de sa création": "Applied when created",
+  Proposition: "Proposal",
+  "Restaurer comme correction humaine": "Restore as human correction",
+  "Résumez les informations nécessaires à la continuité : événements, personnages et références. Cette saisie sera enregistrée comme une analyse humaine, sans appel au modèle.":
+    "Summarize the information needed for continuity: events, characters, and references. This input will be saved as a human analysis without calling the model.",
+  "Texte source du passage": "Passage source text",
+  "Résumé humain": "Human summary",
+  "Enregistrer l’analyse humaine": "Save human analysis",
+  "Analyse enregistrée. Vous pouvez reprendre le travail.":
+    "Analysis saved. You can resume work.",
+  "Analyse linguistique contextualisée ; aucune modification automatique du passage.":
+    "Contextualized linguistic analysis; no automatic changes to the passage.",
+  "Phrase sélectionnée (facultatif)": "Selected sentence (optional)",
+  "Collez la phrase à examiner": "Paste the sentence to examine",
+  Question: "Question",
+  "Donne-moi trois variantes qui préservent le double sens.":
+    "Give me three variants that preserve the double meaning.",
+  "Consultation du modèle…": "Consulting the model…",
+  "Demander à l’IA": "Ask AI",
+};
+
+registerTranslations(translations);
 
 export function Editor({
   project,
@@ -25,6 +122,7 @@ export function Editor({
   refresh: () => void;
   focusRefusal?: string;
 }) {
+  const { t } = useI18n();
   const [segments, setSegments] = useState<Segment[]>([]);
   const [filter, setFilter] = useState("");
   const [offset, setOffset] = useState(0);
@@ -63,19 +161,19 @@ export function Editor({
         <strong>{chapter.title}</strong>
         <div className="actions">
           <select
-            aria-label="Filtrer les passages"
+            aria-label={t("Filtrer les passages")}
             value={filter}
             onChange={(e) => {
               setFilter(e.target.value);
               setOffset(0);
             }}
           >
-            <option value="">Tous les passages</option>
-            <option value="check">À vérifier</option>
-            <option value="error">Erreurs</option>
-            <option value="uncertain">Incertitudes</option>
-            <option value="refused">Refus du provider</option>
-            <option value="source_retained">Originaux conservés</option>
+            <option value="">{t("Tous les passages")}</option>
+            <option value="check">{t("À vérifier")}</option>
+            <option value="error">{t("Erreurs")}</option>
+            <option value="uncertain">{t("Incertitudes")}</option>
+            <option value="refused">{t("Refus du provider")}</option>
+            <option value="source_retained">{t("Originaux conservés")}</option>
           </select>
           <button
             onClick={() =>
@@ -87,13 +185,13 @@ export function Editor({
               })
             }
           >
-            Prévisualiser
+            {t("Prévisualiser")}
           </button>
           <button
             onClick={() =>
               void run(async () => {
                 const instructions = window.prompt(
-                  "Instructions pour cette section",
+                  t("Instructions pour cette section"),
                   chapter.instructions,
                 );
                 if (instructions !== null) {
@@ -107,25 +205,31 @@ export function Editor({
               })
             }
           >
-            Instructions
+            {t("Instructions")}
           </button>
           <button
             onClick={() => {
               if (
                 confirm(
-                  "Retraduire cette section ? Les corrections humaines seront conservées et les résultats proposés dans l’historique.",
+                  t(
+                    "Retraduire cette section ? Les corrections humaines seront conservées et les résultats proposés dans l’historique.",
+                  ),
                 )
               )
                 void run(chapterAction);
             }}
           >
-            Retraduire la section
+            {t("Retraduire la section")}
           </button>
         </div>
       </div>
       <div className="column-labels">
-        <span>Source · {project.source_language}</span>
-        <span>Traduction · {project.target_language}</span>
+        <span>
+          {t("Source")} · {project.source_language}
+        </span>
+        <span>
+          {t("Traduction")} · {project.target_language}
+        </span>
       </div>
       <div className="parallel-text">
         {segments.map((s) => (
@@ -139,7 +243,7 @@ export function Editor({
           />
         ))}
         {!segments.length && (
-          <div className="empty">Aucun passage pour ce filtre.</div>
+          <div className="empty">{t("Aucun passage pour ce filtre.")}</div>
         )}
       </div>
       <div className="pagination">
@@ -147,16 +251,18 @@ export function Editor({
           disabled={offset === 0}
           onClick={() => setOffset((v) => Math.max(0, v - 50))}
         >
-          ← Précédents
+          ← {t("Précédents")}
         </button>
         <span>
-          Passages {offset + 1}–{offset + segments.length}
+          {t("Passages {start}–{end}")
+            .replace("{start}", String(offset + 1))
+            .replace("{end}", String(offset + segments.length))}
         </span>
         <button
           disabled={segments.length < 50}
           onClick={() => setOffset((v) => v + 50)}
         >
-          Suivants →
+          {t("Suivants")} →
         </button>
       </div>
       {selected && (
@@ -173,17 +279,22 @@ export function Editor({
             className="preview-modal"
             role="dialog"
             aria-modal="true"
-            aria-label="Prévisualisation du chapitre"
+            aria-label={t("Prévisualisation du chapitre")}
           >
             <header>
-              <h2>Rendu simplifié</h2>
-              <button onClick={() => setPreview("")}>Fermer</button>
+              <h2>{t("Rendu simplifié")}</h2>
+              <button onClick={() => setPreview("")}>{t("Fermer")}</button>
             </header>
             <p className="muted">
-              Les passages non traduits restent en langue source. CSS
-              simplifiée, scripts et ressources externes désactivés.
+              {t(
+                "Les passages non traduits restent en langue source. CSS simplifiée, scripts et ressources externes désactivés.",
+              )}
             </p>
-            <iframe title="Rendu du chapitre" sandbox="" srcDoc={preview} />
+            <iframe
+              title={t("Rendu du chapitre")}
+              sandbox=""
+              srcDoc={preview}
+            />
           </section>
         </div>
       )}
@@ -204,6 +315,7 @@ export function SegmentRow({
   refresh: () => void;
   inspect: () => void;
 }) {
+  const { t } = useI18n();
   const fromServer = () =>
     segment.units.map((u) => ({
       id: u.id,
@@ -238,11 +350,13 @@ export function SegmentRow({
       refresh();
       if (
         validated &&
-        confirm("Correction enregistrée. Ajouter une expression au glossaire ?")
+        confirm(
+          t("Correction enregistrée. Ajouter une expression au glossaire ?"),
+        )
       ) {
-        const source = prompt("Expression source");
+        const source = prompt(t("Expression source"));
         if (!source) return;
-        const translation = prompt("Traduction à conserver");
+        const translation = prompt(t("Traduction à conserver"));
         if (!translation) return;
         await send(`/projects/${project.id}/glossary`, {
           source,
@@ -257,7 +371,7 @@ export function SegmentRow({
   }
   async function translate(deep = false, custom = false) {
     const instruction = custom
-      ? prompt("Instruction pour cette retraduction")
+      ? prompt(t("Instruction pour cette retraduction"))
       : "";
     if (instruction === null) return;
     await send(`/projects/${project.id}/jobs`, {
@@ -278,7 +392,8 @@ export function SegmentRow({
         <div className="segment-meta">
           <span>§ {segment.position + 1}</span>
           <span>
-            {segment.units.length} unité{segment.units.length > 1 ? "s" : ""}
+            {segment.units.length} {t("unité")}
+            {segment.units.length > 1 ? t("s") : ""}
           </span>
         </div>
         {segment.units.map((u) => (
@@ -291,22 +406,27 @@ export function SegmentRow({
         <div className="segment-meta">
           <span className={`badge ${segment.status}`}>
             {segment.validated
-              ? "Validé humainement"
+              ? t("Validé humainement")
               : labels[segment.status] || segment.status}
           </span>
           <span>
             {segment.human
-              ? "Correction humaine protégée"
-              : `Version ${segment.revision}`}
-            {dirty ? " · Non enregistré" : ""}
+              ? t("Correction humaine protégée")
+              : t("Version {revision}").replace(
+                  "{revision}",
+                  String(segment.revision),
+                )}
+            {dirty ? t(" · Non enregistré") : ""}
           </span>
         </div>
         {units.map((u, i) => (
           <textarea
             key={u.id}
-            aria-label={`Traduction passage ${segment.position + 1} unité ${i + 1}`}
+            aria-label={t("Traduction passage {passage} unité {unit}")
+              .replace("{passage}", String(segment.position + 1))
+              .replace("{unit}", String(i + 1))}
             value={u.text}
-            placeholder="La traduction apparaîtra ici…"
+            placeholder={t("La traduction apparaîtra ici…")}
             rows={Math.max(
               2,
               Math.ceil(
@@ -326,27 +446,31 @@ export function SegmentRow({
         ))}
         {dirty && base !== segment.revision && (
           <p className="notice">
-            Une nouvelle version est arrivée. Votre saisie est conservée ;
-            enregistrement soumis à vérification de version.
+            {t(
+              "Une nouvelle version est arrivée. Votre saisie est conservée ; enregistrement soumis à vérification de version.",
+            )}
           </p>
         )}
         {segment.error && <p className="inline-error">{segment.error}</p>}
         {segment.retained_source && (
           <p className="notice">
-            Original conservé par décision humaine. Ce passage n’est pas compté
-            comme traduit ; utilisez l’export partiel ou saisissez une
-            traduction.
+            {t(
+              "Original conservé par décision humaine. Ce passage n’est pas compté comme traduit ; utilisez l’export partiel ou saisissez une traduction.",
+            )}
           </p>
         )}
         {segment.status === "refused" && (
           <div className="notice">
-            Refus enregistré. Vous pouvez saisir une traduction ou ouvrir
-            l’inspecteur pour ajouter une analyse humaine.
+            {t(
+              "Refus enregistré. Vous pouvez saisir une traduction ou ouvrir l’inspecteur pour ajouter une analyse humaine.",
+            )}
             <button
               onClick={() => {
                 if (
                   confirm(
-                    "Conserver le texte source pour ce passage ? Il restera signalé comme non traduit et sera disponible dans l’export partiel. Cela ne remplace pas une analyse humaine manquante.",
+                    t(
+                      "Conserver le texte source pour ce passage ? Il restera signalé comme non traduit et sera disponible dans l’export partiel. Cela ne remplace pas une analyse humaine manquante.",
+                    ),
                   )
                 )
                   void run(async () => {
@@ -357,13 +481,18 @@ export function SegmentRow({
                   });
               }}
             >
-              Conserver l’original pour l’export
+              {t("Conserver l’original pour l’export")}
             </button>
           </div>
         )}
         {!!segment.uncertainties.length && (
           <details>
-            <summary>{segment.uncertainties.length} incertitude(s)</summary>
+            <summary>
+              {t("{count} incertitude(s)").replace(
+                "{count}",
+                String(segment.uncertainties.length),
+              )}
+            </summary>
             <ul>
               {segment.uncertainties.map((u, i) => (
                 <li key={i}>{u}</li>
@@ -376,29 +505,31 @@ export function SegmentRow({
             disabled={busy || !units.every((u) => u.text)}
             onClick={() => void save(false)}
           >
-            Enregistrer
+            {t("Enregistrer")}
           </button>
           <button
             disabled={busy || !units.every((u) => u.text)}
             onClick={() => void save(true)}
           >
-            Valider
+            {t("Valider")}
           </button>
           <details className="retranslate">
-            <summary>Retraduire ▾</summary>
+            <summary>{t("Retraduire ▾")}</summary>
             <div>
               <button onClick={() => void run(() => translate())}>
-                Retraduire
+                {t("Retraduire")}
               </button>
               <button onClick={() => void run(() => translate(true))}>
-                Avec plus de contexte
+                {t("Avec plus de contexte")}
               </button>
               <button onClick={() => void run(() => translate(false, true))}>
-                Avec une instruction
+                {t("Avec une instruction")}
               </button>
             </div>
           </details>
-          <button onClick={inspect}>Contexte / historique / Ask AI</button>
+          <button onClick={inspect}>
+            {t("Contexte / historique / Ask AI")}
+          </button>
         </div>
       </div>
     </article>
@@ -422,29 +553,32 @@ function CodedText({ text }: { text: string }) {
 }
 
 export function RequestDetails({ request }: { request: LLMRequest }) {
+  const { t } = useI18n();
   return (
     <>
       <div className="metrics-inline">
-        {request.model} · {request.duration.toFixed(1)} s · tentative{" "}
+        {request.model} · {request.duration.toFixed(1)} s · {t("tentative")}{" "}
         {request.attempt}/5 · {request.cached ? "cache" : "provider"}
       </div>
       {request.error && <p className="inline-error">{request.error}</p>}
       <details open>
-        <summary>Contexte réellement sélectionné / écarté</summary>
+        <summary>{t("Contexte réellement sélectionné / écarté")}</summary>
         <pre>{JSON.stringify(request.context, null, 2)}</pre>
       </details>
       {request.messages?.map((m, i) => (
         <details key={i}>
-          <summary>Prompt final · {m.role}</summary>
+          <summary>
+            {t("Prompt final")} · {m.role}
+          </summary>
           <pre>{m.content}</pre>
         </details>
       ))}
       <details>
-        <summary>Réponse interprétée</summary>
+        <summary>{t("Réponse interprétée")}</summary>
         <pre>{JSON.stringify(request.parsed, null, 2)}</pre>
       </details>
       <details>
-        <summary>Réponse brute du provider</summary>
+        <summary>{t("Réponse brute du provider")}</summary>
         <pre>{JSON.stringify(request.raw, null, 2)}</pre>
       </details>
     </>
@@ -462,6 +596,7 @@ export function Inspector({
   close: () => void;
   refresh: () => void;
 }) {
+  const { t } = useI18n();
   const [tab, setTab] = useState("context");
   const [requests, setRequests] = useState<LLMRequest[]>([]);
   const [versions, setVersions] = useState<Version[]>([]);
@@ -486,21 +621,26 @@ export function Inspector({
     <aside
       className="inspector"
       role="dialog"
-      aria-label="Inspecteur du passage"
+      aria-label={t("Inspecteur du passage")}
     >
       <header>
-        <h2>Passage {segment.position + 1}</h2>
-        <button onClick={close} aria-label="Fermer l’inspecteur">
+        <h2>
+          {t("Passage {position}").replace(
+            "{position}",
+            String(segment.position + 1),
+          )}
+        </h2>
+        <button onClick={close} aria-label={t("Fermer l’inspecteur")}>
           ×
         </button>
       </header>
       <div className="tabs">
         {[
-          ["context", "Contexte"],
-          ["history", "Historique"],
-          ["review", "Critique"],
+          ["context", t("Contexte")],
+          ["history", t("Historique")],
+          ["review", t("Critique")],
           ["ask", "Ask AI"],
-          ["analysis", "Analyse humaine"],
+          ["analysis", t("Analyse humaine")],
         ].map(([id, name]) => (
           <button
             className={tab === id ? "active" : ""}
@@ -516,7 +656,7 @@ export function Inspector({
           {requests.length ? (
             <>
               <select
-                aria-label="Requête enregistrée"
+                aria-label={t("Requête enregistrée")}
                 value={index}
                 onChange={(e) => setIndex(+e.target.value)}
               >
@@ -529,7 +669,9 @@ export function Inspector({
               <RequestDetails request={requests[index]} />
             </>
           ) : (
-            <p className="muted">Aucune requête enregistrée pour ce passage.</p>
+            <p className="muted">
+              {t("Aucune requête enregistrée pour ce passage.")}
+            </p>
           )}
         </>
       ) : tab === "history" ? (
@@ -538,7 +680,9 @@ export function Inspector({
             <section className="version" key={v.id}>
               <strong>
                 {v.origin} ·{" "}
-                {v.applied ? "Appliquée lors de sa création" : "Proposition"}
+                {v.applied
+                  ? t("Appliquée lors de sa création")
+                  : t("Proposition")}
               </strong>
               <small>{date(v.created_at)}</small>
               <pre>{v.units.map((u) => u.text).join("\n\n")}</pre>
@@ -561,7 +705,7 @@ export function Inspector({
                   })
                 }
               >
-                Restaurer comme correction humaine
+                {t("Restaurer comme correction humaine")}
               </button>
             </section>
           ))}
@@ -571,12 +715,12 @@ export function Inspector({
       ) : tab === "analysis" ? (
         <>
           <p className="muted">
-            Résumez les informations nécessaires à la continuité : événements,
-            personnages et références. Cette saisie sera enregistrée comme une
-            analyse humaine, sans appel au modèle.
+            {t(
+              "Résumez les informations nécessaires à la continuité : événements, personnages et références. Cette saisie sera enregistrée comme une analyse humaine, sans appel au modèle.",
+            )}
           </p>
           <details>
-            <summary>Texte source du passage</summary>
+            <summary>{t("Texte source du passage")}</summary>
             <pre>{segment.source}</pre>
           </details>
           <form
@@ -594,7 +738,7 @@ export function Inspector({
             }}
           >
             <label>
-              Résumé humain
+              {t("Résumé humain")}
               <textarea
                 rows={8}
                 value={humanSummary}
@@ -602,26 +746,29 @@ export function Inspector({
                 onChange={(e) => setHumanSummary(e.target.value)}
               />
             </label>
-            <button className="primary">Enregistrer l’analyse humaine</button>
+            <button className="primary">
+              {t("Enregistrer l’analyse humaine")}
+            </button>
           </form>
           {analysisSaved && (
             <p role="status">
-              Analyse enregistrée. Vous pouvez reprendre le travail.
+              {t("Analyse enregistrée. Vous pouvez reprendre le travail.")}
             </p>
           )}
         </>
       ) : (
         <>
           <p className="muted">
-            Analyse linguistique contextualisée ; aucune modification
-            automatique du passage.
+            {t(
+              "Analyse linguistique contextualisée ; aucune modification automatique du passage.",
+            )}
           </p>
           <label>
-            Phrase sélectionnée (facultatif)
+            {t("Phrase sélectionnée (facultatif)")}
             <textarea
               value={selection}
               onChange={(e) => setSelection(e.target.value)}
-              placeholder="Collez la phrase à examiner"
+              placeholder={t("Collez la phrase à examiner")}
             />
           </label>
           <form
@@ -639,16 +786,18 @@ export function Inspector({
             }}
           >
             <label>
-              Question
+              {t("Question")}
               <textarea
                 value={question}
                 onChange={(e) => setQuestion(e.target.value)}
-                placeholder="Donne-moi trois variantes qui préservent le double sens."
+                placeholder={t(
+                  "Donne-moi trois variantes qui préservent le double sens.",
+                )}
                 required
               />
             </label>
             <button className="primary" disabled={busy}>
-              {busy ? "Consultation du modèle…" : "Demander à l’IA"}
+              {busy ? t("Consultation du modèle…") : t("Demander à l’IA")}
             </button>
           </form>
           {answer != null && <pre>{JSON.stringify(answer, null, 2)}</pre>}

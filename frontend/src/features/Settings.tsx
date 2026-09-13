@@ -1,7 +1,18 @@
 import { useEffect, useState } from "react";
 import { api, download, send } from "../api";
+import { registerTranslations, useI18n } from "../i18n";
 import type { Provider, Run, User } from "../types";
 import { CodexConnection } from "./CodexConnection";
+
+const translations: Record<string, string> = {
+  "Modèle local": "Local model", "Administration": "Administration", "Paramètres": "Settings", "← Bibliothèque": "← Library", "Mémoire · OpenViking": "Memory · OpenViking", "Utilisateurs": "Users",
+  "{message} {count} résultat(s). Le test ne modifie pas la configuration.": "{message} {count} result(s). The test does not change the configuration.", "Configuration enregistrée. Prise en compte par le worker aux prochaines recherches.": "Configuration saved. It will be used by the worker for subsequent searches.", "Recherche web · SearXNG": "Web search · SearXNG", "Recherche terminologique facultative pendant la revue finale. Les termes recherchés sont transmis à votre instance et à ses moteurs amont.": "Optional terminology search during final review. Search terms are sent to your instance and its upstream engines.", "URL de l’instance SearXNG": "SearXNG instance URL", "Activer la recherche pendant la revue finale": "Enable search during final review", "Le format JSON doit être autorisé dans search.formats sur SearXNG. Deux recherches maximum par passage. Aucune recherche lorsque cette option est désactivée.": "JSON format must be enabled in SearXNG search.formats. A maximum of two searches per segment. No search is made when this option is disabled.", "Enregistrer": "Save", "Tester la connexion": "Test connection",
+  "Provider enregistré.": "Provider saved.", "Nouveau provider": "New provider", "Connexion au modèle": "Model connection", "Les clés sont chiffrées côté serveur et ne sont jamais renvoyées au navigateur. L’URL doit être accessible depuis le conteneur.": "Keys are encrypted server-side and are never returned to the browser. The URL must be reachable from the container.", "Connexion / protocole": "Connection / protocol", "Codex / OpenAI · clé API (Responses)": "Codex / OpenAI · API key (Responses)", "Nom": "Name", "Clé API": "API key", "Enregistrée — laisser vide pour conserver": "Saved — leave empty to keep", "Facultative": "Optional", "Modèle": "Model", "Fenêtre de contexte": "Context window", "Tokens de sortie maximum": "Maximum output tokens", "Température": "Temperature", "Timeout (secondes)": "Timeout (seconds)", "Livres simultanés": "Concurrent books", "Coût / million tokens entrée": "Cost / million input tokens", "Coût / million tokens sortie": "Cost / million output tokens", "La limite de livres simultanés s’applique à ce provider, analyses, traductions et relectures confondues. Chaque provider dispose de sa propre capacité indépendante.": "The concurrent-book limit applies to this provider across analysis, translation, and review. Each provider has its own independent capacity.", "L’inférence utilise OpenAI. Température et Top P ne sont pas envoyés pour ce transport.": "Inference uses OpenAI. Temperature and Top P are not sent for this transport.", "La limite de sortie est une réservation du budget de l’application ; Codex ne fournit pas de plafond de génération équivalent à max_output_tokens.": "The output limit reserves application budget; Codex does not provide a generation ceiling equivalent to max_output_tokens.", "Une clé API est facturée séparément de l’abonnement ChatGPT.": "An API key is billed separately from the ChatGPT subscription.", "Capacités déclarées": "Declared capabilities", "Paramètre limite de sortie": "Output limit parameter", "Non envoyé": "Not sent", "Tester / détecter les modèles": "Test / detect models",
+  "Chargement…": "Loading…", "Mémoire narrative · OpenViking": "Narrative memory · OpenViking", "Hybrid conserve la continuité SQL lorsque OpenViking est absent ou indisponible. Les ressources sont séparées par propriétaire et projet, avec contrôle temporel des événements.": "Hybrid preserves SQL continuity when OpenViking is absent or unavailable. Resources are separated by owner and project, with temporal control of events.", "URL OpenViking": "OpenViking URL", "Racine dédiée viking://": "Dedicated viking:// root", "Budget contexte": "Context budget", "Budget retrieval": "Retrieval budget", "Score minimal": "Minimum score", "Authentification": "Authentication", "API key — recommandé": "API key — recommended", "Recherche sémantique (find)": "Semantic search (find)", "Recherche approfondie (search)": "Deep search (search)", "Les modèles VLM et embeddings se configurent sur le serveur OpenViking. L’application utilise find/search limités au projet, puis lit les souvenirs pertinents en L2. L’assemblage global non borné est évité.": "VLM and embedding models are configured on the OpenViking server. The application uses project-limited find/search, then reads relevant memories in L2. Unbounded global assembly is avoided.",
+  "Version {version}": "Version {version}", "initiale": "initial", "Contenu du prompt": "Prompt content", "Nouvelle version enregistrée.": "New version saved.", "Créer une version": "Create version", "Exporter les prompts": "Export prompts", "Utilisateurs de Libris": "Libris users", "Utilisateur": "User", "Rôle": "Role", "Administrateur": "Administrator", "Créer un compte": "Create an account", "Mot de passe initial": "Initial password", "Créer le compte": "Create account", "Enregistrée": "Saved",
+};
+registerTranslations(translations);
+registerTranslations({ "Codex · compte ChatGPT": "Codex · ChatGPT account" });
 
 const initial: Provider = {
   id: "",
@@ -48,23 +59,24 @@ interface Prompt {
 }
 
 export function Settings({ run }: { run: Run }) {
+  const { t } = useI18n();
   const [tab, setTab] = useState("providers");
   return (
     <main className="settings">
       <div className="page-heading">
         <div>
-          <p className="eyebrow">Administration</p>
-          <h1>Paramètres</h1>
+          <p className="eyebrow">{t("Administration")}</p>
+          <h1>{t("Paramètres")}</h1>
         </div>
-        <a href="#library">← Bibliothèque</a>
+        <a href="#library">{t("← Bibliothèque")}</a>
       </div>
       <div className="tabs">
         {[
           ["providers", "Providers LLM"],
-          ["memory", "Mémoire · OpenViking"],
+          ["memory", t("Mémoire · OpenViking")],
           ["search", "SearXNG"],
           ["prompts", "Prompts"],
-          ["users", "Utilisateurs"],
+          ["users", t("Utilisateurs")],
         ].map(([id, label]) => (
           <button
             key={id}
@@ -91,6 +103,7 @@ export function Settings({ run }: { run: Run }) {
 }
 
 function SearchSettings({ run }: { run: Run }) {
+  const { t } = useI18n();
   const [value, setValue] = useState({ base_url: "", enabled: false });
   const [ready, setReady] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -112,12 +125,12 @@ function SearchSettings({ run }: { run: Run }) {
             value,
           );
           setResult(
-            `${response.message} ${response.results} résultat(s). Le test ne modifie pas la configuration.`,
+            t("{message} {count} résultat(s). Le test ne modifie pas la configuration.").replace("{message}", response.message).replace("{count}", String(response.results)),
           );
         } else {
           setValue(await send("/settings/searxng", value, "PUT"));
           setResult(
-            "Configuration enregistrée. Prise en compte par le worker aux prochaines recherches.",
+            t("Configuration enregistrée. Prise en compte par le worker aux prochaines recherches."),
           );
         }
       } finally {
@@ -127,11 +140,8 @@ function SearchSettings({ run }: { run: Run }) {
   }
   return (
     <section>
-      <h2>Recherche web · SearXNG</h2>
-      <p className="muted">
-        Recherche terminologique facultative pendant la revue finale. Les termes
-        recherchés sont transmis à votre instance et à ses moteurs amont.
-      </p>
+      <h2>{t("Recherche web · SearXNG")}</h2>
+      <p className="muted">{t("Recherche terminologique facultative pendant la revue finale. Les termes recherchés sont transmis à votre instance et à ses moteurs amont.")}</p>
       <form
         onSubmit={(event) => {
           event.preventDefault();
@@ -139,7 +149,7 @@ function SearchSettings({ run }: { run: Run }) {
         }}
       >
         <label>
-          URL de l’instance SearXNG
+          {t("URL de l’instance SearXNG")}
           <input
             type="url"
             placeholder="https://search.example.com"
@@ -161,23 +171,19 @@ function SearchSettings({ run }: { run: Run }) {
               setResult("");
             }}
           />{" "}
-          Activer la recherche pendant la revue finale
+           {t("Activer la recherche pendant la revue finale")}
         </label>
-        <p className="muted">
-          Le format JSON doit être autorisé dans search.formats sur SearXNG.
-          Deux recherches maximum par passage. Aucune recherche lorsque cette
-          option est désactivée.
-        </p>
+        <p className="muted">{t("Le format JSON doit être autorisé dans search.formats sur SearXNG. Deux recherches maximum par passage. Aucune recherche lorsque cette option est désactivée.")}</p>
         <div className="actions">
           <button className="primary" disabled={!ready || busy}>
-            Enregistrer
+            {t("Enregistrer")}
           </button>
           <button
             type="button"
             disabled={!ready || busy || !value.base_url}
             onClick={() => void action(true)}
           >
-            Tester la connexion
+            {t("Tester la connexion")}
           </button>
         </div>
         {result && (
@@ -191,6 +197,7 @@ function SearchSettings({ run }: { run: Run }) {
 }
 
 function ProviderSettings({ run }: { run: Run }) {
+  const { t } = useI18n();
   const [providers, setProviders] = useState<Provider[]>([]);
   const [value, setValue] = useState(initial);
   const [key, setKey] = useState("");
@@ -216,7 +223,7 @@ function ProviderSettings({ run }: { run: Run }) {
     setValue(saved);
     setKey("");
     setProviders(await api("/providers"));
-    setResult("Provider enregistré.");
+    setResult(t("Provider enregistré."));
   }
   return (
     <div className="settings-grid">
@@ -236,15 +243,12 @@ function ProviderSettings({ run }: { run: Run }) {
           </button>
         ))}
         <button onClick={() => setValue({ ...initial })}>
-          + Nouveau provider
+          + {t("Nouveau provider")}
         </button>
       </aside>
       <section>
-        <h2>Connexion au modèle</h2>
-        <p className="muted">
-          Les clés sont chiffrées côté serveur et ne sont jamais renvoyées au
-          navigateur. L’URL doit être accessible depuis le conteneur.
-        </p>
+        <h2>{t("Connexion au modèle")}</h2>
+        <p className="muted">{t("Les clés sont chiffrées côté serveur et ne sont jamais renvoyées au navigateur. L’URL doit être accessible depuis le conteneur.")}</p>
         <form
           onSubmit={(e) => {
             e.preventDefault();
@@ -253,7 +257,7 @@ function ProviderSettings({ run }: { run: Run }) {
         >
           <div className="form-grid">
             <label>
-              Connexion / protocole
+               {t("Connexion / protocole")}
               <select
                 value={value.kind}
                 onChange={(e) => {
@@ -284,13 +288,13 @@ function ProviderSettings({ run }: { run: Run }) {
                   OpenAI-compatible · Chat Completions
                 </option>
                 <option value="openai_responses">
-                  Codex / OpenAI · clé API (Responses)
+                  {t("Codex / OpenAI · clé API (Responses)")}
                 </option>
-                <option value="codex_chatgpt">Codex · compte ChatGPT</option>
+                <option value="codex_chatgpt">{t("Codex · compte ChatGPT")}</option>
               </select>
             </label>
             <label>
-              Nom
+               {t("Nom")}
               <input
                 value={value.name}
                 onChange={(e) => field("name", e.target.value)}
@@ -310,7 +314,7 @@ function ProviderSettings({ run }: { run: Run }) {
             )}
             {value.kind !== "codex_chatgpt" && (
               <label>
-                Clé API
+                {t("Clé API")}
                 <input
                   type="password"
                   autoComplete="new-password"
@@ -318,14 +322,14 @@ function ProviderSettings({ run }: { run: Run }) {
                   onChange={(e) => setKey(e.target.value)}
                   placeholder={
                     value.has_api_key
-                      ? "Enregistrée — laisser vide pour conserver"
-                      : "Facultative"
+                      ? t("Enregistrée — laisser vide pour conserver")
+                      : t("Facultative")
                   }
                 />
               </label>
             )}
             <label>
-              Modèle
+              {t("Modèle")}
               <input
                 list="models"
                 value={value.model}
@@ -359,14 +363,12 @@ function ProviderSettings({ run }: { run: Run }) {
                 <label key={name}>
                   {
                     {
-                      context_window: "Fenêtre de contexte",
-                      max_output_tokens: "Tokens de sortie maximum",
-                      temperature: "Température",
+                      context_window: t("Fenêtre de contexte"),
+                       max_output_tokens: t("Tokens de sortie maximum"),
+                      temperature: t("Température"),
                       top_p: "Top P",
-                      timeout: "Timeout (secondes)",
-                      max_concurrency: "Livres simultanés",
-                      input_cost: "Coût / million tokens entrée",
-                      output_cost: "Coût / million tokens sortie",
+                       timeout: t("Timeout (secondes)"),
+                      max_concurrency: t("Livres simultanés"), input_cost: t("Coût / million tokens entrée"), output_cost: t("Coût / million tokens sortie"),
                     }[name]
                   }
                   <input
@@ -388,11 +390,7 @@ function ProviderSettings({ run }: { run: Run }) {
                 </label>
               ))}
           </div>
-          <p className="muted">
-            La limite de livres simultanés s’applique à ce provider, analyses,
-            traductions et relectures confondues. Chaque provider dispose de sa
-            propre capacité indépendante.
-          </p>
+          <p className="muted">{t("La limite de livres simultanés s’applique à ce provider, analyses, traductions et relectures confondues. Chaque provider dispose de sa propre capacité indépendante.")}</p>
           {value.kind === "codex_chatgpt" && (
             <CodexConnection
               key={value.id}
@@ -407,15 +405,14 @@ function ProviderSettings({ run }: { run: Run }) {
           )}
           {value.kind !== "openai" && (
             <p className="muted">
-              L’inférence utilise OpenAI. Température et Top P ne sont pas
-              envoyés pour ce transport.{" "}
+              {t("L’inférence utilise OpenAI. Température et Top P ne sont pas envoyés pour ce transport.")}{" "}
               {value.kind === "codex_chatgpt"
-                ? "La limite de sortie est une réservation du budget de l’application ; Codex ne fournit pas de plafond de génération équivalent à max_output_tokens."
-                : "Une clé API est facturée séparément de l’abonnement ChatGPT."}
+                ? t("La limite de sortie est une réservation du budget de l’application ; Codex ne fournit pas de plafond de génération équivalent à max_output_tokens.")
+                : t("Une clé API est facturée séparément de l’abonnement ChatGPT.")}
             </p>
           )}
           <details open>
-            <summary>Capacités déclarées</summary>
+            <summary>{t("Capacités déclarées")}</summary>
             <div className="checks">
               {(
                 [
@@ -442,7 +439,7 @@ function ProviderSettings({ run }: { run: Run }) {
             </div>
             <div className="form-grid">
               <label>
-                Paramètre limite de sortie
+                {t("Paramètre limite de sortie")}
                 <select
                   value={
                     value.capabilities.max_tokens_parameter || "max_tokens"
@@ -471,7 +468,7 @@ function ProviderSettings({ run }: { run: Run }) {
                 >
                   {["", "none", "minimal", "low", "medium", "high"].map((v) => (
                     <option key={v} value={v}>
-                      {v || "Non envoyé"}
+                      {v || t("Non envoyé")}
                     </option>
                   ))}
                 </select>
@@ -479,7 +476,7 @@ function ProviderSettings({ run }: { run: Run }) {
             </div>
           </details>
           <div className="actions">
-            <button className="primary">Enregistrer</button>
+            <button className="primary">{t("Enregistrer")}</button>
             <button
               type="button"
               disabled={!value.id}
@@ -495,7 +492,7 @@ function ProviderSettings({ run }: { run: Run }) {
                 })
               }
             >
-              Tester / détecter les modèles
+              {t("Tester / détecter les modèles")}
             </button>
           </div>
           {result && (
@@ -510,21 +507,18 @@ function ProviderSettings({ run }: { run: Run }) {
 }
 
 function MemorySettings({ run }: { run: Run }) {
+  const { t } = useI18n();
   const [value, setValue] = useState<MemoryConfig | null>(null);
   const [key, setKey] = useState("");
   const [result, setResult] = useState<unknown>(null);
   useEffect(() => {
     void run(async () => setValue(await api("/settings/memory")));
   }, [run]);
-  if (!value) return <p>Chargement…</p>;
+  if (!value) return <p>{t("Chargement…")}</p>;
   return (
     <section className="narrow">
-      <h2>Mémoire narrative · OpenViking</h2>
-      <p className="muted">
-        Hybrid conserve la continuité SQL lorsque OpenViking est absent ou
-        indisponible. Les ressources sont séparées par propriétaire et projet,
-        avec contrôle temporel des événements.
-      </p>
+      <h2>{t("Mémoire narrative · OpenViking")}</h2>
+      <p className="muted">{t("Hybrid conserve la continuité SQL lorsque OpenViking est absent ou indisponible. Les ressources sont séparées par propriétaire et projet, avec contrôle temporel des événements.")}</p>
       <form
         onSubmit={(e) => {
           e.preventDefault();
@@ -536,13 +530,13 @@ function MemorySettings({ run }: { run: Run }) {
               "PUT",
             );
             setKey("");
-            setResult({ message: "Configuration enregistrée." });
+            setResult({ message: t("Configuration enregistrée.") });
           });
         }}
       >
         <div className="form-grid">
           <label>
-            URL OpenViking
+            {t("URL OpenViking")}
             <input
               value={value.base_url}
               onChange={(e) => setValue({ ...value, base_url: e.target.value })}
@@ -550,23 +544,23 @@ function MemorySettings({ run }: { run: Run }) {
             />
           </label>
           <label>
-            Racine dédiée viking://
+            {t("Racine dédiée viking://")}
             <input
               value={value.root_uri}
               onChange={(e) => setValue({ ...value, root_uri: e.target.value })}
             />
           </label>
           <label>
-            Clé API
+            {t("Clé API")}
             <input
               type="password"
               value={key}
               onChange={(e) => setKey(e.target.value)}
-              placeholder={value.has_api_key ? "Enregistrée" : "Facultative"}
+              placeholder={value.has_api_key ? t("Enregistrée") : t("Facultative")}
             />
           </label>
           <label>
-            Budget contexte
+            {t("Budget contexte")}
             <input
               type="number"
               value={value.context_budget}
@@ -576,7 +570,7 @@ function MemorySettings({ run }: { run: Run }) {
             />
           </label>
           <label>
-            Budget retrieval
+            {t("Budget retrieval")}
             <input
               type="number"
               value={value.retrieval_budget}
@@ -586,7 +580,7 @@ function MemorySettings({ run }: { run: Run }) {
             />
           </label>
           <label>
-            Score minimal
+            {t("Score minimal")}
             <input
               type="number"
               min="0"
@@ -599,7 +593,7 @@ function MemorySettings({ run }: { run: Run }) {
             />
           </label>
           <label>
-            Timeout (secondes)
+            {t("Timeout (secondes)")}
             <input
               type="number"
               value={value.timeout}
@@ -607,14 +601,14 @@ function MemorySettings({ run }: { run: Run }) {
             />
           </label>
           <label>
-            Authentification
+            {t("Authentification")}
             <select
               value={value.auth_mode}
               onChange={(e) =>
                 setValue({ ...value, auth_mode: e.target.value })
               }
             >
-              <option value="api_key">API key — recommandé</option>
+              <option value="api_key">{t("API key — recommandé")}</option>
               <option value="trusted">Trusted gateway</option>
             </select>
           </label>
@@ -648,13 +642,13 @@ function MemorySettings({ run }: { run: Run }) {
                 onChange={(e) => setValue({ ...value, [k]: e.target.checked })}
               />
               {k === "enable_search"
-                ? "Recherche sémantique (find)"
-                : "Recherche approfondie (search)"}
+                ? t("Recherche sémantique (find)")
+                : t("Recherche approfondie (search)")}
             </label>
           ))}
         </div>
         <div className="actions">
-          <button className="primary">Enregistrer</button>
+          <button className="primary">{t("Enregistrer")}</button>
           <button
             type="button"
             onClick={() =>
@@ -663,21 +657,18 @@ function MemorySettings({ run }: { run: Run }) {
               )
             }
           >
-            Tester la connexion
+            {t("Tester la connexion")}
           </button>
         </div>
       </form>
       {result != null && <pre>{JSON.stringify(result, null, 2)}</pre>}
-      <p className="muted">
-        Les modèles VLM et embeddings se configurent sur le serveur OpenViking.
-        L’application utilise find/search limités au projet, puis lit les
-        souvenirs pertinents en L2. L’assemblage global non borné est évité.
-      </p>
+      <p className="muted">{t("Les modèles VLM et embeddings se configurent sur le serveur OpenViking. L’application utilise find/search limités au projet, puis lit les souvenirs pertinents en L2. L’assemblage global non borné est évité.")}</p>
     </section>
   );
 }
 
 function Prompts({ run }: { run: Run }) {
+  const { t } = useI18n();
   const [values, setValues] = useState<Prompt[]>([]);
   const [selected, setSelected] = useState(0);
   const [saved, setSaved] = useState("");
@@ -695,7 +686,7 @@ function Prompts({ run }: { run: Run }) {
             onClick={() => setSelected(i)}
           >
             {v.name}
-            <small>Version {v.version || "initiale"}</small>
+            <small>{t("Version {version}").replace("{version}", String(v.version || t("initiale")))}</small>
           </button>
         ))}
       </aside>
@@ -704,7 +695,7 @@ function Prompts({ run }: { run: Run }) {
           <h2>{current.name}</h2>
           <textarea
             className="prompt-editor"
-            aria-label="Contenu du prompt"
+            aria-label={t("Contenu du prompt")}
             value={current.content}
             onChange={(e) =>
               setValues(
@@ -725,14 +716,14 @@ function Prompts({ run }: { run: Run }) {
                     "PUT",
                   );
                   setValues(await api("/prompts"));
-                  setSaved("Nouvelle version enregistrée.");
+                  setSaved(t("Nouvelle version enregistrée."));
                 })
               }
             >
-              Créer une version
+              {t("Créer une version")}
             </button>
             <button onClick={() => download("prompts.json", values)}>
-              Exporter les prompts
+              {t("Exporter les prompts")}
             </button>
           </div>
           <p role="status">{saved}</p>
@@ -743,6 +734,7 @@ function Prompts({ run }: { run: Run }) {
 }
 
 function Users({ run }: { run: Run }) {
+  const { t } = useI18n();
   const [users, setUsers] = useState<User[]>([]);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -751,24 +743,24 @@ function Users({ run }: { run: Run }) {
   }, [run]);
   return (
     <section className="narrow">
-      <h2>Utilisateurs de Libris</h2>
+      <h2>{t("Utilisateurs de Libris")}</h2>
       <table>
         <thead>
           <tr>
-            <th>Utilisateur</th>
-            <th>Rôle</th>
+            <th>{t("Utilisateur")}</th>
+            <th>{t("Rôle")}</th>
           </tr>
         </thead>
         <tbody>
           {users.map((u) => (
             <tr key={u.id}>
               <td>{u.username}</td>
-              <td>{u.admin ? "Administrateur" : "Utilisateur"}</td>
+                <td>{u.admin ? t("Administrateur") : t("Utilisateur")}</td>
             </tr>
           ))}
         </tbody>
       </table>
-      <h3>Créer un compte</h3>
+      <h3>{t("Créer un compte")}</h3>
       <form
         onSubmit={(e) => {
           e.preventDefault();
@@ -782,7 +774,7 @@ function Users({ run }: { run: Run }) {
       >
         <div className="form-grid">
           <label>
-            Utilisateur
+            {t("Utilisateur")}
             <input
               value={username}
               onChange={(e) => setUsername(e.target.value)}
@@ -790,7 +782,7 @@ function Users({ run }: { run: Run }) {
             />
           </label>
           <label>
-            Mot de passe initial
+            {t("Mot de passe initial")}
             <input
               type="password"
               minLength={12}
@@ -800,7 +792,7 @@ function Users({ run }: { run: Run }) {
             />
           </label>
         </div>
-        <button className="primary">Créer le compte</button>
+        <button className="primary">{t("Créer le compte")}</button>
       </form>
     </section>
   );

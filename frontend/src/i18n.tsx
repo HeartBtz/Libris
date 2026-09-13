@@ -50,6 +50,7 @@ const french = {
 
 type MessageKey = keyof typeof french;
 type Catalog = Record<MessageKey, string>;
+const featureTranslations: Record<string, string> = {};
 
 const english: Catalog = {
   "language.french": "Français",
@@ -96,11 +97,15 @@ const english: Catalog = {
   "status.syncing": "Synchronizing",
 };
 
-const catalogs: Record<Locale, Catalog> = { fr: french, en: english };
 let activeLocale: Locale = "fr";
 
-export function message(key: MessageKey): string {
-  return catalogs[activeLocale][key] || french[key];
+export function registerTranslations(translations: Record<string, string>) {
+  Object.assign(featureTranslations, translations);
+}
+
+export function message(key: string): string {
+  if (activeLocale === "en") return featureTranslations[key] || english[key as MessageKey] || key;
+  return french[key as MessageKey] || key;
 }
 
 export function getLocale(): Locale {
@@ -110,22 +115,31 @@ export function getLocale(): Locale {
 const I18nContext = createContext<{
   locale: Locale;
   setLocale: (locale: Locale) => void;
-  t: (key: MessageKey) => string;
+  t: (key: string) => string;
 }>({ locale: "fr", setLocale: () => {}, t: message });
 
 export function I18nProvider({ children }: { children: React.ReactNode }) {
   const [locale, setLocale] = useState<Locale>(() => {
     const saved = localStorage.getItem("locale");
-    return locales.includes(saved as Locale) ? (saved as Locale) : "fr";
+    const initial = locales.includes(saved as Locale) ? (saved as Locale) : "fr";
+    activeLocale = initial;
+    return initial;
   });
   useEffect(() => {
     activeLocale = locale;
     document.documentElement.lang = locale;
     localStorage.setItem("locale", locale);
   }, [locale]);
-  const t = (key: MessageKey) => catalogs[locale][key] || french[key];
+  const changeLocale = (next: Locale) => {
+    activeLocale = next;
+    setLocale(next);
+  };
+  const t = (key: string) =>
+    locale === "en"
+      ? featureTranslations[key] || english[key as MessageKey] || key
+      : french[key as MessageKey] || key;
   return (
-    <I18nContext.Provider value={{ locale, setLocale, t }}>
+    <I18nContext.Provider value={{ locale, setLocale: changeLocale, t }}>
       {children}
     </I18nContext.Provider>
   );

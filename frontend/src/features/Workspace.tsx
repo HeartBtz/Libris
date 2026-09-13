@@ -1,5 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useState } from "react";
 import { api, date, labels, send } from "../api";
+import { registerTranslations, useI18n } from "../i18n";
 import type { Chapter, Job, Project, Run, Segment, User } from "../types";
 import { Editor } from "./Editor";
 import { ValidationPanel } from "./ValidationPanel";
@@ -7,6 +8,76 @@ import { CompletionPanel } from "./CompletionPanel";
 import { StageProgress, type ExportState } from "./StageProgress";
 import { duration, projectProgress } from "./progress";
 const CharacterGraph = lazy(() => import("./CharacterGraph"));
+const translations: Record<string, string> = {
+  "Analyse des passages": "Segment analysis",
+  "Synthèse de la Book Bible": "Book Bible synthesis",
+  "Traduction": "Translation",
+  "Cohérence globale": "Global consistency",
+  "Résolution finale des validations": "Final validation resolution",
+  "Récupération requise": "Recovery required",
+  "Connexion au suivi…": "Connecting to progress tracking…",
+  "Suivi connecté": "Progress tracking connected",
+  "Reconnexion du suivi…": "Reconnecting progress tracking…",
+  "Ouverture du livre…": "Opening book…",
+  "Export refusé": "Export refused",
+  "Actualiser les données du livre": "Refresh book data",
+  "Actualisation…": "Refreshing…",
+  "Actualiser": "Refresh",
+  "Mis à jour à": "Updated at",
+  "Bibliothèque /": "Library /",
+  "volume": "volume",
+  "lot": "batch",
+  "Reprendre le travail annulé": "Resume cancelled work",
+  "Reprendre après connexion": "Resume after signing in",
+  "Reprendre": "Resume",
+  "Pause": "Pause",
+  "Réessayer maintenant": "Retry now",
+  "Annuler": "Cancel",
+  "Analyse terminée": "Analysis complete",
+  "Analyser le livre": "Analyze book",
+  "Relancer une analyse complète des résultats automatiques ? Les analyses et décisions humaines sont conservées. Cette opération rappellera le modèle.": "Rerun a full analysis of the automatic results? Analyses and human decisions will be preserved. This operation will call the model again.",
+  "Réanalyse complète": "Full reanalysis",
+  "Traduire": "Translate",
+  "Récupérer": "Recover",
+  "passage(s)": "segment(s)",
+  "Exporter ↓": "Export ↓",
+  "EPUB traduit": "Translated EPUB",
+  "Texte": "Text",
+  "Projet complet": "Complete project",
+  "EPUB partiel · originaux conservés": "Partial EPUB · originals retained",
+  "Rapport de couverture": "Coverage report",
+  "Configurez le provider et les langues dans": "Configure the provider and languages in",
+  "Configuration": "Settings",
+  "Gérer les providers →": "Manage providers →",
+  "Voir les requêtes": "View requests",
+  "Le provider a refusé le traitement. Le texte source est conservé ; ce passage n’est pas compté comme analysé ou traduit automatiquement.": "The provider declined processing. The source text is retained; this segment is not counted as automatically analyzed or translated.",
+  "Ouvrir le passage à traiter": "Open the segment to process",
+  "Compléter la Book Bible manuellement": "Complete the Book Bible manually",
+  "Reprise automatique prévue :": "Automatic retry scheduled:",
+  "interruption(s) consécutive(s). Les étapes enregistrées sont conservées. Utilisez Pause pour suspendre les tentatives automatiques.": "consecutive interruption(s). Completed stages are retained. Use Pause to suspend automatic retries.",
+  "Pause volontaire — utilisez Reprendre pour continuer.": "Paused manually — use Resume to continue.",
+  "Ouvrir les paramètres de connexion du provider →": "Open provider connection settings →",
+  "validés humainement": "human-validated",
+  "à vérifier": "to review",
+  "erreurs": "errors",
+  "Mémoire": "Memory",
+  "passage(s) conservé(s) en original": "segment(s) retained in the original",
+  "Navigation du livre": "Book navigation",
+  "Validations": "Validations",
+  "Bilan & récupération": "Summary & recovery",
+  "Qualité": "Quality",
+  "Mémoire du livre": "Book memory",
+  "Personnages & liens": "Characters & relationships",
+  "Glossaire": "Glossary",
+  "Réglages & suivi": "Settings & tracking",
+  "Observabilité": "Observability",
+  "Sections du livre": "Book sections",
+  "Analysé": "Analyzed",
+  "Chargement du graphe…": "Loading graph…",
+};
+
+registerTranslations(translations);
+
 const stageLabels: Record<string, string> = {
   chapter_analysis: "Analyse des passages",
   book_bible: "Synthèse de la Book Bible",
@@ -32,6 +103,7 @@ export function Workspace({
   user: User;
   run: Run;
 }) {
+  const { t } = useI18n();
   const [project, setProject] = useState<Project | null>(null);
   const [chapters, setChapters] = useState<Chapter[]>([]);
   const [jobs, setJobs] = useState<Job[]>([]);
@@ -42,7 +114,7 @@ export function Workspace({
   const [tick, setTick] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
   const [refreshedAt, setRefreshedAt] = useState("");
-  const [streamState, setStreamState] = useState("Connexion au suivi…");
+  const [streamState, setStreamState] = useState(t("Connexion au suivi…"));
   const load = useCallback(async () => {
     setRefreshing(true);
     try {
@@ -66,8 +138,8 @@ export function Workspace({
   useEffect(() => {
     const stream = new EventSource(`/api/projects/${id}/events`);
     let pending: ReturnType<typeof setTimeout> | undefined;
-    stream.onopen = () => setStreamState("Suivi connecté");
-    stream.onerror = () => setStreamState("Reconnexion du suivi…");
+    stream.onopen = () => setStreamState(t("Suivi connecté"));
+    stream.onerror = () => setStreamState(t("Reconnexion du suivi…"));
     stream.onmessage = () => {
       clearTimeout(pending);
       pending = setTimeout(() => setTick((v) => v + 1), 300);
@@ -76,9 +148,9 @@ export function Workspace({
       clearTimeout(pending);
       stream.close();
     };
-  }, [id]);
+  }, [id, t]);
   const refresh = () => setTick((t) => t + 1);
-  if (!project) return <main className="loading">Ouverture du livre…</main>;
+  if (!project) return <main className="loading">{t("Ouverture du livre…")}</main>;
   const runningJob = jobs.find((j) =>
     [
       "pending",
@@ -117,7 +189,7 @@ export function Workspace({
         throw new Error(
           typeof error.detail === "string"
             ? error.detail
-            : `Export refusé (HTTP ${response.status}).`,
+            : `${t("Export refusé")} (HTTP ${response.status}).`,
         );
       }
       const url = URL.createObjectURL(await response.blob());
@@ -137,18 +209,18 @@ export function Workspace({
       <div className="workspace-heading">
         <div className="refresh-control">
           <button
-            aria-label="Actualiser les données du livre"
+            aria-label={t("Actualiser les données du livre")}
             aria-busy={refreshing}
             disabled={refreshing}
             onClick={refresh}
           >
-            {refreshing ? "Actualisation…" : "Actualiser"}
+            {refreshing ? t("Actualisation…") : t("Actualiser")}
           </button>
-          <small>{refreshedAt && `Mis à jour à ${refreshedAt}`}</small>
+          <small>{refreshedAt && `${t("Mis à jour à")} ${refreshedAt}`}</small>
         </div>
         <div>
           <a className="breadcrumb" href="#library">
-            Bibliothèque /
+            {t("Bibliothèque /")}
           </a>
           <h1>{project.title}</h1>
           <span className="muted">
@@ -158,13 +230,13 @@ export function Workspace({
           {project.series_name && (
             <span className="series-meta">
               {project.series_name}
-              {project.volume_number && ` · volume ${project.volume_number}`}
+              {project.volume_number && ` · ${t("volume")} ${project.volume_number}`}
             </span>
           )}
         </div>
         <div className="workspace-progress">
           <strong>{canonicalProgress.current.percent}%</strong>
-          <span>{canonicalProgress.current.label}</span>
+          <span>{t(canonicalProgress.current.label)}</span>
           {canonicalProgress.estimate.remaining_seconds !== null &&
             canonicalProgress.current.percent < 100 && (
               <small>
@@ -194,11 +266,11 @@ export function Workspace({
                   }
                 >
                   {job.status === "cancelled"
-                    ? "Reprendre le travail annulé"
+                     ? t("Reprendre le travail annulé")
                     : job.status === "blocked" &&
                         job.stop_reason === "authentication_required"
-                      ? "Reprendre après connexion"
-                      : "Reprendre"}
+                       ? t("Reprendre après connexion")
+                       : t("Reprendre")}
                 </button>
               ) : (
                 <button
@@ -209,7 +281,7 @@ export function Workspace({
                     })
                   }
                 >
-                  Pause
+                  {t("Pause")}
                 </button>
               )}
               {job.status === "waiting" && (
@@ -221,7 +293,7 @@ export function Workspace({
                     })
                   }
                 >
-                  Réessayer maintenant
+                  {t("Réessayer maintenant")}
                 </button>
               )}
               {job.status !== "cancelled" && (
@@ -233,7 +305,7 @@ export function Workspace({
                     })
                   }
                 >
-                  Annuler
+                  {t("Annuler")}
                 </button>
               )}
             </>
@@ -243,20 +315,20 @@ export function Workspace({
                 disabled={!project.provider_id || analysisReady}
                 onClick={() => void run(() => start("analyze"))}
               >
-                {analysisReady ? "Analyse terminée" : "Analyser le livre"}
+                {analysisReady ? t("Analyse terminée") : t("Analyser le livre")}
               </button>
               {analysisReady && (
                 <button
                   onClick={() => {
                     if (
                       confirm(
-                        "Relancer une analyse complète des résultats automatiques ? Les analyses et décisions humaines sont conservées. Cette opération rappellera le modèle.",
+                        t("Relancer une analyse complète des résultats automatiques ? Les analyses et décisions humaines sont conservées. Cette opération rappellera le modèle."),
                       )
                     )
                       void run(() => start("analyze", true));
                   }}
                 >
-                  Réanalyse complète
+                  {t("Réanalyse complète")}
                 </button>
               )}
               <button
@@ -266,28 +338,28 @@ export function Workspace({
                 }
                 onClick={() => void run(() => start("translate"))}
               >
-                Traduire
+                  {t("Traduire")}
               </button>
               {!!(project.stats.errors || project.stats.refused) && (
                 <button
                   className="primary"
                   onClick={() => setTab("completion")}
                 >
-                  Récupérer {project.stats.errors + project.stats.refused}{" "}
-                  passage(s)
+                  {t("Récupérer")} {project.stats.errors + project.stats.refused}{" "}
+                  {t("passage(s)").replace("segment(s)", project.stats.errors + project.stats.refused === 1 ? "segment" : "segments")}
                 </button>
               )}
             </>
           )}
           <details className="export-menu">
-            <summary className="button">Exporter ↓</summary>
+            <summary className="button">{t("Exporter ↓")}</summary>
             <div>
               {[
-                ["epub", "EPUB traduit"],
-                ["txt", "Texte"],
+                ["epub", t("EPUB traduit")],
+                ["txt", t("Texte")],
                 ["md", "Markdown"],
                 ["bible", "Book Bible JSON"],
-                ["project", "Projet complet"],
+                ["project", t("Projet complet")],
               ].map(([format, label]) => (
                 <a
                   key={format}
@@ -307,14 +379,14 @@ export function Workspace({
                   void run(() => exportFile("epub", true));
                 }}
               >
-                EPUB partiel · originaux conservés
+                {t("EPUB partiel · originaux conservés")}
               </a>
               <a
                 href={`/api/projects/${id}/coverage`}
                 target="_blank"
                 rel="noreferrer"
               >
-                Rapport de couverture
+                {t("Rapport de couverture")}
               </a>
             </div>
           </details>
@@ -322,11 +394,11 @@ export function Workspace({
       </div>
       {!project.provider_id && (
         <div className="notice">
-          Configurez le provider et les langues dans{" "}
+          {t("Configurez le provider et les langues dans")} {" "}
           <button className="link" onClick={() => setTab("config")}>
-            Configuration
+            {t("Configuration")}
           </button>
-          . {user.admin && <a href="#settings">Gérer les providers →</a>}
+          . {user.admin && <a href="#settings">{t("Gérer les providers →")}</a>}
         </div>
       )}
       {job?.error && (
@@ -335,13 +407,12 @@ export function Workspace({
           role="alert"
         >
           {job.error}{" "}
-          <button onClick={() => setTab("requests")}>Voir les requêtes</button>
+          <button onClick={() => setTab("requests")}>{t("Voir les requêtes")}</button>
         </div>
       )}
       {job?.stop_reason === "content_refusal" && (
         <div className="notice" role="status">
-          Le provider a refusé le traitement. Le texte source est conservé ; ce
-          passage n’est pas compté comme analysé ou traduit automatiquement.
+          {t("Le provider a refusé le traitement. Le texte source est conservé ; ce passage n’est pas compté comme analysé ou traduit automatiquement.")}
           {job.checkpoint.segment_id ? (
             <button
               onClick={() =>
@@ -355,26 +426,24 @@ export function Workspace({
                 })
               }
             >
-              Ouvrir le passage à traiter
+              {t("Ouvrir le passage à traiter")}
             </button>
           ) : (
             <button onClick={() => setTab("bible")}>
-              Compléter la Book Bible manuellement
+              {t("Compléter la Book Bible manuellement")}
             </button>
           )}
         </div>
       )}
       {job?.status === "waiting" && (
         <div className="notice" role="status">
-          Reprise automatique prévue : {date(job.next_attempt)} ·{" "}
-          {job.outage_count} interruption(s) consécutive(s). Les étapes
-          enregistrées sont conservées. Utilisez Pause pour suspendre les
-          tentatives automatiques.
+          {t("Reprise automatique prévue :")} {date(job.next_attempt)} ·{" "}
+          {job.outage_count} {t("interruption(s) consécutive(s). Les étapes enregistrées sont conservées. Utilisez Pause pour suspendre les tentatives automatiques.").replace("interruption(s)", job.outage_count === 1 ? "interruption" : "interruptions")}
         </div>
       )}
       {job?.status === "paused" && (
         <p className="muted">
-          Pause volontaire — utilisez Reprendre pour continuer.
+          {t("Pause volontaire — utilisez Reprendre pour continuer.")}
         </p>
       )}
       {job?.status === "blocked" &&
@@ -382,7 +451,7 @@ export function Workspace({
         user.admin && (
           <p>
             <a href="#settings">
-              Ouvrir les paramètres de connexion du provider →
+              {t("Ouvrir les paramètres de connexion du provider →")}
             </a>
           </p>
         )}
@@ -390,52 +459,50 @@ export function Workspace({
         <span>
           {streamState}
           {job?.checkpoint.step
-            ? ` · ${stageLabels[String(job.checkpoint.step)] || String(job.checkpoint.step)}`
+            ? ` · ${t(stageLabels[String(job.checkpoint.step)] || String(job.checkpoint.step))}`
             : ""}
           {job?.checkpoint.current
             ? ` · ${String(job.checkpoint.current)} / ${String(job.checkpoint.total)}`
             : ""}
           {job?.checkpoint.step === "book_bible" && job.checkpoint.batch_current
-            ? ` · lot ${String(job.checkpoint.batch_current)}/${String(job.checkpoint.batch_total)}`
+            ? ` · ${t("lot")} ${String(job.checkpoint.batch_current)}/${String(job.checkpoint.batch_total)}`
             : ""}
         </span>
         <span>
-          {project.stats.validated} validés humainement ·{" "}
-          {project.stats.flagged} à vérifier · {project.stats.errors} erreurs ·
-          Mémoire {project.context_backend}
+          {project.stats.validated} {t("validés humainement")} · {project.stats.flagged} {t("à vérifier")} · {project.stats.errors} {t("erreurs")} · {t("Mémoire")} {project.context_backend}
           {project.stats.retained_source > 0
-            ? ` · ${project.stats.retained_source} passage(s) conservé(s) en original`
+            ? ` · ${project.stats.retained_source} ${t("passage(s) conservé(s) en original").replace("segment(s)", project.stats.retained_source === 1 ? "segment" : "segments")}`
             : ""}
         </span>
       </div>
       <div className="workspace-shell">
-        <nav className="workspace-nav" aria-label="Navigation du livre">
+        <nav className="workspace-nav" aria-label={t("Navigation du livre")}>
           {[
             {
-              title: "Traduire",
+              title: t("Traduire"),
               items: [
-                ["editor", "Traduction"],
+                ["editor", t("Traduction")],
                 [
                   "validations",
-                  `Validations${project.stats.flagged + project.stats.refused ? ` (${project.stats.flagged + project.stats.refused})` : ""}`,
+                  `${t("Validations")}${project.stats.flagged + project.stats.refused ? ` (${project.stats.flagged + project.stats.refused})` : ""}`,
                 ],
-                ["completion", "Bilan & récupération"],
-                ["quality", "Qualité"],
+                ["completion", t("Bilan & récupération")],
+                ["quality", t("Qualité")],
               ],
             },
             {
-              title: "Mémoire du livre",
+              title: t("Mémoire du livre"),
               items: [
                 ["bible", "Book Bible"],
-                ["characters", "Personnages & liens"],
-                ["glossary", "Glossaire"],
+                ["characters", t("Personnages & liens")],
+                ["glossary", t("Glossaire")],
               ],
             },
             {
-              title: "Réglages & suivi",
+              title: t("Réglages & suivi"),
               items: [
-                ["config", "Configuration"],
-                ["requests", "Observabilité"],
+                ["config", t("Configuration")],
+                ["requests", t("Observabilité")],
               ],
             },
           ].map((group) => (
@@ -459,7 +526,7 @@ export function Workspace({
             <div className="workspace-body">
               <aside className="chapter-list">
                 <h3>
-                  Sections du livre <span>{chapters.length}</span>
+                  {t("Sections du livre")} <span>{chapters.length}</span>
                 </h3>
                 {chapters.map((c) => (
                   <button
@@ -469,7 +536,7 @@ export function Workspace({
                   >
                     <small>{String(c.position + 1).padStart(2, "0")}</small>
                     <span>{c.title}</span>
-                    {c.analyzed && <span className="dot" title="Analysé" />}
+                    {c.analyzed && <span className="dot" title={t("Analysé")} />}
                   </button>
                 ))}
               </aside>
@@ -487,7 +554,7 @@ export function Workspace({
           ) : (
             <div className="workspace-panel">
               {tab === "characters" ? (
-                <Suspense fallback={<p>Chargement du graphe…</p>}>
+                <Suspense fallback={<p>{t("Chargement du graphe…")}</p>}>
                   <CharacterGraph pid={id} tick={tick} run={run} />
                 </Suspense>
               ) : tab === "bible" ? (

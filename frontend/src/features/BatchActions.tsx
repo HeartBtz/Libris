@@ -1,6 +1,19 @@
 import { useEffect, useState } from "react";
 import { api, send } from "../api";
+import { registerTranslations, useI18n } from "../i18n";
 import type { Job, Project, Provider, Run } from "../types";
+
+const translations: Record<string, string> = {
+  "Supprimer définitivement les {count} projets sélectionnés et arrêter leurs travaux ? La mémoire OpenViking distante reste séparée.": "Permanently delete the {count} selected projects and stop their work? Remote OpenViking memory remains separate.",
+  "Retirer les {count} livres sélectionnés de leur série ?": "Remove the {count} selected books from their series?",
+  "{count} livre(s) retiré(s) de leur série.": "{count} book(s) removed from their series.",
+  "Série {series} appliquée à {count} livre(s), numéros conservés.": "Series {series} applied to {count} book(s), numbers retained.",
+  "{count} livre(s) numéroté(s) dans {series}.": "{count} book(s) numbered in {series}.",
+  "supprimé.": "deleted.", "archivé.": "archived.", "en pause": "paused", "reprise planifiée": "resumption scheduled", "travail annulé": "work cancelled", "aucun travail concerné": "no relevant work", "configuré": "configured", "travail ajouté à la file": "work queued",
+  "Actions sur plusieurs livres": "Actions for multiple books", "livre(s) sélectionné(s)": "selected book(s)", "Série commune": "Common series", "Premier volume": "First volume", "Appliquer sans renuméroter": "Apply without renumbering", "Numéroter par titre": "Number by title", "Retirer de la série": "Remove from series", "Provider commun": "Common provider", "Conserver les providers individuels": "Keep individual providers", "Langue cible": "Target language", "Qualité": "Quality", "Rapide": "Fast", "Haute qualité": "High quality", "Instructions communes": "Common instructions", "Conserver si vide": "Keep if empty", "Configurer la sélection": "Configure selection", "Analyser la sélection": "Analyze selection", "Traduire la sélection": "Translate selection", "Mettre la sélection en pause": "Pause selection", "Reprendre la sélection": "Resume selection", "Annuler les analyses": "Cancel analyses", "Annuler les traductions": "Cancel translations", "Archiver la sélection": "Archive selection", "Supprimer la sélection": "Delete selection",
+  "Les livres avancent en parallèle selon les limites du worker et de chaque provider. Les passages d’un même livre gardent leur ordre narratif.": "Books progress in parallel according to worker and provider limits. Segments in the same book retain their narrative order.",
+};
+registerTranslations(translations);
 
 export function BatchActions({
   books,
@@ -15,6 +28,7 @@ export function BatchActions({
   onDeleted: (ids: string[]) => void;
   scopeLabel?: string;
 }) {
+  const { t } = useI18n();
   const [providers, setProviders] = useState<Provider[]>([]);
   const [provider, setProvider] = useState("");
   const [language, setLanguage] = useState("fr");
@@ -60,7 +74,7 @@ export function BatchActions({
     if (
       action === "delete" &&
       !confirm(
-        `Supprimer définitivement les ${books.length} projets sélectionnés et arrêter leurs travaux ? La mémoire OpenViking distante reste séparée.`,
+        t("Supprimer définitivement les {count} projets sélectionnés et arrêter leurs travaux ? La mémoire OpenViking distante reste séparée.").replace("{count}", String(books.length)),
       )
     )
       return;
@@ -69,7 +83,7 @@ export function BatchActions({
     if (["preserve_series", "number_series", "clear_series"].includes(action)) {
       if (
         action === "clear_series" &&
-        !confirm(`Retirer les ${books.length} livres sélectionnés de leur série ?`)
+        !confirm(t("Retirer les {count} livres sélectionnés de leur série ?").replace("{count}", String(books.length)))
       ) {
         setBusy(false);
         return;
@@ -99,10 +113,10 @@ export function BatchActions({
         );
         setResults([
           mode === "clear"
-            ? `${ordered.length} livre(s) retiré(s) de leur série.`
+            ? t("{count} livre(s) retiré(s) de leur série.").replace("{count}", String(ordered.length))
             : mode === "preserve"
-              ? `Série ${seriesName.trim()} appliquée à ${ordered.length} livre(s), numéros conservés.`
-              : `${ordered.length} livre(s) numéroté(s) dans ${seriesName.trim()}.`,
+              ? t("Série {series} appliquée à {count} livre(s), numéros conservés.").replace("{series}", seriesName.trim()).replace("{count}", String(ordered.length))
+              : t("{count} livre(s) numéroté(s) dans {series}.").replace("{count}", String(ordered.length)).replace("{series}", seriesName.trim()),
         ]);
         await run(refresh);
       } catch (error) {
@@ -119,12 +133,12 @@ export function BatchActions({
           if (action === "delete") {
             await api(`/projects/${p.id}?stop_jobs=true`, { method: "DELETE" });
             removed.push(p.id);
-            return `${p.title} : supprimé.`;
+            return `${p.title} : ${t("supprimé.")}`;
           }
           if (action === "archive") {
             await send(`/projects/${p.id}/archive`);
             removed.push(p.id);
-            return `${p.title} : archivé.`;
+            return `${p.title} : ${t("archivé.")}`;
           }
           if (
             [
@@ -174,7 +188,7 @@ export function BatchActions({
               if (job.status !== "cancelled" || operation === "resume")
                 await send(`/projects/${p.id}/jobs/${job.id}/${operation}`);
             }
-            return `${p.title} : ${relevant.length ? (operation === "pause" ? "en pause" : operation === "resume" ? "reprise planifiée" : "travail annulé") : "aucun travail concerné"}.`;
+            return `${p.title} : ${relevant.length ? (operation === "pause" ? t("en pause") : operation === "resume" ? t("reprise planifiée") : t("travail annulé")) : t("aucun travail concerné")}.`;
           }
           if (action === "configure") {
             await send(
@@ -200,7 +214,7 @@ export function BatchActions({
             );
             if (result.message) return `${p.title} : ${result.message}`;
           }
-          return `${p.title} : ${action === "configure" ? "configuré" : "travail ajouté à la file"}.`;
+          return `${p.title} : ${action === "configure" ? t("configuré") : t("travail ajouté à la file")}.`;
         } catch (e) {
           return `${p.title} : ${e instanceof Error ? e.message : String(e)}`;
         }
@@ -212,21 +226,21 @@ export function BatchActions({
     setBusy(false);
   }
   return (
-    <section className="notice" aria-label="Actions sur plusieurs livres">
+    <section className="notice" aria-label={t("Actions sur plusieurs livres")}>
       <h3>
         {scopeLabel ? `${scopeLabel} · ` : ""}
-        {books.length} livre(s) sélectionné(s)
+        {books.length} {t("livre(s) sélectionné(s)")}
       </h3>
       <div className="actions">
         <label>
-          Série commune
+          {t("Série commune")}
           <input
             value={seriesName}
             onChange={(event) => setSeriesName(event.target.value)}
           />
         </label>
         <label>
-          Premier volume
+          {t("Premier volume")}
           <input
             type="number"
             min="1"
@@ -240,29 +254,29 @@ export function BatchActions({
           disabled={busy || !seriesName.trim()}
           onClick={() => void apply("preserve_series")}
         >
-          Appliquer sans renuméroter
+          {t("Appliquer sans renuméroter")}
         </button>
         <button
           disabled={busy || !seriesName.trim()}
           onClick={() => void apply("number_series")}
         >
-          Numéroter par titre
+          {t("Numéroter par titre")}
         </button>
         <button
           disabled={busy || !books.some((book) => book.series_name)}
           onClick={() => void apply("clear_series")}
         >
-          Retirer de la série
+          {t("Retirer de la série")}
         </button>
       </div>
       <div className="actions">
         <label>
-          Provider commun
+          {t("Provider commun")}
           <select
             value={provider}
             onChange={(e) => setProvider(e.target.value)}
           >
-            <option value="">Conserver les providers individuels</option>
+            <option value="">{t("Conserver les providers individuels")}</option>
             {providers.map((p) => (
               <option key={p.id} value={p.id}>
                 {p.name}
@@ -271,74 +285,72 @@ export function BatchActions({
           </select>
         </label>
         <label>
-          Langue cible
+          {t("Langue cible")}
           <input
             value={language}
             onChange={(e) => setLanguage(e.target.value)}
           />
         </label>
         <label>
-          Qualité
+          {t("Qualité")}
           <select value={quality} onChange={(e) => setQuality(e.target.value)}>
-            <option value="fast">Rapide</option>
+            <option value="fast">{t("Rapide")}</option>
             <option value="normal">Normal</option>
-            <option value="high">Haute qualité</option>
+            <option value="high">{t("Haute qualité")}</option>
             <option value="maximum">Maximum</option>
           </select>
         </label>
         <label>
-          Instructions communes
+          {t("Instructions communes")}
           <input
             value={commonInstructions}
             onChange={(event) => setCommonInstructions(event.target.value)}
-            placeholder="Conserver si vide"
+            placeholder={t("Conserver si vide")}
           />
         </label>
         <button disabled={busy} onClick={() => void apply("configure")}>
-          Configurer la sélection
+          {t("Configurer la sélection")}
         </button>
       </div>
       <div className="actions">
         <button disabled={busy} onClick={() => void apply("analyze")}>
-          Analyser la sélection
+          {t("Analyser la sélection")}
         </button>
         <button
           disabled={busy}
           className="primary"
           onClick={() => void apply("translate")}
         >
-          Traduire la sélection
+          {t("Traduire la sélection")}
         </button>
         <button disabled={busy} onClick={() => void apply("pause")}>
-          Mettre la sélection en pause
+          {t("Mettre la sélection en pause")}
         </button>
         <button disabled={busy} onClick={() => void apply("resume")}>
-          Reprendre la sélection
+          {t("Reprendre la sélection")}
         </button>
         <button disabled={busy} onClick={() => void apply("cancel_analysis")}>
-          Annuler les analyses
+          {t("Annuler les analyses")}
         </button>
         <button
           disabled={busy}
           onClick={() => void apply("cancel_translation")}
         >
-          Annuler les traductions
+          {t("Annuler les traductions")}
         </button>
         <button disabled={busy} onClick={() => void apply("archive")}>
-          Archiver la sélection
+          {t("Archiver la sélection")}
         </button>
         <button
           disabled={busy}
           className="danger"
           onClick={() => void apply("delete")}
         >
-          Supprimer la sélection
+          {t("Supprimer la sélection")}
         </button>
       </div>
       <p className="muted">
-        Les livres avancent en parallèle selon les limites du worker et de
-        chaque provider. Les passages d’un même livre gardent leur ordre
-        narratif.
+        {t("Les livres avancent en parallèle selon les limites du worker et de chaque provider. Les passages d’un même livre gardent leur ordre narratif.")}
       </p>
       {!!results.length && (
         <ul role="status">

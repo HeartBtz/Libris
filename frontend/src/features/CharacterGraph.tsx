@@ -9,19 +9,23 @@ import {
 import type { Edge, Node, ReactFlowInstance } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { api, send } from "../api";
+import { registerTranslations, useI18n } from "../i18n";
 import type { Run, Segment } from "../types";
 
-const relationLabel = (value: string) =>
+const translations: Record<string, string> = {
+  "enfant de": "child of", "parent de": "parent of", "enseigne à": "teaches", "élève de": "student of", "ami de": "friend of", "conjoint de": "spouse of", "frère / sœur de": "sibling of", "rival de": "rival of", "Aucun alias enregistré": "No alias recorded", "Confirmer que {source} et {target} sont une seule personne ? {target} restera la fiche canonique, avec les noms conservés comme alias.": "Confirm that {source} and {target} are the same person? {target} will remain the canonical profile, with names retained as aliases.", "Personnages & relations": "Characters & relationships", "identités · {count} liens regroupés. Trait plein : validé humainement. Pointillés : analyse ou proposition.": "identities · {count} grouped links. Solid line: human-validated. Dotted line: analysis or suggestion.", "Proposer les liens des fiches existantes": "Suggest links from existing profiles", "Rechercher un personnage ou un alias": "Search for a character or alias", "Graphe des personnages": "Character graph", "Les personnages apparaîtront progressivement pendant l’analyse.": "Characters will appear gradually during analysis.", "Créer une relation": "Create a relationship", "Personnage source": "Source character", "Personnage cible": "Target character", "Choisir…": "Choose…", "Type de lien": "Relationship type", "enfant de, maître de, ami de…": "child of, teacher of, friend of…", "Précisions": "Details", "Ajouter et valider le lien": "Add and validate relationship", "Identité confirmée": "Identity confirmed", "Identité issue de l’analyse": "Identity from analysis", "Alias": "Aliases", "Centrer sur ses relations": "Center on relationships", "Aucun": "None", "Variantes proposées, non confirmées :": "Proposed, unconfirmed variants:", "Ajouter des alias": "Add aliases", "Séparés par des virgules": "Separated by commas", "Enregistrer les alias": "Save aliases", "Regrouper deux identités": "Merge two identities", "Fiche canonique de destination": "Destination canonical profile", "Fusionner avec cette fiche": "Merge with this profile", "Description": "Description", "Provenance :": "Source:", "passage {position}": "segment {position}", "instruction globale": "global instruction", "Enregistrer et valider": "Save and validate", "Écarter ce lien": "Discard this link", "Voir le passage source": "View source segment", "Sélectionnez un personnage ou un lien. Les nœuds peuvent être déplacés et la vue zoomée.": "Select a character or link. Nodes can be moved and the view zoomed.", "Identités à rapprocher ?": "Identities to match?", "Confirmer la même personne": "Confirm same person", "Aucun rapprochement proposé.": "No suggested match.", "Historique des fusions": "Merge history",
+};
+registerTranslations(translations);
+registerTranslations({
+  Type: "Type",
+  "Provenance :": "Source:",
+  passage: "segment",
+});
+
+const relationLabel = (value: string, t: (key: string) => string) =>
   (
     ({
-      child_of: "enfant de",
-      parent_of: "parent de",
-      teacher_of: "enseigne à",
-      student_of: "élève de",
-      friend_of: "ami de",
-      spouse_of: "conjoint de",
-      sibling_of: "frère / sœur de",
-      rival_of: "rival de",
+      child_of: t("enfant de"), parent_of: t("parent de"), teacher_of: t("enseigne à"), student_of: t("élève de"), friend_of: t("ami de"), spouse_of: t("conjoint de"), sibling_of: t("frère / sœur de"), rival_of: t("rival de"),
     }) as Record<string, string>
   )[value] || value;
 
@@ -71,6 +75,7 @@ export default function CharacterGraph({
   tick: number;
   run: Run;
 }) {
+  const { t } = useI18n();
   const [graph, setGraph] = useState<Graph>({
     nodes: [],
     edges: [],
@@ -110,7 +115,7 @@ export default function CharacterGraph({
             <>
               <strong>{p.name}</strong>
               <small>
-                {(p.data.aliases || []).join(" · ") || "Aucun alias enregistré"}
+                {(p.data.aliases || []).join(" · ") || t("Aucun alias enregistré")}
               </small>
             </>
           ),
@@ -137,7 +142,7 @@ export default function CharacterGraph({
         source: r.source_id,
         target: r.target_id,
         label:
-          relationLabel(r.relation_type) +
+          relationLabel(r.relation_type, t) +
           (group.length > 1 ? ` · ${group.length}` : ""),
         type: "smoothstep",
         markerEnd: { type: MarkerType.ArrowClosed, color: "#7960ff" },
@@ -149,7 +154,7 @@ export default function CharacterGraph({
         labelBgStyle: { fill: "var(--surface)" },
       };
     });
-  }, [graph.edges]);
+  }, [graph.edges, t]);
   const person = graph.nodes.find((p) => p.id === selected);
   const matching = graph.nodes.filter((p) =>
     `${p.name} ${(p.data.aliases || []).join(" ")}`
@@ -160,7 +165,7 @@ export default function CharacterGraph({
   async function merge(source: string, target: string) {
     if (
       !confirm(
-        `Confirmer que ${name(source)} et ${name(target)} sont une seule personne ? ${name(target)} restera la fiche canonique, avec les noms conservés comme alias.`,
+        t("Confirmer que {source} et {target} sont une seule personne ? {target} restera la fiche canonique, avec les noms conservés comme alias.").replaceAll("{source}", name(source)).replaceAll("{target}", name(target)),
       )
     )
       return;
@@ -176,11 +181,9 @@ export default function CharacterGraph({
     <section>
       <div className="page-heading">
         <div>
-          <h2>Personnages & relations</h2>
+          <h2>{t("Personnages & relations")}</h2>
           <p className="muted">
-            {graph.nodes.length} identités · {edges.length} liens regroupés.
-            Trait plein : validé humainement. Pointillés : analyse ou
-            proposition.
+            {graph.nodes.length} {t("identités · {count} liens regroupés. Trait plein : validé humainement. Pointillés : analyse ou proposition.").replace("{count}", String(edges.length))}
           </p>
         </div>
         <button
@@ -191,13 +194,13 @@ export default function CharacterGraph({
             })
           }
         >
-          Proposer les liens des fiches existantes
+          {t("Proposer les liens des fiches existantes")}
         </button>
       </div>
       <div className="character-layout">
         <div>
           <label>
-            Rechercher un personnage ou un alias
+            {t("Rechercher un personnage ou un alias")}
             <input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
@@ -225,7 +228,7 @@ export default function CharacterGraph({
               ))}
             </div>
           )}
-          <div className="character-canvas" aria-label="Graphe des personnages">
+          <div className="character-canvas" aria-label={t("Graphe des personnages")}>
             {nodes.length ? (
               <ReactFlow
                 onInit={setFlow}
@@ -255,11 +258,11 @@ export default function CharacterGraph({
               </ReactFlow>
             ) : (
               <div className="empty">
-                Les personnages apparaîtront progressivement pendant l’analyse.
+                {t("Les personnages apparaîtront progressivement pendant l’analyse.")}
               </div>
             )}
           </div>
-          <h3>Créer une relation</h3>
+          <h3>{t("Créer une relation")}</h3>
           <form
             onSubmit={(e) => {
               e.preventDefault();
@@ -277,13 +280,13 @@ export default function CharacterGraph({
           >
             <div className="form-grid">
               <label>
-                Personnage source
+                 {t("Personnage source")}
                 <select
                   required
                   value={sourceId}
                   onChange={(e) => setSourceId(e.target.value)}
                 >
-                  <option value="">Choisir…</option>
+                  <option value="">{t("Choisir…")}</option>
                   {graph.nodes.map((p) => (
                     <option key={p.id} value={p.id}>
                       {p.name}
@@ -292,13 +295,13 @@ export default function CharacterGraph({
                 </select>
               </label>
               <label>
-                Personnage cible
+                 {t("Personnage cible")}
                 <select
                   required
                   value={targetId}
                   onChange={(e) => setTargetId(e.target.value)}
                 >
-                  <option value="">Choisir…</option>
+                  <option value="">{t("Choisir…")}</option>
                   {graph.nodes
                     .filter((p) => p.id !== sourceId)
                     .map((p) => (
@@ -309,23 +312,23 @@ export default function CharacterGraph({
                 </select>
               </label>
               <label>
-                Type de lien
+                 {t("Type de lien")}
                 <input
                   required
                   value={kind}
                   onChange={(e) => setKind(e.target.value)}
-                  placeholder="enfant de, maître de, ami de…"
+                   placeholder={t("enfant de, maître de, ami de…")}
                 />
               </label>
               <label>
-                Précisions
+                 {t("Précisions")}
                 <input
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
                 />
               </label>
             </div>
-            <button className="primary">Ajouter et valider le lien</button>
+            <button className="primary">{t("Ajouter et valider le lien")}</button>
           </form>
         </div>
         <aside className="character-detail">
@@ -334,12 +337,12 @@ export default function CharacterGraph({
               <h3>{person.name}</h3>
               <span className="badge">
                 {person.identity_validated
-                  ? "Identité confirmée"
-                  : "Identité issue de l’analyse"}
+                  ? t("Identité confirmée")
+                  : t("Identité issue de l’analyse")}
               </span>
               <p>{person.data.role}</p>
               <p>{person.data.description}</p>
-              <h3>Alias</h3>
+              <h3>{t("Alias")}</h3>
               <button
                 onClick={() => {
                   const adjacent = new Set([
@@ -359,12 +362,12 @@ export default function CharacterGraph({
                   });
                 }}
               >
-                Centrer sur ses relations
+                {t("Centrer sur ses relations")}
               </button>
-              <p>{(person.data.aliases || []).join(" · ") || "Aucun"}</p>
+              <p>{(person.data.aliases || []).join(" · ") || t("Aucun")}</p>
               {!!person.data.proposed_aliases?.length && (
                 <p className="muted">
-                  Variantes proposées, non confirmées :{" "}
+                  {t("Variantes proposées, non confirmées :")}{" "}
                   {person.data.proposed_aliases.join(" · ")}
                 </p>
               )}
@@ -388,23 +391,23 @@ export default function CharacterGraph({
                 }}
               >
                 <label>
-                  Ajouter des alias
+                  {t("Ajouter des alias")}
                   <input
                     value={aliases}
                     onChange={(e) => setAliases(e.target.value)}
-                    placeholder="Séparés par des virgules"
+                    placeholder={t("Séparés par des virgules")}
                   />
                 </label>
-                <button>Enregistrer les alias</button>
+                <button>{t("Enregistrer les alias")}</button>
               </form>
-              <h3>Regrouper deux identités</h3>
+              <h3>{t("Regrouper deux identités")}</h3>
               <label>
-                Fiche canonique de destination
+                {t("Fiche canonique de destination")}
                 <select
                   value={mergeTarget}
                   onChange={(e) => setMergeTarget(e.target.value)}
                 >
-                  <option value="">Choisir…</option>
+                  <option value="">{t("Choisir…")}</option>
                   {graph.nodes
                     .filter((p) => p.id !== person.id)
                     .map((p) => (
@@ -418,7 +421,7 @@ export default function CharacterGraph({
                 disabled={!mergeTarget}
                 onClick={() => void run(() => merge(person.id, mergeTarget))}
               >
-                Fusionner avec cette fiche
+                  {t("Fusionner avec cette fiche")}
               </button>
             </>
           ) : relation ? (
@@ -427,7 +430,7 @@ export default function CharacterGraph({
                 {name(relation.source_id)} → {name(relation.target_id)}
               </h3>
               <label>
-                Type
+                {t("Type")}
                 <input
                   value={relation.relation_type}
                   onChange={(e) =>
@@ -436,7 +439,7 @@ export default function CharacterGraph({
                 />
               </label>
               <label>
-                Description
+                {t("Description")}
                 <textarea
                   value={relation.description}
                   onChange={(e) =>
@@ -445,10 +448,10 @@ export default function CharacterGraph({
                 />
               </label>
               <p className="muted">
-                Provenance : {relation.provenance} ·{" "}
+                {t("Provenance :")} {relation.provenance} ·{" "}
                 {relation.position >= 0
-                  ? `passage ${relation.position + 1}`
-                  : "instruction globale"}
+                  ? `${t("passage")} ${relation.position + 1}`
+                  : t("instruction globale")}
               </p>
               {relation.evidence && (
                 <blockquote>{relation.evidence}</blockquote>
@@ -472,7 +475,7 @@ export default function CharacterGraph({
                     })
                   }
                 >
-                  Enregistrer et valider
+                  {t("Enregistrer et valider")}
                 </button>
                 <button
                   onClick={() =>
@@ -486,7 +489,7 @@ export default function CharacterGraph({
                     })
                   }
                 >
-                  Écarter ce lien
+                  {t("Écarter ce lien")}
                 </button>
                 {relation.segment_id && (
                   <button
@@ -502,19 +505,16 @@ export default function CharacterGraph({
                       )
                     }
                   >
-                    Voir le passage source
+                    {t("Voir le passage source")}
                   </button>
                 )}
               </div>
               {excerpt && <pre>{excerpt}</pre>}
             </>
           ) : (
-            <p className="muted">
-              Sélectionnez un personnage ou un lien. Les nœuds peuvent être
-              déplacés et la vue zoomée.
-            </p>
+            <p className="muted">{t("Sélectionnez un personnage ou un lien. Les nœuds peuvent être déplacés et la vue zoomée.")}</p>
           )}
-          <h3>Identités à rapprocher ?</h3>
+          <h3>{t("Identités à rapprocher ?")}</h3>
           {graph.suggestions.slice(0, 12).map((s) => (
             <div
               className="identity-suggestion"
@@ -527,15 +527,15 @@ export default function CharacterGraph({
               <button
                 onClick={() => void run(() => merge(s.source_id, s.target_id))}
               >
-                Confirmer la même personne
+                {t("Confirmer la même personne")}
               </button>
             </div>
           ))}
           {!graph.suggestions.length && (
-            <p className="muted">Aucun rapprochement proposé.</p>
+            <p className="muted">{t("Aucun rapprochement proposé.")}</p>
           )}
           <details>
-            <summary>Historique des fusions</summary>
+            <summary>{t("Historique des fusions")}</summary>
             <pre>{JSON.stringify(graph.merges, null, 2)}</pre>
           </details>
         </aside>

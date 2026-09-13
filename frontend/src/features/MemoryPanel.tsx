@@ -1,6 +1,26 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, send } from "../api";
+import { registerTranslations, useI18n } from "../i18n";
 import type { Run } from "../types";
+
+const translations: Record<string, string> = {
+  "Mémoire OpenViking": "OpenViking memory",
+  "Connexion configurée · mode {backend}":
+    "Connection configured · {backend} mode",
+  "OpenViking non configuré": "OpenViking not configured",
+  "Catalogue :": "Catalog:",
+  "écrit — indexation à vérifier": "written — indexing to verify",
+  chargement: "loading",
+  "Synchroniser le livre et le graphe": "Synchronize the book and graph",
+  "Vérifier dans OpenViking": "Check in OpenViking",
+  "Racine :": "Root:",
+  "Documents OpenViking du projet ({count})":
+    "Project OpenViking documents ({count})",
+  "Les liens ouvrent le contenu réellement lu dans OpenViking via le backend, sans exposer la clé. Les événements narratifs et les documents globaux sont séparés.":
+    "Links open the content actually read in OpenViking through the backend, without exposing the key. Narrative events and global documents are kept separate.",
+};
+
+registerTranslations(translations);
 
 interface MemoryStatus {
   backend: string;
@@ -21,6 +41,7 @@ export function MemoryPanel({
   run: Run;
   refreshKey?: number;
 }) {
+  const { t } = useI18n();
   const [state, setState] = useState<MemoryStatus | null>(null);
   const [check, setCheck] = useState<unknown>(null);
   const load = useCallback(
@@ -36,17 +57,20 @@ export function MemoryPanel({
   }, [run, load, refreshKey]);
   return (
     <section>
-      <h3>Mémoire OpenViking</h3>
+      <h3>{t("Mémoire OpenViking")}</h3>
       <p>
         {state?.configured
-          ? `Connexion configurée · mode ${state.backend}`
-          : "OpenViking non configuré"}
+          ? t("Connexion configurée · mode {backend}").replace(
+              "{backend}",
+              state.backend,
+            )
+          : t("OpenViking non configuré")}
       </p>
       <p className="muted">
-        Catalogue :{" "}
+        {t("Catalogue :")}{" "}
         {state?.catalog_status === "sent"
-          ? "écrit — indexation à vérifier"
-          : state?.catalog_status || "chargement"}
+          ? t("écrit — indexation à vérifier")
+          : state?.catalog_status || t("chargement")}
         .
       </p>
       <div className="actions">
@@ -58,7 +82,7 @@ export function MemoryPanel({
             })
           }
         >
-          Synchroniser le livre et le graphe
+          {t("Synchroniser le livre et le graphe")}
         </button>
         <button
           onClick={() =>
@@ -67,13 +91,13 @@ export function MemoryPanel({
             )
           }
         >
-          Vérifier dans OpenViking
+          {t("Vérifier dans OpenViking")}
         </button>
       </div>
       {state && (
         <>
           <p className="muted">
-            Racine : <code>{state.root_uri}</code>
+            {t("Racine :")} <code>{state.root_uri}</code>
           </p>
           <small>
             {Object.entries(state.outbox)
@@ -82,7 +106,10 @@ export function MemoryPanel({
           </small>
           <details open>
             <summary>
-              Documents OpenViking du projet ({state.documents.length})
+              {t("Documents OpenViking du projet ({count})").replace(
+                "{count}",
+                String(state.documents.length),
+              )}
             </summary>
             <ul>
               {state.documents.map((d) => (
@@ -101,9 +128,9 @@ export function MemoryPanel({
       )}
       {check != null && <pre>{JSON.stringify(check, null, 2)}</pre>}
       <p className="muted">
-        Les liens ouvrent le contenu réellement lu dans OpenViking via le
-        backend, sans exposer la clé. Les événements narratifs et les documents
-        globaux sont séparés.
+        {t(
+          "Les liens ouvrent le contenu réellement lu dans OpenViking via le backend, sans exposer la clé. Les événements narratifs et les documents globaux sont séparés.",
+        )}
       </p>
     </section>
   );

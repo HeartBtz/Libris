@@ -303,5 +303,17 @@ test("capture public Libris showcase", async ({ page }) => {
   await expect(
     page.getByText("Fichier reçu ; téléchargement transmis au navigateur."),
   ).toBeVisible();
+  await page.getByRole("combobox", { name: "Langue" }).selectOption("en");
+  await expect(
+    page.getByRole("heading", { name: "Translation validations" }),
+  ).toBeVisible();
+  await expect(page.getByRole("button", { name: "Change theme" })).toBeVisible();
+  await page.getByRole("combobox", { name: "Language" }).selectOption("fr");
+  await expect(
+    page.getByRole("heading", { name: "Validations de traduction" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "3 · Traduction", exact: true }),
+  ).toBeVisible();
   expect(errors).toEqual([]);
 });

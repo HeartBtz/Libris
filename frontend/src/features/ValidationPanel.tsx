@@ -1,9 +1,80 @@
 import { useEffect, useState } from "react";
 import { api, send } from "../api";
+import { registerTranslations, useI18n } from "../i18n";
 import type { Chapter, Issue, Project, Provider, Run, Segment } from "../types";
 import { Inspector, SegmentRow } from "./Editor";
 
 const PAGE_SIZE = 250;
+
+const translations: Record<string, string> = {
+  "Relecture humaine": "Human review",
+  "Validations de traduction": "Translation validations",
+  "Corrigez si nécessaire, puis validez. Le passage disparaîtra de cette file une fois la décision enregistrée.":
+    "Correct as needed, then validate. The passage will disappear from this queue once the decision is saved.",
+  "Actualisation…": "Refreshing…",
+  "Actualiser la file": "Refresh queue",
+  "{count} passages à vérifier": "{count} passages to review",
+  "à vérifier": "to review",
+  "Bilan de la revue finale": "Final review summary",
+  Examinés: "Reviewed",
+  Résolus: "Resolved",
+  Corrigés: "Corrected",
+  "À vérifier": "To review",
+  Protégés: "Protected",
+  Échecs: "Failures",
+  "Revue finale IA": "AI final review",
+  "Lancée automatiquement après la traduction du livre.":
+    "Started automatically after translating the book.",
+  "La revue automatique est désactivée sur cette installation.":
+    "Automatic review is disabled on this installation.",
+  "L’IA réexamine les alertes, tente une correction puis la vérifie. Les choix humains restent protégés. {count} passage(s) éligible(s).":
+    "AI re-examines alerts, attempts a correction, then verifies it. Human choices remain protected. {count} eligible passage(s).",
+  "Recherche terminologique SearXNG disponible si nécessaire.":
+    "SearXNG terminology search is available when needed.",
+  "Recherche web désactivée : analyse fondée sur le livre et son contexte.":
+    "Web search disabled: analysis is based on the book and its context.",
+  "Mise en file…": "Queuing…",
+  "Lancer la revue IA": "Start AI review",
+  "Vérification des passages éligibles…": "Checking eligible passages…",
+  "Aucun passage éligible : les décisions humaines sont protégées, ou il ne reste rien à réexaminer.":
+    "No eligible passages: human decisions are protected, or nothing remains to be re-examined.",
+  "Un travail occupe ce livre. Terminez-le ou annulez-le pour lancer une revue manuelle ; une simple pause ne libère pas le livre.":
+    "A job is using this book. Finish or cancel it to start a manual review; simply pausing does not release the book.",
+  "Disponible : le provider du livre réexaminera les passages signalés. Les modifications humaines seront conservées.":
+    "Available: the book's provider will re-examine flagged passages. Human changes will be retained.",
+  "Reprise ciblée": "Targeted retry",
+  "{count} passage(s) refusé(s) et ignoré(s)":
+    "{count} refused and skipped passage(s)",
+  "Après deux refus du provider initial, Libris poursuit le livre. Choisissez ici un autre modèle, par exemple un modèle non censuré, pour ne retraduire que ces passages.":
+    "After two refusals from the initial provider, Libris continues the book. Choose another model here, such as an uncensored model, to retranslate only these passages.",
+  "Afficher les passages concernés": "Show affected passages",
+  "passage {position}": "passage {position}",
+  "Provider de reprise": "Retry provider",
+  "Choisir un autre provider": "Choose another provider",
+  "Retraduire les passages refusés": "Retranslate refused passages",
+  "Chargement des validations…": "Loading validations…",
+  "Passage {position}": "Passage {position}",
+  "{count} incertitude(s)": "{count} uncertainty(ies)",
+  "{count} remarque(s) IA": "{count} AI comment(s)",
+  "Contrôle manuel demandé": "Manual check requested",
+  "Avis de l’IA": "AI opinion",
+  "Points à arbitrer avant la validation humaine":
+    "Points to resolve before human validation",
+  "Ce qui fait douter l’IA": "What makes AI uncertain",
+  "Amélioration proposée": "Proposed improvement",
+  Proposition: "Proposal",
+  "Application…": "Applying…",
+  "Accepter cette proposition": "Accept this proposal",
+  "Refus…": "Rejecting…",
+  "Refuser cette proposition": "Reject this proposal",
+  "Ce passage a été signalé par un contrôle technique. Le détail est affiché ci-dessus ; aucune proposition IA n’a été enregistrée pour ce signalement.":
+    "This passage was flagged by a technical check. The details are shown above; no AI proposal was saved for this report.",
+  "Aucune validation en attente.": "No validations pending.",
+  "Les passages signalés par l’IA ou les contrôles apparaîtront ici.":
+    "Passages flagged by AI or checks will appear here.",
+};
+
+registerTranslations(translations);
 
 export function ValidationPanel({
   project,
@@ -16,6 +87,7 @@ export function ValidationPanel({
   run: Run;
   refresh: () => void;
 }) {
+  const { t } = useI18n();
   const [segments, setSegments] = useState<Segment[]>([]);
   const [issues, setIssues] = useState<Issue[]>([]);
   const [refused, setRefused] = useState<Segment[]>([]);
@@ -136,35 +208,42 @@ export function ValidationPanel({
     <section className="validation-panel">
       <div className="validation-heading">
         <div>
-          <p className="eyebrow">Relecture humaine</p>
-          <h2>Validations de traduction</h2>
+          <p className="eyebrow">{t("Relecture humaine")}</p>
+          <h2>{t("Validations de traduction")}</h2>
           <p className="muted">
-            Corrigez si nécessaire, puis validez. Le passage disparaîtra de
-            cette file une fois la décision enregistrée.
+            {t(
+              "Corrigez si nécessaire, puis validez. Le passage disparaîtra de cette file une fois la décision enregistrée.",
+            )}
           </p>
         </div>
         <div className="validation-heading-actions">
           <button disabled={reloading} onClick={refreshQueue}>
-            {reloading ? "Actualisation…" : "Actualiser la file"}
+            {reloading ? t("Actualisation…") : t("Actualiser la file")}
           </button>
           <span
             className="validation-count"
-            aria-label={`${segments.length} passages à vérifier`}
+            aria-label={t("{count} passages à vérifier").replace(
+              "{count}",
+              String(segments.length),
+            )}
           >
             {segments.length}
-            <small>à vérifier</small>
+            <small>{t("à vérifier")}</small>
           </span>
         </div>
       </div>
 
-      <div className="review-outcome" aria-label="Bilan de la revue finale">
+      <div
+        className="review-outcome"
+        aria-label={t("Bilan de la revue finale")}
+      >
         {[
-          ["Examinés", finalReview.summary.examined],
-          ["Résolus", finalReview.summary.resolved],
-          ["Corrigés", finalReview.summary.revised],
-          ["À vérifier", finalReview.summary.remaining],
-          ["Protégés", finalReview.summary.protected],
-          ["Échecs", finalReview.summary.failed],
+          [t("Examinés"), finalReview.summary.examined],
+          [t("Résolus"), finalReview.summary.resolved],
+          [t("Corrigés"), finalReview.summary.revised],
+          [t("À vérifier"), finalReview.summary.remaining],
+          [t("Protégés"), finalReview.summary.protected],
+          [t("Échecs"), finalReview.summary.failed],
         ].map(([label, value]) => (
           <span key={label}>
             <strong>{value}</strong>
@@ -174,19 +253,23 @@ export function ValidationPanel({
       </div>
 
       <div className="notice">
-        <strong>Revue finale IA</strong>
+        <strong>{t("Revue finale IA")}</strong>
         <p>
           {finalReview.automatic
-            ? "Lancée automatiquement après la traduction du livre."
-            : "La revue automatique est désactivée sur cette installation."}{" "}
-          L’IA réexamine les alertes, tente une correction puis la vérifie. Les
-          choix humains restent protégés. {finalReview.eligible} passage(s)
-          éligible(s).
+            ? t("Lancée automatiquement après la traduction du livre.")
+            : t(
+                "La revue automatique est désactivée sur cette installation.",
+              )}{" "}
+          {t(
+            "L’IA réexamine les alertes, tente une correction puis la vérifie. Les choix humains restent protégés. {count} passage(s) éligible(s).",
+          ).replace("{count}", String(finalReview.eligible))}
         </p>
         <p className="muted">
           {finalReview.web_enabled
-            ? "Recherche terminologique SearXNG disponible si nécessaire."
-            : "Recherche web désactivée : analyse fondée sur le livre et son contexte."}
+            ? t("Recherche terminologique SearXNG disponible si nécessaire.")
+            : t(
+                "Recherche web désactivée : analyse fondée sur le livre et son contexte.",
+              )}
         </p>
         <button
           disabled={
@@ -217,13 +300,15 @@ export function ValidationPanel({
             });
           }}
         >
-          {startingReview ? "Mise en file…" : "Lancer la revue IA"}
+          {startingReview ? t("Mise en file…") : t("Lancer la revue IA")}
         </button>
         <p className="review-reason">
           {loading
-            ? "Vérification des passages éligibles…"
+            ? t("Vérification des passages éligibles…")
             : !finalReview.eligible
-              ? "Aucun passage éligible : les décisions humaines sont protégées, ou il ne reste rien à réexaminer."
+              ? t(
+                  "Aucun passage éligible : les décisions humaines sont protégées, ou il ne reste rien à réexaminer.",
+                )
               : [
                     "pending",
                     "waiting",
@@ -234,28 +319,40 @@ export function ValidationPanel({
                     "reviewing",
                     "syncing",
                   ].includes(project.status)
-                ? "Un travail occupe ce livre. Terminez-le ou annulez-le pour lancer une revue manuelle ; une simple pause ne libère pas le livre."
-                : "Disponible : le provider du livre réexaminera les passages signalés. Les modifications humaines seront conservées."}
+                ? t(
+                    "Un travail occupe ce livre. Terminez-le ou annulez-le pour lancer une revue manuelle ; une simple pause ne libère pas le livre.",
+                  )
+                : t(
+                    "Disponible : le provider du livre réexaminera les passages signalés. Les modifications humaines seront conservées.",
+                  )}
         </p>
       </div>
 
       {!!refused.length && (
         <section className="refusal-recovery">
           <div>
-            <p className="eyebrow">Reprise ciblée</p>
-            <h3>{refused.length} passage(s) refusé(s) et ignoré(s)</h3>
+            <p className="eyebrow">{t("Reprise ciblée")}</p>
+            <h3>
+              {t("{count} passage(s) refusé(s) et ignoré(s)").replace(
+                "{count}",
+                String(refused.length),
+              )}
+            </h3>
             <p className="muted">
-              Après deux refus du provider initial, Libris poursuit le livre.
-              Choisissez ici un autre modèle, par exemple un modèle non censuré,
-              pour ne retraduire que ces passages.
+              {t(
+                "Après deux refus du provider initial, Libris poursuit le livre. Choisissez ici un autre modèle, par exemple un modèle non censuré, pour ne retraduire que ces passages.",
+              )}
             </p>
             <details>
-              <summary>Afficher les passages concernés</summary>
+              <summary>{t("Afficher les passages concernés")}</summary>
               <ol>
                 {refused.map((segment) => (
                   <li key={segment.id}>
                     {chapterNames.get(segment.chapter_id) || segment.section} ·
-                    passage {segment.position + 1}
+                    {t("passage {position}").replace(
+                      "{position}",
+                      String(segment.position + 1),
+                    )}
                   </li>
                 ))}
               </ol>
@@ -263,12 +360,12 @@ export function ValidationPanel({
           </div>
           <div className="refusal-recovery-action">
             <label>
-              Provider de reprise
+              {t("Provider de reprise")}
               <select
                 value={recoveryProvider}
                 onChange={(event) => setRecoveryProvider(event.target.value)}
               >
-                <option value="">Choisir un autre provider</option>
+                <option value="">{t("Choisir un autre provider")}</option>
                 {providers.map((provider) => (
                   <option key={provider.id} value={provider.id}>
                     {provider.name} · {provider.model}
@@ -291,14 +388,14 @@ export function ValidationPanel({
                 })
               }
             >
-              Retraduire les passages refusés
+              {t("Retraduire les passages refusés")}
             </button>
           </div>
         </section>
       )}
 
       {loading ? (
-        <p className="muted">Chargement des validations…</p>
+        <p className="muted">{t("Chargement des validations…")}</p>
       ) : segments.length ? (
         <div className="validation-queue">
           {segments.map((segment) => {
@@ -310,14 +407,29 @@ export function ValidationPanel({
                     <strong>
                       {chapterNames.get(segment.chapter_id) || segment.section}
                     </strong>
-                    <small>Passage {segment.position + 1}</small>
+                    <small>
+                      {t("Passage {position}").replace(
+                        "{position}",
+                        String(segment.position + 1),
+                      )}
+                    </small>
                   </div>
                   <div className="validation-reasons">
                     {!!segment.uncertainties.length && (
-                      <span>{segment.uncertainties.length} incertitude(s)</span>
+                      <span>
+                        {t("{count} incertitude(s)").replace(
+                          "{count}",
+                          String(segment.uncertainties.length),
+                        )}
+                      </span>
                     )}
                     {!!segment.critique.length && (
-                      <span>{segment.critique.length} remarque(s) IA</span>
+                      <span>
+                        {t("{count} remarque(s) IA").replace(
+                          "{count}",
+                          String(segment.critique.length),
+                        )}
+                      </span>
                     )}
                     {segmentIssues.map((issue) => (
                       <span
@@ -331,7 +443,7 @@ export function ValidationPanel({
                     {!segment.uncertainties.length &&
                       !segment.critique.length &&
                       !segmentIssues.length && (
-                        <span>Contrôle manuel demandé</span>
+                        <span>{t("Contrôle manuel demandé")}</span>
                       )}
                   </div>
                 </header>
@@ -341,16 +453,16 @@ export function ValidationPanel({
                     <div className="ai-guidance-title">
                       <img src="/assets/libris-icon.png" alt="" />
                       <div>
-                        <strong>Avis de l’IA</strong>
+                        <strong>{t("Avis de l’IA")}</strong>
                         <small>
-                          Points à arbitrer avant la validation humaine
+                          {t("Points à arbitrer avant la validation humaine")}
                         </small>
                       </div>
                     </div>
                     <div className="ai-guidance-list">
                       {segment.uncertainties.map((uncertainty, index) => (
                         <article className="ai-doubt" key={`doubt-${index}`}>
-                          <strong>Ce qui fait douter l’IA</strong>
+                          <strong>{t("Ce qui fait douter l’IA")}</strong>
                           <p>{uncertainty}</p>
                         </article>
                       ))}
@@ -360,12 +472,12 @@ export function ValidationPanel({
                           key={`${critique.unit_id}-${critique.category}-${index}`}
                         >
                           <div className="ai-suggestion-label">
-                            <strong>Amélioration proposée</strong>
+                            <strong>{t("Amélioration proposée")}</strong>
                             <span>{critique.category}</span>
                           </div>
                           <p>{critique.description}</p>
                           <blockquote>
-                            <strong>Proposition</strong>
+                            <strong>{t("Proposition")}</strong>
                             {critique.suggestion}
                           </blockquote>
                           <div className="ai-suggestion-actions">
@@ -391,8 +503,8 @@ export function ValidationPanel({
                               }}
                             >
                               {accepting === `accept-${segment.id}-${index}`
-                                ? "Application…"
-                                : "Accepter cette proposition"}
+                                ? t("Application…")
+                                : t("Accepter cette proposition")}
                             </button>
                             <button
                               className="reject-ai-suggestion"
@@ -416,8 +528,8 @@ export function ValidationPanel({
                               }}
                             >
                               {accepting === `reject-${segment.id}-${index}`
-                                ? "Refus…"
-                                : "Refuser cette proposition"}
+                                ? t("Refus…")
+                                : t("Refuser cette proposition")}
                             </button>
                           </div>
                         </article>
@@ -429,9 +541,9 @@ export function ValidationPanel({
                   !segment.critique.length &&
                   segmentIssues.length > 0 && (
                     <div className="technical-guidance">
-                      Ce passage a été signalé par un contrôle technique. Le
-                      détail est affiché ci-dessus ; aucune proposition IA n’a
-                      été enregistrée pour ce signalement.
+                      {t(
+                        "Ce passage a été signalé par un contrôle technique. Le détail est affiché ci-dessus ; aucune proposition IA n’a été enregistrée pour ce signalement.",
+                      )}
                     </div>
                   )}
                 <SegmentRow
@@ -448,9 +560,11 @@ export function ValidationPanel({
       ) : (
         <div className="empty validation-empty">
           <img src="/assets/libris-icon.png" alt="" />
-          <h2>Aucune validation en attente.</h2>
+          <h2>{t("Aucune validation en attente.")}</h2>
           <p>
-            Les passages signalés par l’IA ou les contrôles apparaîtront ici.
+            {t(
+              "Les passages signalés par l’IA ou les contrôles apparaîtront ici.",
+            )}
           </p>
         </div>
       )}

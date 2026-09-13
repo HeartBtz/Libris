@@ -1,9 +1,24 @@
 import { useEffect, useState } from "react";
 import { api, download, labels, number, send } from "../api";
+import { registerTranslations, useI18n } from "../i18n";
 import type { Issue, LLMRequest, Project, Provider, Run, Term } from "../types";
 import { RequestDetails } from "./Editor";
 import { MemoryPanel } from "./MemoryPanel";
 import { duration, projectProgress } from "./progress";
+
+const translations: Record<string, string> = {
+  "Stratégie du livre": "Book strategy",
+  "Choix terminologiques": "Terminology choices",
+  "Observabilité": "Observability",
+  "mots · {sections} sections / documents · {images} images · {size} Mo": "words · {sections} sections / documents · {images} images · {size} MB", "Titre à l’export": "Export title", "Auteur": "Author", "Série": "Series", "Numéro du volume": "Volume number", "Langue source": "Source language", "Langue cible (code BCP 47)": "Target language (BCP 47 code)", "Choisir…": "Choose…", "Qualité": "Quality", "Rapide": "Fast", "Normal · vérification": "Normal · verification", "Haute qualité · critique & révision": "High quality · critique & revision", "Maximum · polishing": "Maximum · polishing", "Moteur de contexte": "Context engine", "Hybrid — recommandé": "Hybrid — recommended", "Instructions globales": "Global instructions", "Conserver les suffixes -san, -chan, -sama. Tutoyer entre Alice et Bob…": "Preserve -san, -chan, and -sama suffixes. Use informal address between Alice and Bob…", "Enregistrer": "Save", "Rapport de validation à l’import": "Import validation report", "Partager ce projet": "Share this project", "Accès accordé.": "Access granted.", "Utilisateur à inviter": "User to invite", "Utilisateur existant": "Existing user", "Rôle sur le projet": "Project role", "Lecteur": "Reader", "Éditeur": "Editor", "Partager": "Share", "Supprimer le projet local, ses traductions et arrêter ses travaux ? La mémoire OpenViking distante reste séparée. Exportez le projet pour conserver une copie.": "Delete the local project, its translations, and stop its work? Remote OpenViking memory remains separate. Export the project to retain a copy.", "Supprimer ce projet": "Delete this project",
+  "Terme enregistré. Les passages concernés sont marqués à réévaluer.": "Term saved. Affected segments are marked for reevaluation.", "{accepted} acceptés · {proposals} propositions · {locked} verrouillés": "{accepted} accepted · {proposals} proposals · {locked} locked", "Importer": "Import", "Rechercher dans le glossaire": "Search glossary", "Rechercher un terme…": "Search for a term…", "Source": "Source", "Traduction": "Translation", "Catégorie": "Category", "Verrouillé": "Locked", "Accepté": "Accepted", "Traduction de {term}": "Translation of {term}", "Catégorie de {term}": "Category of {term}", "Verrouiller {term}": "Lock {term}", "Accepter {term}": "Accept {term}", "Supprimer": "Delete", "Ajouter un choix humain": "Add a human choice", "Nouvelle expression source": "New source expression", "Expression source": "Source expression", "Nouvelle traduction": "New translation", "Ajouter et verrouiller": "Add and lock",
+  "Validée par un humain": "Validated by a human", "Analyse IA — à examiner": "AI analysis — review required", "Exporter JSON": "Export JSON", "Résumé éditorial": "Editorial summary", "Lancez l’analyse pour construire la mémoire du livre.": "Run analysis to build the book memory.", "Personnages": "Characters", "Validé": "Validated", "Fiche personnage (JSON)": "Character profile (JSON)", "Modifier / valider": "Edit / validate", "Éditer la Book Bible structurée": "Edit structured Book Bible", "Enregistrer et valider la Book Bible": "Save and validate Book Bible", "Relecture ciblée": "Targeted review", "Les signaux automatiques orientent la relecture ; ils ne mesurent pas seuls la qualité littéraire.": "Automated signals guide review; they do not alone measure literary quality.", "Contrôle global de cohérence": "Global consistency check", "Traité": "Resolved", "Passage {id}": "Segment {id}", "Marquer comme traité": "Mark as resolved", "Aucun problème enregistré par les contrôles exécutés.": "No issue recorded by completed checks.", "Estimations du travail actif": "Active work estimates", "temps restant estimé": "estimated remaining time", "coût tarifaire consommé": "consumed list-price cost", "coût restant estimé": "estimated remaining cost", "confiance de l’estimation": "estimate confidence", "Estimations fondées sur les requêtes réussies de l’étape active et les tarifs actuellement configurés. Elles sont indisponibles tant que l’échantillon est insuffisant.": "Estimates are based on successful requests from the active stage and currently configured rates. They are unavailable while the sample is insufficient.", "Opération": "Operation", "Modèle": "Model", "État": "Status", "Durée": "Duration", "Entrée / sortie": "Input / output", "Débit moyen*": "Average throughput*", "Essai": "Attempt", "Tokens de sortie / durée totale de requête, préremplissage inclus. Les comptes absents du provider sont enregistrés à zéro, pas inventés.": "Output tokens / total request duration, including prefill. Accounts absent from the provider are recorded as zero, not invented.", "Précédentes": "Previous", "Suivantes": "Next", "Détail de la requête": "Request details", "Fermer": "Close",
+};
+registerTranslations(translations);
+registerTranslations({
+  "Configuration enregistrée.": "Configuration saved.",
+  Cache: "Cache",
+});
 
 export function ProjectSettings({
   project,
@@ -14,6 +29,7 @@ export function ProjectSettings({
   run: Run;
   refresh: () => void;
 }) {
+  const { t } = useI18n();
   const [value, setValue] = useState(project);
   const [providers, setProviders] = useState<Provider[]>([]);
   const [saved, setSaved] = useState("");
@@ -24,11 +40,9 @@ export function ProjectSettings({
   }, [run]);
   return (
     <section className="narrow">
-      <h2>Stratégie du livre</h2>
+      <h2>{t("Stratégie du livre")}</h2>
       <p className="muted">
-        {number(project.book_info.words)} mots · {project.stats.chapters}{" "}
-        sections / documents · {project.book_info.images} images ·{" "}
-        {(project.book_info.size / 1024 ** 2).toFixed(1)} Mo
+        {t("mots · {sections} sections / documents · {images} images · {size} Mo").replace("words", number(project.book_info.words)).replace("{sections}", String(project.stats.chapters)).replace("{images}", String(project.book_info.images)).replace("{size}", (project.book_info.size / 1024 ** 2).toFixed(1))}
       </p>
       <form
         onSubmit={(e) => {
@@ -63,27 +77,27 @@ export function ProjectSettings({
               "PUT",
             );
             refresh();
-            setSaved("Configuration enregistrée.");
+            setSaved(t("Configuration enregistrée."));
           });
         }}
       >
         <div className="form-grid">
           <label>
-            Titre à l’export
+            {t("Titre à l’export")}
             <input
               value={value.title}
               onChange={(e) => setValue({ ...value, title: e.target.value })}
             />
           </label>
           <label>
-            Auteur
+            {t("Auteur")}
             <input
               value={value.author}
               onChange={(e) => setValue({ ...value, author: e.target.value })}
             />
           </label>
           <label>
-            Série
+            {t("Série")}
             <input
               value={value.series_name}
               onChange={(e) =>
@@ -93,7 +107,7 @@ export function ProjectSettings({
             />
           </label>
           <label>
-            Numéro du volume
+            {t("Numéro du volume")}
             <input
               type="number"
               min="1"
@@ -109,7 +123,7 @@ export function ProjectSettings({
             />
           </label>
           <label>
-            Langue source
+            {t("Langue source")}
             <input
               value={value.source_language}
               onChange={(e) =>
@@ -118,7 +132,7 @@ export function ProjectSettings({
             />
           </label>
           <label>
-            Langue cible (code BCP 47)
+            {t("Langue cible (code BCP 47)")}
             <input
               value={value.target_language}
               onChange={(e) =>
@@ -135,7 +149,7 @@ export function ProjectSettings({
                 setValue({ ...value, provider_id: e.target.value || null })
               }
             >
-              <option value="">Choisir…</option>
+              <option value="">{t("Choisir…")}</option>
               {providers.map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.name} · {p.model}
@@ -144,76 +158,76 @@ export function ProjectSettings({
             </select>
           </label>
           <label>
-            Qualité
+            {t("Qualité")}
             <select
               value={value.quality}
               onChange={(e) => setValue({ ...value, quality: e.target.value })}
             >
-              <option value="fast">Rapide</option>
-              <option value="normal">Normal · vérification</option>
-              <option value="high">Haute qualité · critique & révision</option>
+              <option value="fast">{t("Rapide")}</option>
+              <option value="normal">{t("Normal · vérification")}</option>
+              <option value="high">{t("Haute qualité · critique & révision")}</option>
               <option value="maximum">Maximum · polishing</option>
             </select>
           </label>
           <label>
-            Moteur de contexte
+            {t("Moteur de contexte")}
             <select
               value={value.context_backend}
               onChange={(e) =>
                 setValue({ ...value, context_backend: e.target.value })
               }
             >
-              <option value="hybrid">Hybrid — recommandé</option>
+              <option value="hybrid">{t("Hybrid — recommandé")}</option>
               <option value="internal">Internal</option>
               <option value="openviking">OpenViking</option>
             </select>
           </label>
         </div>
         <label>
-          Instructions globales
+          {t("Instructions globales")}
           <textarea
             rows={6}
             value={value.instructions}
             onChange={(e) =>
               setValue({ ...value, instructions: e.target.value })
             }
-            placeholder="Conserver les suffixes -san, -chan, -sama. Tutoyer entre Alice et Bob…"
+            placeholder={t("Conserver les suffixes -san, -chan, -sama. Tutoyer entre Alice et Bob…")}
           />
         </label>
-        <button className="primary">Enregistrer</button>
+        <button className="primary">{t("Enregistrer")}</button>
         <p role="status">{saved}</p>
       </form>
       <details>
-        <summary>Rapport de validation à l’import</summary>
+        <summary>{t("Rapport de validation à l’import")}</summary>
         <pre>{JSON.stringify(project.book_info.validation, null, 2)}</pre>
       </details>
-      <h3>Partager ce projet</h3>
+      <h3>{t("Partager ce projet")}</h3>
       <form
         className="actions"
         onSubmit={(e) => {
           e.preventDefault();
           void run(async () => {
             await send(`/projects/${project.id}/members`, { username, role });
-            setSaved("Accès accordé.");
+            setSaved(t("Accès accordé."));
           });
         }}
       >
         <input
-          aria-label="Utilisateur à inviter"
-          placeholder="Utilisateur existant"
+          aria-label={t("Utilisateur à inviter")}
+          placeholder={t("Utilisateur existant")}
           value={username}
           onChange={(e) => setUsername(e.target.value)}
           required
         />
         <select
-          aria-label="Rôle sur le projet"
+          aria-label={t("Rôle sur le projet")}
           value={role}
           onChange={(e) => setRole(e.target.value)}
         >
-          <option value="reader">Lecteur</option>
-          <option value="editor">Éditeur</option>
+          <option value="reader">{t("Lecteur")}</option>
+          <option value="editor">{t("Éditeur")}</option>
         </select>
-        <button>Partager</button>
+        <button>{t("Partager")}</button>
       </form>
       <hr />
       <button
@@ -247,6 +261,7 @@ export function Glossary({
   run: Run;
   tick: number;
 }) {
+  const { t } = useI18n();
   const [terms, setTerms] = useState<Term[]>([]);
   const [search, setSearch] = useState("");
   const [source, setSource] = useState("");
@@ -269,7 +284,7 @@ export function Glossary({
       "PUT",
     );
     setMessage(
-      "Terme enregistré. Les passages concernés sont marqués à réévaluer.",
+      t("Terme enregistré. Les passages concernés sont marqués à réévaluer."),
     );
     await load();
   }
@@ -280,11 +295,12 @@ export function Glossary({
     <section>
       <div className="page-heading">
         <div>
-          <h2>Choix terminologiques</h2>
+          <h2>{t("Choix terminologiques")}</h2>
           <p className="muted">
-            {terms.filter((t) => t.accepted).length} acceptés ·{" "}
-            {terms.filter((t) => !t.accepted).length} propositions ·{" "}
-            {terms.filter((t) => t.locked).length} verrouillés
+            {t("{accepted} acceptés · {proposals} propositions · {locked} verrouillés")
+              .replace("{accepted}", String(terms.filter((t) => t.accepted).length))
+              .replace("{proposals}", String(terms.filter((t) => !t.accepted).length))
+              .replace("{locked}", String(terms.filter((t) => t.locked).length))}
           </p>
         </div>
         <div className="actions">
@@ -301,7 +317,7 @@ export function Glossary({
             CSV ↓
           </a>
           <label className="button">
-            Importer
+            {t("Importer")}
             <input
               hidden
               type="file"
@@ -327,8 +343,8 @@ export function Glossary({
       <div className="actions">
         <input
           className="search"
-          aria-label="Rechercher dans le glossaire"
-          placeholder="Rechercher un terme…"
+          aria-label={t("Rechercher dans le glossaire")}
+          placeholder={t("Rechercher un terme…")}
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
@@ -337,26 +353,26 @@ export function Glossary({
         <table>
           <thead>
             <tr>
-              <th>Source</th>
-              <th>Traduction</th>
-              <th>Catégorie</th>
-              <th>Verrouillé</th>
-              <th>Accepté</th>
+              <th>{t("Source")}</th>
+              <th>{t("Traduction")}</th>
+              <th>{t("Catégorie")}</th>
+              <th>{t("Verrouillé")}</th>
+              <th>{t("Accepté")}</th>
               <th />
             </tr>
           </thead>
           <tbody>
-            {filtered.map((t) => (
-              <tr key={t.id} className={!t.accepted ? "proposal" : ""}>
-                <td>{t.source}</td>
+            {filtered.map((term) => (
+              <tr key={term.id} className={!term.accepted ? "proposal" : ""}>
+                <td>{term.source}</td>
                 <td>
                   <input
-                    aria-label={`Traduction de ${t.source}`}
-                    value={t.translation}
+                    aria-label={t("Traduction de {term}").replace("{term}", term.source)}
+                    value={term.translation}
                     onChange={(e) =>
                       setTerms(
                         terms.map((v) =>
-                          v.id === t.id
+                          v.id === term.id
                             ? { ...v, translation: e.target.value }
                             : v,
                         ),
@@ -366,12 +382,12 @@ export function Glossary({
                 </td>
                 <td>
                   <input
-                    aria-label={`Catégorie de ${t.source}`}
-                    value={t.category}
+                    aria-label={t("Catégorie de {term}").replace("{term}", term.source)}
+                    value={term.category}
                     onChange={(e) =>
                       setTerms(
                         terms.map((v) =>
-                          v.id === t.id
+                          v.id === term.id
                             ? { ...v, category: e.target.value }
                             : v,
                         ),
@@ -381,13 +397,13 @@ export function Glossary({
                 </td>
                 <td>
                   <input
-                    aria-label={`Verrouiller ${t.source}`}
+                    aria-label={t("Verrouiller {term}").replace("{term}", term.source)}
                     type="checkbox"
-                    checked={t.locked}
+                    checked={term.locked}
                     onChange={(e) =>
                       setTerms(
                         terms.map((v) =>
-                          v.id === t.id
+                          v.id === term.id
                             ? { ...v, locked: e.target.checked }
                             : v,
                         ),
@@ -397,13 +413,13 @@ export function Glossary({
                 </td>
                 <td>
                   <input
-                    aria-label={`Accepter ${t.source}`}
+                    aria-label={t("Accepter {term}").replace("{term}", term.source)}
                     type="checkbox"
-                    checked={t.accepted}
+                    checked={term.accepted}
                     onChange={(e) =>
                       setTerms(
                         terms.map((v) =>
-                          v.id === t.id
+                          v.id === term.id
                             ? { ...v, accepted: e.target.checked }
                             : v,
                         ),
@@ -413,22 +429,22 @@ export function Glossary({
                 </td>
                 <td>
                   <div className="actions">
-                    <button onClick={() => void run(() => save(t))}>
-                      Enregistrer
+                    <button onClick={() => void run(() => save(term))}>
+                      {t("Enregistrer")}
                     </button>
                     <button
                       className="quiet"
                       onClick={() =>
                         void run(async () => {
                           await api(
-                            `/projects/${project.id}/glossary/${t.id}`,
+                            `/projects/${project.id}/glossary/${term.id}`,
                             { method: "DELETE" },
                           );
                           await load();
                         })
                       }
                     >
-                      Supprimer
+                      {t("Supprimer")}
                     </button>
                   </div>
                 </td>
@@ -437,7 +453,7 @@ export function Glossary({
           </tbody>
         </table>
       </div>
-      <h3>Ajouter un choix humain</h3>
+      <h3>{t("Ajouter un choix humain")}</h3>
       <form
         className="actions"
         onSubmit={(e) => {
@@ -456,20 +472,20 @@ export function Glossary({
         }}
       >
         <input
-          aria-label="Nouvelle expression source"
-          placeholder="Expression source"
+          aria-label={t("Nouvelle expression source")}
+          placeholder={t("Expression source")}
           value={source}
           onChange={(e) => setSource(e.target.value)}
           required
         />
         <input
-          aria-label="Nouvelle traduction"
-          placeholder="Traduction"
+          aria-label={t("Nouvelle traduction")}
+          placeholder={t("Traduction")}
           value={translation}
           onChange={(e) => setTranslation(e.target.value)}
           required
         />
-        <button className="primary">Ajouter et verrouiller</button>
+        <button className="primary">{t("Ajouter et verrouiller")}</button>
       </form>
       <p role="status">{message}</p>
     </section>
@@ -487,6 +503,7 @@ export function Bible({
   refresh: () => void;
   tick: number;
 }) {
+  const { t } = useI18n();
   const [text, setText] = useState(JSON.stringify(project.bible, null, 2));
   const [dirty, setDirty] = useState(false);
   const [data, setData] = useState<{
@@ -512,21 +529,21 @@ export function Bible({
           <h2>Book Bible</h2>
           <span className="muted">
             {data?.validated
-              ? "Validée par un humain"
-              : "Analyse IA — à examiner"}
+              ? t("Validée par un humain")
+              : t("Analyse IA — à examiner")}
           </span>
         </div>
         <button onClick={() => download("book-bible.json", project.bible)}>
-          Exporter JSON
+          {t("Exporter JSON")}
         </button>
       </div>
       <div className="bible-layout">
         <div>
-          <h3>Résumé éditorial</h3>
+          <h3>{t("Résumé éditorial")}</h3>
           <p className="literary">
             {String(
               data?.bible.summary ||
-                "Lancez l’analyse pour construire la mémoire du livre.",
+                t("Lancez l’analyse pour construire la mémoire du livre."),
             )}
           </p>
           <dl>
@@ -552,11 +569,11 @@ export function Bible({
               </div>
             ))}
           </dl>
-          <h3>Personnages</h3>
+          <h3>{t("Personnages")}</h3>
           {data?.entities.map((e) => (
             <details key={e.id}>
               <summary>
-                {e.name} {e.validated ? "· Validé" : ""}
+                {e.name} {e.validated ? `· ${t("Validé")}` : ""}
               </summary>
               <pre>{JSON.stringify(e.data, null, 2)}</pre>
               <button
@@ -564,7 +581,7 @@ export function Bible({
                   void run(async () => {
                     const { first_position: _position, ...profile } = e.data;
                     const edited = prompt(
-                      "Fiche personnage (JSON)",
+                      t("Fiche personnage (JSON)"),
                       JSON.stringify(profile, null, 2),
                     );
                     if (!edited) return;
@@ -578,7 +595,7 @@ export function Bible({
                   })
                 }
               >
-                Modifier / valider
+                {t("Modifier / valider")}
               </button>
             </details>
           ))}
@@ -588,7 +605,7 @@ export function Bible({
         </aside>
       </div>
       <details>
-        <summary>Éditer la Book Bible structurée</summary>
+        <summary>{t("Éditer la Book Bible structurée")}</summary>
         <textarea
           className="prompt-editor"
           aria-label="Book Bible JSON"
@@ -613,7 +630,7 @@ export function Bible({
             })
           }
         >
-          Enregistrer et valider la Book Bible
+          {t("Enregistrer et valider la Book Bible")}
         </button>
       </details>
     </section>
@@ -629,6 +646,7 @@ export function Quality({
   run: Run;
   tick: number;
 }) {
+  const { t } = useI18n();
   const [issues, setIssues] = useState<Issue[]>([]);
   useEffect(() => {
     void run(async () =>
@@ -639,10 +657,11 @@ export function Quality({
     <section>
       <div className="page-heading">
         <div>
-          <h2>Relecture ciblée</h2>
+          <h2>{t("Relecture ciblée")}</h2>
           <p className="muted">
-            Les signaux automatiques orientent la relecture ; ils ne mesurent
-            pas seuls la qualité littéraire.
+            {t(
+              "Les signaux automatiques orientent la relecture ; ils ne mesurent pas seuls la qualité littéraire.",
+            )}
           </p>
         </div>
         <button
@@ -654,18 +673,18 @@ export function Quality({
             })
           }
         >
-          Contrôle global de cohérence
+          {t("Contrôle global de cohérence")}
         </button>
       </div>
       {issues.length ? (
         issues.map((i) => (
           <article className="issue" key={i.id}>
             <span className={`badge ${i.severity}`}>
-              {i.resolved ? "Traité" : i.severity}
+              {i.resolved ? t("Traité") : i.severity}
             </span>
             <strong>{i.code}</strong>
             <p>{i.message}</p>
-            <small>Passage {i.segment_id}</small>
+            <small>{t("Passage {id}").replace("{id}", String(i.segment_id))}</small>
             {!i.resolved && (
               <button
                 onClick={() =>
@@ -675,14 +694,14 @@ export function Quality({
                   })
                 }
               >
-                Marquer comme traité
+                {t("Marquer comme traité")}
               </button>
             )}
           </article>
         ))
       ) : (
         <div className="empty">
-          Aucun problème enregistré par les contrôles exécutés.
+          {t("Aucun problème enregistré par les contrôles exécutés.")}
         </div>
       )}
     </section>
@@ -698,6 +717,7 @@ export function Observability({
   run: Run;
   tick: number;
 }) {
+  const { t } = useI18n();
   const [requests, setRequests] = useState<LLMRequest[]>([]);
   const [metrics, setMetrics] = useState<Record<string, number>>({});
   const [selected, setSelected] = useState<LLMRequest | null>(null);
@@ -715,15 +735,15 @@ export function Observability({
   }, [project.id, tick, run, offset]);
   return (
     <section>
-      <h2>Observabilité</h2>
-      <div className="metric-strip" aria-label="Estimations du travail actif">
+      <h2>{t("Observabilité")}</h2>
+      <div className="metric-strip" aria-label={t("Estimations du travail actif")}>
         <div>
           <strong>{duration(progress.estimate.remaining_seconds)}</strong>
-          <small>temps restant estimé</small>
+          <small>{t("temps restant estimé")}</small>
         </div>
         <div>
           <strong>{number(progress.estimate.spent_cost)}</strong>
-          <small>coût tarifaire consommé</small>
+          <small>{t("coût tarifaire consommé")}</small>
         </div>
         <div>
           <strong>
@@ -731,17 +751,15 @@ export function Observability({
               ? "—"
               : number(progress.estimate.remaining_cost)}
           </strong>
-          <small>coût restant estimé</small>
+          <small>{t("coût restant estimé")}</small>
         </div>
         <div>
           <strong>{progress.estimate.confidence}</strong>
-          <small>confiance de l’estimation</small>
+          <small>{t("confiance de l’estimation")}</small>
         </div>
       </div>
       <p className="muted">
-        Estimations fondées sur les requêtes réussies de l’étape active et les
-        tarifs actuellement configurés. Elles sont indisponibles tant que
-        l’échantillon est insuffisant.
+        {t("Estimations fondées sur les requêtes réussies de l’étape active et les tarifs actuellement configurés. Elles sont indisponibles tant que l’échantillon est insuffisant.")}
       </p>
       <div className="metric-strip">
         {Object.entries(metrics).map(([k, v]) => (
@@ -755,13 +773,13 @@ export function Observability({
         <table>
           <thead>
             <tr>
-              <th>Opération</th>
-              <th>Modèle</th>
-              <th>État</th>
-              <th>Durée</th>
-              <th>Entrée / sortie</th>
-              <th>Débit moyen*</th>
-              <th>Essai</th>
+              <th>{t("Opération")}</th>
+              <th>{t("Modèle")}</th>
+              <th>{t("État")}</th>
+              <th>{t("Durée")}</th>
+              <th>{t("Entrée / sortie")}</th>
+              <th>{t("Débit moyen*")}</th>
+              <th>{t("Essai")}</th>
             </tr>
           </thead>
           <tbody>
@@ -778,7 +796,7 @@ export function Observability({
                   >
                     {r.operation}
                   </button>
-                  {r.cached && <small>Cache</small>}
+                  {r.cached && <small>{t("Cache")}</small>}
                 </td>
                 <td>{r.model}</td>
                 <td>
@@ -824,11 +842,11 @@ export function Observability({
         <aside
           className="inspector"
           role="dialog"
-          aria-label="Détail de la requête"
+          aria-label={t("Détail de la requête")}
         >
           <header>
             <h2>{selected.operation}</h2>
-            <button onClick={() => setSelected(null)}>Fermer</button>
+            <button onClick={() => setSelected(null)}>{t("Fermer")}</button>
           </header>
           <RequestDetails request={selected} />
         </aside>

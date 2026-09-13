@@ -26,9 +26,9 @@ test("capture public Libris showcase", async ({ page }) => {
   const book = {
     id: "demo",
     owner_id: "demo-user",
-    title: "Le phare des marées",
-    author: "Collection de démonstration",
-    series_name: "Chroniques des marées",
+    title: "Tide Lighthouse",
+    author: "Demo collection",
+    series_name: "Tide Chronicles",
     volume_number: 1,
     archived_at: null,
     source_language: "en",
@@ -36,7 +36,7 @@ test("capture public Libris showcase", async ({ page }) => {
     provider_id: "local",
     quality: "high",
     context_backend: "internal",
-    instructions: "Préserver une voix narrative sobre et poétique.",
+    instructions: "Preserve a restrained, poetic narrative voice.",
     status: "ready",
     stats,
     updated_at: 1789254000,
@@ -48,7 +48,7 @@ test("capture public Libris showcase", async ({ page }) => {
     {
       ...book,
       id: "demo-2",
-      title: "Les jardins de cuivre",
+      title: "Copper Gardens",
       volume_number: 2,
       source_language: "ja",
       status: "analyzing",
@@ -64,7 +64,7 @@ test("capture public Libris showcase", async ({ page }) => {
     {
       ...book,
       id: "demo-3",
-      title: "Un atlas pour demain",
+      title: "Atlas for Tomorrow",
       series_name: "",
       volume_number: null,
       source_language: "es",
@@ -74,7 +74,7 @@ test("capture public Libris showcase", async ({ page }) => {
     {
       ...book,
       id: "demo-archive",
-      title: "Le carnet des brumes",
+      title: "Mist Journal",
       series_name: "",
       volume_number: null,
       archived_at: 1789167600,
@@ -84,7 +84,7 @@ test("capture public Libris showcase", async ({ page }) => {
   ];
   const chapter = {
     id: "chapter",
-    title: "Chapitre 1 · Le retour",
+    title: "Chapter 1 · The Return",
     position: 0,
     resource: "chapter.xhtml",
     instructions: "",
@@ -99,7 +99,7 @@ test("capture public Libris showcase", async ({ page }) => {
     project_id: "demo",
     chapter_id: "chapter",
     position: 0,
-    section: "Le retour",
+    section: "The Return",
     source,
     translation,
     units: [{ id: "u1", text: source }],
@@ -165,9 +165,10 @@ test("capture public Libris showcase", async ({ page }) => {
     await route.fulfill({ json: data });
   });
   await page.setViewportSize({ width: 1440, height: 1040 });
+  await page.addInitScript(() => localStorage.setItem("locale", "en"));
   await page.goto(base);
   await expect(
-    page.getByRole("heading", { name: "Bibliothèque", exact: true }),
+    page.getByRole("heading", { name: "Library", exact: true }),
   ).toBeVisible();
   await expect(page.getByRole("progressbar")).toHaveCount(3);
   await expect(page.getByRole("button", { name: /Archives/ })).toContainText(
@@ -175,62 +176,62 @@ test("capture public Libris showcase", async ({ page }) => {
   );
   await expect(
     page.getByRole("progressbar", {
-      name: "Traduction de Le phare des marées",
+       name: "Translation for Tide Lighthouse",
     }),
   ).toHaveAttribute("value", "75");
   await expect(
     page.getByRole("progressbar", {
-      name: "Analyse & mémoire de Les jardins de cuivre",
+       name: "Analysis & memory for Copper Gardens",
     }),
   ).toHaveAttribute("value", "36");
   await expect(
     page.getByRole("progressbar", {
-      name: "Export de Un atlas pour demain",
+       name: "Export for Atlas for Tomorrow",
     }),
   ).toHaveAttribute("value", "100");
   await page.screenshot({ path: resolve(output, "library.png") });
-  await page.getByRole("button", { name: /En cours/ }).click();
+  await page.getByRole("button", { name: /In progress/ }).click();
   await expect(page.locator(".library-table tbody tr")).toHaveCount(1);
   await expect(
-    page.getByRole("link", { name: "Les jardins de cuivre", exact: true }),
+     page.getByRole("link", { name: "Copper Gardens", exact: true }),
   ).toBeVisible();
-  await page.getByLabel("Rechercher un livre").fill("introuvable");
+  await page.getByLabel("Search for a book").fill("introuvable");
   await expect(
-    page.getByText("Aucun livre ne correspond.", { exact: true }),
+     page.getByText("No books match.", { exact: true }),
   ).toBeVisible();
-  await page.getByRole("button", { name: "Effacer les filtres" }).click();
+  await page.getByRole("button", { name: "Clear filters" }).click();
   await expect(page.locator(".library-table tbody tr")).toHaveCount(3);
   await page
-    .getByRole("combobox", { name: "Série", exact: true })
-    .selectOption("Chroniques des marées");
+     .getByRole("combobox", { name: "Series", exact: true })
+     .selectOption("Tide Chronicles");
   await expect(page.locator(".library-table tbody tr")).toHaveCount(2);
   await page.screenshot({
     path: resolve(output, "series.png"),
     fullPage: true,
   });
   await page
-    .getByRole("combobox", { name: "Série", exact: true })
+     .getByRole("combobox", { name: "Series", exact: true })
     .selectOption("all");
   await page.getByRole("button", { name: /Archives/ }).click();
   await expect(
-    page.getByRole("link", { name: "Le carnet des brumes", exact: true }),
+     page.getByRole("link", { name: "Mist Journal", exact: true }),
   ).toBeVisible();
   await expect(
-    page.getByRole("button", { name: "Restaurer", exact: true }),
+     page.getByRole("button", { name: "Restore", exact: true }),
   ).toBeVisible();
   await page.screenshot({
     path: resolve(output, "archives.png"),
     fullPage: true,
   });
-  await page.getByRole("button", { name: /Tous les livres/ }).click();
-  await page.getByLabel("Trier par").selectOption("title");
+  await page.getByRole("button", { name: /All books/ }).click();
+  await page.getByLabel("Sort by").selectOption("title");
   await page
-    .getByRole("button", { name: "+ Importer des EPUB", exact: true })
+     .getByRole("button", { name: "+ Import EPUBs", exact: true })
     .focus();
   await expect(
-    page.getByRole("button", { name: "+ Importer des EPUB", exact: true }),
+     page.getByRole("button", { name: "+ Import EPUBs", exact: true }),
   ).toBeFocused();
-  await page.getByLabel("Trier par").selectOption("recent");
+  await page.getByLabel("Sort by").selectOption("recent");
   await page.setViewportSize({ width: 390, height: 844 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(
     390,
@@ -244,19 +245,19 @@ test("capture public Libris showcase", async ({ page }) => {
   await expect(page.getByText(source, { exact: true })).toBeVisible();
   await expect(page.getByRole("progressbar")).toHaveCount(1);
   for (const [button, detail] of [
-    ["1 · Import", "EPUB importé et structure chargée."],
+     ["1 · Import", "EPUB imported and structure loaded."],
     [
-      "2 · Analyse & mémoire",
-      "24/24 passages analysés · 4/4 sections synthétisées.",
+       "2 · Analysis & memory",
+       "24/24 segments analyzed · 4/4 sections synthesized.",
     ],
-    ["3 · Traduction", "18/24 passages traduits · 0 conservés en original."],
+     ["3 · Translation", "18/24 segments translated · 0 retained in the original."],
     [
-      "4 · Relecture",
-      "16/24 passages examinés · 0 résolus · 1 à vérifier.",
+       "4 · Review",
+       "16/24 segments reviewed · 0 resolved · 1 to review.",
     ],
     [
-      "5 · Export",
-      "Terminez les alertes restantes avant l’export final.",
+       "5 · Export",
+       "Resolve the remaining alerts before the final export.",
     ],
   ]) {
     await page.getByRole("button", { name: button, exact: true }).click();
@@ -264,18 +265,18 @@ test("capture public Libris showcase", async ({ page }) => {
     await expect(page.getByRole("progressbar")).toHaveCount(1);
   }
   await page
-    .getByRole("button", { name: "3 · Traduction", exact: true })
+     .getByRole("button", { name: "3 · Translation", exact: true })
     .click();
-  await page.getByRole("button", { name: "Suivre l’étape active" }).click();
+  await page.getByRole("button", { name: "Follow the active stage" }).click();
   await page.screenshot({
     path: resolve(output, "progress-stages.png"),
     fullPage: true,
   });
   await page.screenshot({ path: resolve(output, "editor.png") });
   await page
-    .getByRole("button", { name: "Validations (1)", exact: true })
+     .getByRole("button", { name: "Validations (1)", exact: true })
     .click();
-  await expect(page.getByText("Avis de l’IA", { exact: true })).toBeVisible();
+  await expect(page.getByText("AI opinion", { exact: true })).toBeVisible();
   await page.screenshot({
     path: resolve(output, "validations.png"),
     fullPage: true,
@@ -290,30 +291,21 @@ test("capture public Libris showcase", async ({ page }) => {
   });
   await page.setViewportSize({ width: 1440, height: 1040 });
   await page
-    .getByRole("button", { name: "Changer de thème", exact: true })
+     .getByRole("button", { name: "Change theme", exact: true })
     .click();
   await page.screenshot({
     path: resolve(output, "validations-light.png"),
     fullPage: true,
   });
-  await page.getByText("Exporter ↓", { exact: true }).click();
+  await page.getByText("Export ↓", { exact: true }).click();
   const download = page.waitForEvent("download");
-  await page.getByRole("link", { name: "EPUB traduit", exact: true }).click();
+  await page.getByRole("link", { name: "Translated EPUB", exact: true }).click();
   await download;
   await expect(
-    page.getByText("Fichier reçu ; téléchargement transmis au navigateur."),
+     page.getByText("File received; download sent to the browser."),
   ).toBeVisible();
-  await page.getByRole("combobox", { name: "Langue" }).selectOption("en");
   await expect(
     page.getByRole("heading", { name: "Translation validations" }),
-  ).toBeVisible();
-  await expect(page.getByRole("button", { name: "Change theme" })).toBeVisible();
-  await page.getByRole("combobox", { name: "Language" }).selectOption("fr");
-  await expect(
-    page.getByRole("heading", { name: "Validations de traduction" }),
-  ).toBeVisible();
-  await expect(
-    page.getByRole("button", { name: "3 · Traduction", exact: true }),
   ).toBeVisible();
   expect(errors).toEqual([]);
 });

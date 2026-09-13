@@ -17,7 +17,7 @@ test("library has separate analysis/translation progress and refresh reloads met
       username: config.BOOTSTRAP_USERNAME,
       password: config.BOOTSTRAP_PASSWORD,
     },
-    headers: { Origin: "https://libris.hbtz.fr" },
+    headers: { Origin: config.ALLOWED_ORIGINS.split(",")[0] },
   });
   expect(login.ok()).toBeTruthy();
   await page.goto(base);
@@ -51,7 +51,7 @@ test("library has separate analysis/translation progress and refresh reloads met
   expect(Number(await translation.getAttribute("value"))).toBe(
     Math.floor((project.stats.translated / project.stats.total) * 100),
   );
-  await page.screenshot({ path: "/tmp/opencode/epub-library-progress.png" });
+  await page.screenshot({ path: "/tmp/libris/epub-library-progress.png" });
   await page.goto(`${base}/#project/${project.id}`);
   await page.getByRole("button", { name: /Validations/ }).click();
   await expect(
@@ -110,7 +110,7 @@ test("library has separate analysis/translation progress and refresh reloads met
     await page.waitForTimeout(750);
     await expect(draft).toHaveValue(`${original} [brouillon de test]`);
   }
-  await page.screenshot({ path: "/tmp/opencode/libris-validations.png" });
+  await page.screenshot({ path: "/tmp/libris/libris-validations.png" });
   await page.setViewportSize({ width: 390, height: 844 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(
     390,

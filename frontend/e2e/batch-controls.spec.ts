@@ -20,7 +20,7 @@ test('batch pause, resume, cancel by operation and confirmed delete', async ({pa
     providerId = (await provider.json()).id;
     for (const letter of ['a','b']) {
       const response = await page.request.post(`${base}/api/projects`, {multipart: {file: {
-        name: `batch-${letter}.epub`, mimeType: 'application/epub+zip', buffer: readFileSync(`/tmp/opencode/batch-${letter}.epub`),
+        name: `batch-${letter}.epub`, mimeType: 'application/epub+zip', buffer: readFileSync(`/tmp/libris/batch-${letter}.epub`),
       }}});
       const p = await response.json(); ids.push(p.id);
       expect((await page.request.put(`${base}/api/projects/${p.id}`, {data: {

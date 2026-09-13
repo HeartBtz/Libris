@@ -1,169 +1,130 @@
 # Libris
 
-![Libris](frontend/public/assets/libris-logo.png)
+<p align="center">
+  <img src="frontend/public/assets/libris-logo.png" alt="Libris" width="360">
+</p>
 
-Atelier de traduction littéraire self-hosted : **EPUB → analyse → mémoire du livre → traduction contextuelle → relecture → EPUB**.
+**Self-hosted, context-aware EPUB translation — from the first chapter to the final review.**
 
-React / TypeScript strict, FastAPI, PostgreSQL, worker Python persistant, Docker Compose. Le modèle de traduction utilise une API OpenAI-compatible. **OpenViking** est le moteur externe facultatif de mémoire ; les modes disponibles sont `internal`, `openviking` et `hybrid` (par défaut).
+Libris combines a persistent translation pipeline with a book bible, character memory, a glossary and a human review workspace. Bring your own local or hosted language model. Your books and translation history stay on your server; selected content is sent to the providers you configure.
 
-## Démarrage
+[Install](#quick-start) · [Deployment guide](docs/installation.md) · [Guide français](docs/user-guide.fr.md) · [Codex](docs/codex.md) · [Contributing](CONTRIBUTING.md)
 
-Prérequis : Docker et Docker Compose, Python 3 pour générer les secrets.
+## A workspace for long-form translation
+
+![Libris library](docs/screenshots/library.png)
+
+- **Multiple books:** import EPUBs together and follow analysis and translation separately.
+- **Consistent context:** book bible, character identities, relationships and a lockable glossary.
+- **Your provider:** OpenAI-compatible APIs, OpenAI Responses, or optional Codex/ChatGPT authentication.
+- **Independent concurrency:** each provider has its own limit, shared by analysis, translation and review jobs.
+- **Resumable work:** persistent jobs, checkpoints, pause/resume and retries after temporary failures.
+- **Human decisions:** compare source and translation, accept or reject AI suggestions, edit and keep version history.
+- **Refusal recovery:** after two translation refusals, continue the book and retry refused passages later with a chosen provider.
+- **EPUB preservation:** preserve resources and inline structure, with EPUBCheck validation on export.
+- **Optional external memory:** use internal SQL memory alone, or connect your own OpenViking instance.
+
+### Review with context
+
+![Translation validation and AI suggestions](docs/screenshots/validations.png)
+
+### Read and edit side by side
+
+![Translation editor](docs/screenshots/editor.png)
+
+<details>
+<summary>Mobile library</summary>
+
+<img src="docs/screenshots/mobile.png" alt="Mobile library" width="390">
+
+</details>
+
+_Screenshots use fictional, synthetic demonstration data in the real UI. They do not represent translation quality benchmarks or expose a user's books._
+
+## Quick start
+
+### Requirements
+
+- Linux server or workstation with Docker Engine and Docker Compose v2.
+- Python 3 to generate local configuration; Git to obtain the source.
+- An accessible language-model provider. **No GPU is required on the Libris server** when inference runs elsewhere.
+- Internet access during the image build to download dependencies and EPUBCheck.
+
+Clone this repository using the HTTPS or SSH URL shown by your Git hosting service, then run from its root:
 
 ```bash
 python3 scripts/setup.py
-docker compose up -d --build
+docker compose up -d --build --wait
 ```
 
-Le script crée `.env` avec permissions `0600` et refuse d’écraser une configuration existante. Ouvrir <http://127.0.0.1:8088>. Compte initial : `BOOTSTRAP_USERNAME`, mot de passe : `BOOTSTRAP_PASSWORD` dans `.env`.
+Open **http://localhost:8088** on the Docker host. The initial username is `admin`; find the generated password in the local `.env` under `BOOTSTRAP_PASSWORD`. The setup script creates this file with restricted permissions and never overwrites an existing installation.
 
-Pour rendre l’application accessible sur le LAN, définir `BIND_ADDRESS` à l’IP du serveur et ajouter son origine complète à `ALLOWED_ORIGINS`. Derrière un reverse proxy HTTPS, ajouter son origine et activer `COOKIE_SECURE=true`.
+For a remote server, use an SSH tunnel first:
 
-Le compte initial est créé seulement lorsque la base ne contient aucun utilisateur. Changer `BOOTSTRAP_PASSWORD` ensuite ne réinitialise pas un compte existant.
+```bash
+ssh -L 8088:127.0.0.1:8088 your-user@your-server
+```
 
-### Stockage
+Then open http://localhost:8088 on your computer. For LAN or HTTPS access, follow the [deployment guide](docs/installation.md). The default binds only to loopback.
 
-- Volume `books` monté sur `/data` : `/data/books` (originaux), `/data/projects`, `/data/exports`.
-- Volume `database` : données PostgreSQL, textes, traductions, versions, mémoire, paramètres chiffrés, jobs et traces.
-- `.env` : clé de chiffrement de l’application et identifiants de déploiement.
+### Translate your first book
 
-Les traductions sont enregistrées immédiatement en SQL ; le volume `/data/projects` est prévu pour des artefacts supplémentaires, il ne remplace pas la sauvegarde SQL. **Sauvegarder PostgreSQL, `/data` et la clé `SECRET_KEY` ensemble.** Un export de projet est portable, mais ne contient ni comptes, ni mots de passe, ni clés de providers.
+1. Open **Settings / Paramètres → Providers LLM** and add your endpoint, model and credentials.
+2. Import an EPUB for which you have the necessary rights.
+3. Choose the provider, languages and quality mode in the book's configuration. Select **internal** memory to start without any external service.
+4. Analyze the book, review the book bible and glossary, then start translation.
+5. Use **Validations** to resolve flagged passages and **Traduction** to edit.
+6. Export EPUB, TXT, Markdown, JSON or a project archive.
 
-## Premier livre
+The UI is currently in French. Model quality, language coverage, latency and costs depend on your chosen provider. Structural validation is not a guarantee of literary fidelity.
 
-Pour les commandes par lot, les deux progressions, les interruptions, les refus et le graphe : [guide d’exploitation](docs/operations.md).
+## Deployment and maintenance
 
-1. Dans **Paramètres → Providers LLM**, renseigner la base URL (incluant `/v1`), le modèle et éventuellement la clé. Le bouton de test interroge `/models`. Les capacités JSON et reasoning restent configurables.
-2. Importer un EPUB dans la bibliothèque. La structure, les ressources et le texte sont analysés ; EPUBCheck est exécuté dans l’image Docker.
-3. Dans **Configuration**, choisir le provider, les langues, le mode qualité et les instructions globales. Utiliser des codes de langue BCP 47, par exemple `en`, `fr`, `ja`.
-4. **Analyser le livre**. Chaque unité est analysée, puis les résultats sont consolidés par chapitre en Book Bible. L’historique d’analyse reste consultable.
-5. Examiner et corriger la **Book Bible**, les personnages et les propositions de glossaire. Les entrées proposées ne sont pas acceptées automatiquement par défaut.
-6. **Traduire**. Le suivi se reconnecte automatiquement. Pause, reprise et retry conservent les traductions enregistrées.
-7. Comparer, corriger et valider dans le workspace. Les marqueurs `⟦t0⟧…⟦/t0⟧` protègent les éléments inline ; leur suppression est refusée.
-8. Exporter en EPUB, TXT, Markdown, JSON ou archive de projet. L’export EPUB complet est refusé si du texte manque ou si EPUBCheck signale une non-conformité.
+See [installation and operations](docs/installation.md) for remote access, HTTPS, optional Codex, backups, updates and troubleshooting. PostgreSQL and the Codex bridge are internal services; only the web application has a published port.
 
-La preview est volontairement simplifiée (CSS de lecture neutre) ; les CSS et ressources originales sont conservées dans l’EPUB exporté. Aucune mention IA n’est ajoutée automatiquement.
+```bash
+docker compose ps
+curl --fail http://127.0.0.1:8088/health
+```
 
-## Codex
+Never delete persistent volumes during an update. Back up PostgreSQL, book storage and `.env` together; losing `SECRET_KEY` prevents decryption of saved provider credentials.
 
-Pour connecter **Codex avec un compte ChatGPT** ou **un modèle Codex via clé API OpenAI**, voir [Connexion Codex](docs/codex.md). Les providers OpenAI-compatible existants continuent d’utiliser Chat Completions.
-
-## OpenViking
-
-L’application fonctionne sans OpenViking. Pour utiliser une instance existante : **Paramètres → Mémoire · OpenViking**.
+## Architecture
 
 ```text
-URL : http://openviking:1933
-Clé : clé utilisateur ou administrateur liée au compte OpenViking
-Racine : viking://resources/epub-translator
-Mode : API key
+Browser → FastAPI → PostgreSQL (projects, jobs, versions, memory)
+              └── book storage (EPUBs and exports)
+Worker  → configured model providers
+        → optional OpenViking
+        → optional private Codex bridge
 ```
 
-Les mêmes valeurs initiales peuvent être définies avec `OPENVIKING_URL`, `OPENVIKING_API_KEY`, `OPENVIKING_ROOT_URI`. Les paramètres enregistrés dans l’interface prennent le dessus. Les clés sont chiffrées côté backend et jamais renvoyées par l’API.
+React + TypeScript · FastAPI · PostgreSQL · Python worker · Docker Compose · EbookLib/lxml · EPUBCheck
 
-Arborescence gérée :
+| Directory       | Purpose                                                   |
+| --------------- | --------------------------------------------------------- |
+| `frontend/`     | Web interface, browser tests and screenshot fixtures      |
+| `backend/`      | API, worker, migrations and tests                         |
+| `prompts/`      | Versioned model instructions                              |
+| `codex_bridge/` | Optional isolated Codex transport                         |
+| `scripts/`      | Setup and integration-test utilities                      |
+| `docs/`         | Installation, architecture, quality and operations guides |
 
-```text
-viking://resources/epub-translator/
-  <owner_uuid>/<project_uuid>/events/<event_uuid>.json
-```
-
-Utiliser un compte OpenViking dédié si les livres doivent être isolés d’autres consommateurs de la même instance. Le préfixe par projet est une limite de retrieval appliquée par l’application, **pas un remplacement des ACL OpenViking**.
-
-### Comportement
-
-- Écritures via outbox SQL, URI stable, `replace`, puis `create` sur 404 pour les versions qui l’exigent.
-- `wait=false` : la réussite d’une écriture n’est pas présentée comme une preuve d’indexation.
-- Recherche courante : `POST /api/v1/search/find` avec `target_uri` et niveau 2.
-- Recherche approfondie : `/api/v1/search/search`, **mode list et même target_uri**. Le mode context non bornable par URI n’est pas utilisé.
-- Lecture L2 seulement pour les résultats appartenant aux événements SQL autorisés, antérieurs au passage courant. Le contenu relu doit correspondre à l’événement canonique.
-- Déduplication, classement, budget et provenance visibles dans le Context Inspector.
-- En cas d’indisponibilité : repli interne affiché et événements conservés pour synchronisation.
-- Reconstruction depuis SQL et réindexation disponibles dans Book Bible. Certaines clés USER ne peuvent pas réindexer `resources/` : l’écriture/recherche peuvent néanmoins fonctionner. Les droits de l’instance restent respectés.
-
-OpenViking gère lui-même ses modèles de compréhension et d’embeddings. L’application n’exige pas son installation dans la stack et ne modifie pas sa configuration serveur. Documentation : [API](https://docs.openviking.ai/en/api/01-overview), [authentification](https://docs.openviking.ai/en/guides/04-authentication).
-
-## Qualité et fonctionnement
-
-### Contexte et temps narratif
-
-Chaque requête combine les règles utilisateur, les choix humains pertinents, le glossaire applicable, les personnages sélectionnés, une synthèse éditoriale, les faits antérieurs et les passages voisins source/traduction. La Book Bible éditoriale peut connaître la fin ; les événements injectés comme mémoire narrative sont bornés par position. Les prompts interdisent de dévoiler une révélation future ou d’attribuer à un personnage la connaissance du traducteur.
-
-Les choix humains validés remplacent leurs anciennes versions dans le retrieval local. Les souvenirs externes ne modifient jamais directement les traductions, fiches validées ou termes verrouillés.
-
-### Modes
-
-| Mode          | Passes                                                        |
-| ------------- | ------------------------------------------------------------- |
-| Rapide        | Analyse, traduction, contrôles déterministes                  |
-| Normal        | Rapide + critique LLM                                         |
-| Haute qualité | Critique, révision si problèmes réels, contrôles de cohérence |
-| Maximum       | Haute qualité + polishing littéraire                          |
-
-Les contrôles globaux LLM échantillonnent les occurrences dans tout le livre, pour la terminologie et les personnages, avec un plafond de trois lots par sujet. Leur couverture est explicitement notée `sampled`. Les contrôles structurels et de présence du glossaire verrouillé s’appliquent à chaque unité.
-
-### Reprise et concurrence
-
-- File SQL avec verrouillage de prise en charge, bail de 60 secondes et heartbeat de 10 secondes.
-- Après un arrêt brutal, reprise au plus tard après expiration du bail, sous réserve de disponibilité du worker/provider.
-- Un ancien worker ne peut plus appliquer un résultat après pause, annulation ou reprise par un nouveau worker.
-- Traductions et étapes intermédiaires enregistrées séparément ; cache des appels valides par contenu du prompt, contexte, modèle et paramètres.
-- Une correction humaine arrivée pendant l’inférence gagne : le résultat IA devient une proposition dans l’historique.
-- La concurrence est définie par provider : `max_concurrency=3` autorise trois livres utilisant ce provider, analyses et traductions confondues. Les capacités de Codex et des providers personnalisés sont indépendantes, tandis que les passages d’un livre restent séquentiels.
-
-### Tokens et observabilité
-
-Le budget actuel utilise une estimation **conservatrice en octets UTF-8**, affichée comme estimation, pas un tokenizer exact. La réservation de sortie et une marge sont contrôlées avant envoi. Une entrée qui ne tient pas est refusée avec une erreur explicite, sans tronquer le passage ni les règles obligatoires. Ajuster la fenêtre selon la capacité réelle du serveur d’inférence.
-
-La réponse complète est validée par schéma, identifiants, marqueurs et contrôles de texte. JSON Schema est utilisé si déclaré, avec repli JSON simple lorsqu’un endpoint rejette explicitement ce format. Une réponse tronquée ou polluée par du texte hors JSON est rejetée.
-
-Les métriques distinguent le cache, les tentatives, les tokens rapportés par le provider, la durée et le débit moyen global. Les coûts par million sont facultatifs et valent zéro par défaut. Les traces complètes de prompts/réponses sont privées au projet ; les logs de service ne contiennent pas le livre.
-
-## Tests et développement
+## Development
 
 ```bash
 python3 -m venv .venv
+.venv/bin/pip install -r backend/requirements.lock
 .venv/bin/pip install -e './backend[test]'
+(cd backend && ../.venv/bin/pytest -q && ../.venv/bin/ruff check app tests)
+npm --prefix frontend ci
+npm --prefix frontend run build
 ```
 
-Depuis `backend/` :
+GitHub Actions and GitLab CI run backend tests and build the frontend. Live integration tests must use a disposable installation; see [Contributing](CONTRIBUTING.md).
 
-```bash
-../.venv/bin/pytest -q
-../.venv/bin/ruff check app tests
-```
+## Project status and publication
 
-Depuis `frontend/` :
+Libris is an early-stage application. See the [quality evaluation protocol](docs/quality-evaluation.md) and [architecture](docs/architecture.md) for limitations. Report security issues privately following [SECURITY.md](SECURITY.md).
 
-```bash
-npm ci
-npm run build
-```
-
-Test complet Docker avec un provider **explicitement synthétique** :
-
-```bash
-docker compose -f docker-compose.yml -f docker-compose.test.yml --profile test up -d --build
-.venv/bin/python scripts/smoke.py
-npm --prefix frontend exec playwright install chromium
-npm --prefix frontend run test:e2e
-```
-
-Le smoke test crée un EPUB de test, analyse et traduit réellement via HTTP, vérifie la pause/reprise, tue le worker par SIGKILL, vérifie la reprise et exporte un EPUB contrôlé par EPUBCheck. Il utilise le compte local créé par `setup.py` sans afficher ses secrets. Il suppose que l’installation de test n’a pas de travail utilisateur actif.
-
-Les tests navigateur couvrent correction, historique, inspecteur, preview et mobile. Nettoyage des données SQL synthétiques : `python scripts/smoke.py --cleanup` avec l’environnement virtuel actif. La mémoire externe éventuelle reste disponible pour le diagnostic et ne fait pas l’objet d’une suppression globale automatique.
-
-## État de cette première version
-
-Le parcours import → analyse → traduction contextualisée → reprise → correction → export est implémenté et testé. OpenViking a également été testé contre une instance réelle, y compris le comportement `create`/`replace`, la recherche fast/deep et l’injection dans le contexte.
-
-Points à approfondir avant de qualifier la fidélité d’un roman de plusieurs centaines de pages :
-
-- évaluation humaine bilingue sur un corpus littéraire long, avec le modèle réel choisi ;
-- tokenizer exact par provider et adaptation automatique plus fine des unités aux petites fenêtres ;
-- graphe temporel détaillé des relations/croyances, au-delà des événements sourcés et bornés actuels ;
-- meilleure édition visuelle des fiches et des marqueurs inline ;
-- preview CSS fidèle et résolution des défauts EPUB préexistants ;
-- migration portable de tout l’audit d’exécution (l’archive projet conserve textes, versions et mémoire, mais pas les jobs actifs, clés ou journaux complets de requêtes).
-
-**La conformité EPUB, les mocks et les scores automatiques ne constituent pas une preuve de qualité littéraire.** Voir [le protocole d’évaluation](docs/quality-evaluation.md).
+Licensed under **GNU AGPL-3.0-only**. See [LICENSE](LICENSE). If you modify Libris and offer it over a network, provide those users access to the corresponding source code under the license's terms. Dependency licenses and the rights to imported books remain separate. See [third-party notices](THIRD_PARTY_NOTICES.md).

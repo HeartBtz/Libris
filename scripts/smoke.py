@@ -15,7 +15,8 @@ from dotenv import dotenv_values
 from ebooklib import epub
 
 ROOT = Path(__file__).resolve().parents[1]
-STATE = Path("/tmp/opencode/epub-smoke.json")
+STATE = Path("/tmp/libris/epub-smoke.json")
+STATE.parent.mkdir(parents=True, exist_ok=True)
 
 
 def book(title: str = "The Silver Tower — synthetic test") -> bytes:
@@ -112,7 +113,7 @@ def main(cleanup=False):
         assert next(s for s in after if s["id"] == old["id"])["translation"] == old["translation"]
     request("GET", f"/projects/{pid}/segments?status=uncertain")
     output = request("GET", f"/projects/{pid}/export/epub")
-    Path("/tmp/opencode/translated-smoke.epub").write_bytes(output.content)
+    (STATE.parent / "translated-smoke.epub").write_bytes(output.content)
     print(json.dumps({"project_id": pid, "segments": len(after), "analysis": "passed", "translation": "passed",
                       "pause_resume": "passed", "SIGKILL_recovery": "passed", "epubcheck_export": "passed"}))
 

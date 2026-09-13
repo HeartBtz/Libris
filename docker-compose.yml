@@ -2,7 +2,7 @@ name: epub-translator
 x-app: &app
   build: .
   image: epub-translator:local
-  env_file: .env
+  env_file: ${LIBRIS_ENV_FILE:-.env}
   environment:
     DATABASE_URL: postgresql+psycopg://translator:${POSTGRES_PASSWORD:?Run scripts/setup.py}@database:5432/translator
     DATA_DIR: /data

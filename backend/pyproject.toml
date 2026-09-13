@@ -6,6 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "epub-translator"
 version = "0.1.0"
 description = "Context-aware literary EPUB translation workbench"
+license = {text = "AGPL-3.0-only"}
 requires-python = ">=3.12"
 dependencies = [
   "fastapi>=0.115,<1", "uvicorn>=0.34,<1", "pydantic-settings>=2.7,<3",

@@ -33,7 +33,7 @@ test('Codex connection types, model catalog and device-code interface', async ({
     await page.getByRole('button', {name: 'Se connecter avec ChatGPT'}).click();
     await expect(page.getByText('TEST-CODE-ONLY')).toBeVisible();
     await expect(page.getByRole('link', {name: /Ouvrir la connexion officielle/})).toHaveAttribute('href', 'https://auth.openai.com/codex/device');
-    await page.screenshot({path: '/tmp/opencode/epub-codex.png'});
+    await page.screenshot({path: '/tmp/libris/epub-codex.png'});
     expect(errors).toEqual([]);
   } finally {
     if (providerId) await page.request.delete(`${base}/api/providers/${providerId}`);

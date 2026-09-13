@@ -13,3 +13,6 @@ test-results/
 playwright-report/
 .coverage
 *.tsbuildinfo
+.env.*
+!.env.example
+backups/

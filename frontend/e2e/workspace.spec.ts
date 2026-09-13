@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs';
 const config = Object.fromEntries(readFileSync(new URL('../../.env', import.meta.url), 'utf8').split('\n')
   .filter(l => l && !l.startsWith('#')).map(l => [l.slice(0, l.indexOf('=')), l.slice(l.indexOf('=') + 1)]));
 const base = `http://${config.BIND_ADDRESS === '0.0.0.0' ? '127.0.0.1' : config.BIND_ADDRESS}:${config.PORT}`;
-const state = JSON.parse(readFileSync('/tmp/opencode/epub-smoke.json', 'utf8')) as {project_id: string};
+const state = JSON.parse(readFileSync('/tmp/libris/epub-smoke.json', 'utf8')) as {project_id: string};
 
 test.beforeEach(async ({page}) => {
   await page.goto(base);
@@ -39,7 +39,7 @@ test('workspace, manual correction, history, inspector and preview', async ({pag
   await page.getByRole('button', {name: 'Prévisualiser'}).click();
   await expect(page.frameLocator('iframe[title="Rendu du chapitre"]').getByText('Chapitre Un — correction humaine')).toBeVisible();
   await page.getByRole('button', {name: 'Fermer', exact: true}).click();
-  await page.screenshot({path: '/tmp/opencode/epub-workspace.png', fullPage: false});
+  await page.screenshot({path: '/tmp/libris/epub-workspace.png', fullPage: false});
   expect(errors).toEqual([]);
 });
 
@@ -48,13 +48,13 @@ test('OpenViking settings and responsive layout', async ({page}) => {
   await page.getByRole('button', {name: 'Mémoire · OpenViking', exact: true}).click();
   await expect(page.getByLabel('URL OpenViking')).toBeVisible();
   await expect(page.getByLabel('Racine dédiée viking://')).toHaveValue('viking://resources/epub-translator');
-  await page.screenshot({path: '/tmp/opencode/epub-openviking.png'});
+  await page.screenshot({path: '/tmp/libris/epub-openviking.png'});
   await page.setViewportSize({width: 390, height: 844});
   await page.goto(`${base}/#project/${state.project_id}`);
   await expect(page.getByRole('heading', {level: 1})).toBeVisible();
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 2);
   expect(overflow).toBe(false);
-  await page.screenshot({path: '/tmp/opencode/epub-mobile.png'});
+  await page.screenshot({path: '/tmp/libris/epub-mobile.png'});
 });
 
 test('saved provider can be edited without submitting read-only metadata', async ({page}) => {

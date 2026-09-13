@@ -19,7 +19,7 @@ test('multiple EPUB import, batch selection, canonical graph and validated relat
   await page.getByLabel('Mot de passe', {exact: true}).fill(config.BOOTSTRAP_PASSWORD);
   await page.getByRole('button', {name: 'Se connecter', exact: true}).click();
   await expect(page.getByRole('heading', {name: 'Bibliothèque', exact: true})).toBeVisible();
-  await page.locator('input[type="file"][accept=".epub"]').setInputFiles(['/tmp/opencode/batch-a.epub', '/tmp/opencode/batch-b.epub']);
+  await page.locator('input[type="file"][accept=".epub"]').setInputFiles(['/tmp/libris/batch-a.epub', '/tmp/libris/batch-b.epub']);
   try {
     await expect(page.getByText('2 livre(s) sélectionné(s)', {exact: true})).toBeVisible({timeout: 30000});
     await expect(page.getByRole('button', {name: 'Analyser la sélection'})).toBeVisible();
@@ -62,7 +62,7 @@ test('multiple EPUB import, batch selection, canonical graph and validated relat
     graph = await (await page.request.get(`${base}/api/projects/${pid}/characters/graph`)).json();
     expect(graph.nodes.find((n: {id: string}) => n.id === rudeus).data.aliases).toEqual(['Rudy', 'Rudeus']);
     expect(graph.edges[0].validated).toBe(true);
-    await page.screenshot({path: '/tmp/opencode/epub-character-graph.png', fullPage: false});
+    await page.screenshot({path: '/tmp/libris/epub-character-graph.png', fullPage: false});
     await page.setViewportSize({width: 390, height: 844});
     expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 2)).toBe(false);
     expect(errors).toEqual([]);

@@ -6,7 +6,7 @@ import tempfile
 import pytest
 from ebooklib import epub
 
-temporary = tempfile.TemporaryDirectory(prefix="epub-tests-", dir="/tmp/opencode")
+temporary = tempfile.TemporaryDirectory(prefix="libris-tests-")
 atexit.register(temporary.cleanup)
 os.environ["DATABASE_URL"] = "sqlite:///" + temporary.name + "/tests.db"
 os.environ["DATA_DIR"] = temporary.name

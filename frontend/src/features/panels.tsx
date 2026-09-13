@@ -36,6 +36,8 @@ export function ProjectSettings({
             const {
               title,
               author,
+              series_name,
+              volume_number,
               source_language,
               target_language,
               provider_id,
@@ -48,6 +50,8 @@ export function ProjectSettings({
               {
                 title,
                 author,
+                series_name,
+                volume_number,
                 source_language,
                 target_language,
                 provider_id,
@@ -75,6 +79,32 @@ export function ProjectSettings({
             <input
               value={value.author}
               onChange={(e) => setValue({ ...value, author: e.target.value })}
+            />
+          </label>
+          <label>
+            Série
+            <input
+              value={value.series_name}
+              onChange={(e) =>
+                setValue({ ...value, series_name: e.target.value })
+              }
+              placeholder="Ex. Mushoku Tensei"
+            />
+          </label>
+          <label>
+            Numéro du volume
+            <input
+              type="number"
+              min="1"
+              max="10000"
+              value={value.volume_number ?? ""}
+              onChange={(e) =>
+                setValue({
+                  ...value,
+                  volume_number: e.target.value ? Number(e.target.value) : null,
+                })
+              }
+              placeholder="1"
             />
           </label>
           <label>

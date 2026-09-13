@@ -23,6 +23,9 @@ export interface Project {
   owner_id: string;
   title: string;
   author: string;
+  series_name: string;
+  volume_number: number | null;
+  archived_at: number | null;
   source_language: string;
   target_language: string;
   provider_id: string | null;

@@ -24,6 +24,8 @@ Libris combines a persistent translation pipeline with a book bible, character m
 - **Refusal recovery:** after two translation refusals, continue the book and retry refused passages later with a chosen provider.
 - **Failure isolation:** after five invalid responses, try checkpointed small-batch repair before skipping the passage; stop after ten consecutive failed passages. See [recovery](docs/recovery.md).
 - **Completion report:** see missing passages and remaining alerts, select failed passages and retry them with a chosen provider from **Bilan & récupération**.
+- **Series library:** assign a series and volume number, then search, filter or sort related books in reading order.
+- **Reversible archives:** hide inactive projects without deleting their EPUB, translations, memory or history; restore them from the Archives view.
 - **EPUB preservation:** preserve resources and inline structure, with EPUBCheck validation on export.
 - **Optional external memory:** use internal SQL memory alone, or connect your own OpenViking instance.
 
@@ -43,6 +45,13 @@ Libris combines a persistent translation pipeline with a book bible, character m
 <summary>Mobile library</summary>
 
 <img src="docs/screenshots/mobile.png" alt="Mobile library" width="390">
+
+</details>
+
+<details>
+<summary>Series metadata and reversible archives</summary>
+
+![Archived projects can be restored or permanently deleted](docs/screenshots/archives.png)
 
 </details>
 

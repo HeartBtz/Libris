@@ -36,11 +36,64 @@ def test_owner_can_confirm_delete_with_active_job(seeded):
         db.commit()
     with TestClient(app) as client:
         client.post("/api/auth/login", json={"username": "tester", "password": "test-password-123456789"})
+        current = client.get(f"/api/projects/{pid}").json()
+        config = {
+            key: current[key]
+            for key in (
+                "title",
+                "author",
+                "source_language",
+                "target_language",
+                "provider_id",
+                "quality",
+                "context_backend",
+                "instructions",
+            )
+        }
+        config.update(series_name="Active series", volume_number=1)
+        assert client.put(f"/api/projects/{pid}", json=config).status_code == 200
+        assert client.post(f"/api/projects/{pid}/archive").status_code == 409
         assert client.delete(f"/api/projects/{pid}").status_code == 409
         assert client.delete(f"/api/projects/{pid}?stop_jobs=true").status_code == 200
         assert client.get(f"/api/projects/{pid}").status_code == 404
     with SessionLocal() as db:
         assert db.scalar(select(Job).where(Job.project_id == pid)) is None
+
+
+def test_owner_can_assign_series_archive_and_restore_project(seeded):
+    pid = seeded[0]
+    with TestClient(app) as client:
+        client.post("/api/auth/login", json={"username": "tester", "password": "test-password-123456789"})
+        current = client.get(f"/api/projects/{pid}").json()
+        config = {
+            key: current[key]
+            for key in (
+                "title",
+                "author",
+                "source_language",
+                "target_language",
+                "provider_id",
+                "quality",
+                "context_backend",
+                "instructions",
+            )
+        }
+        config.update(series_name="Mushoku Tensei", volume_number=1)
+        configured = client.put(f"/api/projects/{pid}", json=config)
+        assert configured.status_code == 200
+        assert configured.json()["series_name"] == "Mushoku Tensei"
+        assert configured.json()["volume_number"] == 1
+
+        archived = client.post(f"/api/projects/{pid}/archive")
+        assert archived.status_code == 200 and archived.json()["archived_at"] is not None
+        assert all(project["id"] != pid for project in client.get("/api/projects").json())
+        archived_list = client.get("/api/projects?include_archived=true").json()
+        assert any(project["id"] == pid for project in archived_list)
+        assert client.post(f"/api/projects/{pid}/jobs", json={"operation": "analyze"}).status_code == 409
+
+        restored = client.post(f"/api/projects/{pid}/restore")
+        assert restored.status_code == 200 and restored.json()["archived_at"] is None
+        assert any(project["id"] == pid for project in client.get("/api/projects").json())
 
 
 def test_analyze_already_completed_is_idempotent_and_does_not_queue(seeded):

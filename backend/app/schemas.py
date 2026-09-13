@@ -66,6 +66,8 @@ class ProviderInput(StrictModel):
 class ProjectConfig(StrictModel):
     title: str = Field(min_length=1, max_length=500)
     author: str = Field(default="", max_length=500)
+    series_name: str = Field(default="", max_length=500)
+    volume_number: int | None = Field(default=None, ge=1, le=10000)
     source_language: str = Field(default="en", min_length=2, max_length=80)
     target_language: str = Field(default="fr", min_length=2, max_length=80)
     provider_id: str | None = None

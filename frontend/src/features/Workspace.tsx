@@ -155,6 +155,12 @@ export function Workspace({
             {project.author} · {project.source_language} →{" "}
             {project.target_language}
           </span>
+          {project.series_name && (
+            <span className="series-meta">
+              {project.series_name}
+              {project.volume_number && ` · volume ${project.volume_number}`}
+            </span>
+          )}
         </div>
         <div className="workspace-progress">
           <strong>{progress}%</strong>

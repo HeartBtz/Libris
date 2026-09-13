@@ -28,6 +28,9 @@ test("capture public Libris showcase", async ({ page }) => {
     owner_id: "demo-user",
     title: "Le phare des marées",
     author: "Collection de démonstration",
+    series_name: "Chroniques des marées",
+    volume_number: 1,
+    archived_at: null,
     source_language: "en",
     target_language: "fr",
     provider_id: "local",
@@ -46,6 +49,7 @@ test("capture public Libris showcase", async ({ page }) => {
       ...book,
       id: "demo-2",
       title: "Les jardins de cuivre",
+      volume_number: 2,
       source_language: "ja",
       status: "analyzing",
       stats: {
@@ -61,7 +65,19 @@ test("capture public Libris showcase", async ({ page }) => {
       ...book,
       id: "demo-3",
       title: "Un atlas pour demain",
+      series_name: "",
+      volume_number: null,
       source_language: "es",
+      status: "completed",
+      stats: { ...stats, translated: 24, validated: 24, flagged: 0 },
+    },
+    {
+      ...book,
+      id: "demo-archive",
+      title: "Le carnet des brumes",
+      series_name: "",
+      volume_number: null,
+      archived_at: 1789167600,
       status: "completed",
       stats: { ...stats, translated: 24, validated: 24, flagged: 0 },
     },
@@ -140,6 +156,9 @@ test("capture public Libris showcase", async ({ page }) => {
     page.getByRole("heading", { name: "Bibliothèque", exact: true }),
   ).toBeVisible();
   await expect(page.getByRole("progressbar")).toHaveCount(3);
+  await expect(page.getByRole("button", { name: /Archives/ })).toContainText(
+    "1",
+  );
   await expect(
     page.getByRole("progressbar", {
       name: "Traduction de Le phare des marées",
@@ -167,6 +186,25 @@ test("capture public Libris showcase", async ({ page }) => {
   ).toBeVisible();
   await page.getByRole("button", { name: "Effacer les filtres" }).click();
   await expect(page.locator(".library-table tbody tr")).toHaveCount(3);
+  await page
+    .getByRole("combobox", { name: "Série", exact: true })
+    .selectOption("Chroniques des marées");
+  await expect(page.locator(".library-table tbody tr")).toHaveCount(2);
+  await page
+    .getByRole("combobox", { name: "Série", exact: true })
+    .selectOption("all");
+  await page.getByRole("button", { name: /Archives/ }).click();
+  await expect(
+    page.getByRole("link", { name: "Le carnet des brumes", exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Restaurer", exact: true }),
+  ).toBeVisible();
+  await page.screenshot({
+    path: resolve(output, "archives.png"),
+    fullPage: true,
+  });
+  await page.getByRole("button", { name: /Tous les livres/ }).click();
   await page.getByLabel("Trier par").selectOption("title");
   await page
     .getByRole("button", { name: "+ Importer des EPUB", exact: true })

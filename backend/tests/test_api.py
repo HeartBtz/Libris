@@ -85,6 +85,22 @@ def test_export_reimport_restores_translations(book_bytes):
     client = logged_client()
     try:
         pid = client.post("/api/projects", files={"file": ("book.epub", book_bytes)}).json()["id"]
+        current = client.get(f"/api/projects/{pid}").json()
+        config = {
+            key: current[key]
+            for key in (
+                "title",
+                "author",
+                "source_language",
+                "target_language",
+                "provider_id",
+                "quality",
+                "context_backend",
+                "instructions",
+            )
+        }
+        config.update(series_name="The Silver Tower", volume_number=2)
+        assert client.put(f"/api/projects/{pid}", json=config).status_code == 200
         segment = client.get(f"/api/projects/{pid}/segments").json()[0]
         units = [{"id": u["id"], "text": u["text"]} for u in segment["units"]]
         client.put(f"/api/segments/{segment['id']}", json={"revision": 0, "units": units, "validated": True})
@@ -93,6 +109,9 @@ def test_export_reimport_restores_translations(book_bytes):
         assert imported.status_code == 201, imported.text
         new_id = imported.json()["id"]
         assert new_id != pid
+        restored_project = client.get(f"/api/projects/{new_id}").json()
+        assert restored_project["series_name"] == "The Silver Tower"
+        assert restored_project["volume_number"] == 2
         restored = client.get(f"/api/projects/{new_id}/segments").json()[0]
         assert restored["translated_units"] == units
         assert restored["validated"]

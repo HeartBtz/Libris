@@ -180,6 +180,7 @@ function Library({ run, user }: { run: Run; user: User }) {
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState("all");
   const [sort, setSort] = useState("recent");
+  const [seriesFilter, setSeriesFilter] = useState("all");
   const active = (p: Project) =>
     ["pending", "analyzing", "translating", "reviewing", "syncing"].includes(
       p.status,
@@ -192,27 +193,50 @@ function Library({ run, user }: { run: Run; user: User }) {
       .normalize("NFD")
       .replace(/[\u0300-\u036f]/g, "")
       .toLocaleLowerCase();
+  const availableBooks = books.filter((project) => !project.archived_at);
+  const archivedBooks = books.filter((project) => !!project.archived_at);
+  const seriesNames = Array.from(
+    new Set(books.map((project) => project.series_name).filter(Boolean)),
+  ).sort((a, b) => a.localeCompare(b, "fr", { numeric: true }));
   const visibleBooks = books
     .filter(
       (p) =>
-        normalize(`${p.title} ${p.author}`).includes(normalize(query)) &&
-        (filter === "all" ||
-          (filter === "active" && active(p)) ||
-          (filter === "attention" && attention(p)) ||
-          (filter === "complete" &&
-            p.stats.total > 0 &&
-            p.stats.translated === p.stats.total)),
+        normalize(`${p.title} ${p.author} ${p.series_name}`).includes(
+          normalize(query),
+        ) &&
+        (seriesFilter === "all" || p.series_name === seriesFilter) &&
+        ((filter === "archived" && !!p.archived_at) ||
+          (!p.archived_at &&
+            (filter === "all" ||
+              (filter === "active" && active(p)) ||
+              (filter === "attention" && attention(p)) ||
+              (filter === "complete" &&
+                p.stats.total > 0 &&
+                p.stats.translated === p.stats.total)))),
     )
     .sort((a, b) =>
       sort === "title"
         ? a.title.localeCompare(b.title, "fr", { numeric: true })
-        : b.updated_at - a.updated_at,
+        : sort === "series"
+          ? (a.series_name || a.title).localeCompare(
+              b.series_name || b.title,
+              "fr",
+              { numeric: true },
+            ) ||
+            (a.volume_number ?? Number.MAX_SAFE_INTEGER) -
+              (b.volume_number ?? Number.MAX_SAFE_INTEGER) ||
+            a.title.localeCompare(b.title, "fr", { numeric: true })
+          : b.updated_at - a.updated_at,
     );
+  const selectableBooks = visibleBooks.filter(
+    (project) => !project.archived_at,
+  );
   const [busy, setBusy] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [imports, setImports] = useState<{ name: string; state: string }[]>([]);
   const load = useCallback(
-    async () => setBooks(await api<Project[]>("/projects")),
+    async () =>
+      setBooks(await api<Project[]>("/projects?include_archived=true")),
     [],
   );
   useEffect(() => {
@@ -335,16 +359,17 @@ function Library({ run, user }: { run: Run; user: User }) {
         aria-label="Vue d’ensemble de la bibliothèque"
       >
         {[
-          ["all", "Tous les livres", books.length],
-          ["active", "En cours", books.filter(active).length],
-          ["attention", "À examiner", books.filter(attention).length],
+          ["all", "Tous les livres", availableBooks.length],
+          ["active", "En cours", availableBooks.filter(active).length],
+          ["attention", "À examiner", availableBooks.filter(attention).length],
           [
             "complete",
             "Traduction complète",
-            books.filter(
+            availableBooks.filter(
               (p) => p.stats.total > 0 && p.stats.translated === p.stats.total,
             ).length,
           ],
+          ["archived", "Archives", archivedBooks.length],
         ].map(([key, title, count]) => (
           <button
             key={key}
@@ -361,7 +386,7 @@ function Library({ run, user }: { run: Run; user: User }) {
           Rechercher un livre
           <input
             type="search"
-            placeholder="Titre ou auteur…"
+            placeholder="Titre, auteur ou série…"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
@@ -371,6 +396,21 @@ function Library({ run, user }: { run: Run; user: User }) {
           <select value={sort} onChange={(e) => setSort(e.target.value)}>
             <option value="recent">Dernière activité</option>
             <option value="title">Titre</option>
+            <option value="series">Série et volume</option>
+          </select>
+        </label>
+        <label>
+          Série
+          <select
+            value={seriesFilter}
+            onChange={(e) => setSeriesFilter(e.target.value)}
+          >
+            <option value="all">Toutes les séries</option>
+            {seriesNames.map((series) => (
+              <option key={series} value={series}>
+                {series}
+              </option>
+            ))}
           </select>
         </label>
         <span role="status">{visibleBooks.length} livre(s) affiché(s)</span>
@@ -409,16 +449,16 @@ function Library({ run, user }: { run: Run; user: User }) {
                     aria-label={
                       query || filter !== "all"
                         ? "Sélectionner les livres affichés"
-                        : "Sélectionner tous les livres"
+                        : "Sélectionner tous les livres actifs"
                     }
                     checked={
-                      !!visibleBooks.length &&
-                      visibleBooks.every((p) => selected.has(p.id))
+                      !!selectableBooks.length &&
+                      selectableBooks.every((p) => selected.has(p.id))
                     }
                     onChange={(e) =>
                       setSelected(
                         e.target.checked
-                          ? new Set(visibleBooks.map((p) => p.id))
+                          ? new Set(selectableBooks.map((p) => p.id))
                           : new Set(),
                       )
                     }
@@ -434,11 +474,15 @@ function Library({ run, user }: { run: Run; user: User }) {
             </thead>
             <tbody>
               {visibleBooks.map((p) => (
-                <tr key={p.id}>
+                <tr
+                  key={p.id}
+                  className={p.archived_at ? "archived-row" : undefined}
+                >
                   <td className="select-cell">
                     <input
                       type="checkbox"
                       aria-label={`Sélectionner ${p.title}`}
+                      disabled={!!p.archived_at}
                       checked={selected.has(p.id)}
                       onChange={(e) =>
                         setSelected((previous) => {
@@ -457,6 +501,12 @@ function Library({ run, user }: { run: Run; user: User }) {
                     <div className="muted">
                       {p.author || "Auteur non renseigné"}
                     </div>
+                    {p.series_name && (
+                      <div className="series-meta">
+                        {p.series_name}
+                        {p.volume_number && ` · volume ${p.volume_number}`}
+                      </div>
+                    )}
                   </td>
                   <td data-label="Langues">
                     {p.source_language} → {p.target_language}
@@ -465,8 +515,10 @@ function Library({ run, user }: { run: Run; user: User }) {
                     <BookProgress project={p} />
                   </td>
                   <td data-label="Statut">
-                    <span className={`badge ${p.status}`}>
-                      {labels[p.status] || p.status}
+                    <span
+                      className={`badge ${p.archived_at ? "archived" : p.status}`}
+                    >
+                      {p.archived_at ? "Archivé" : labels[p.status] || p.status}
                     </span>
                   </td>
                   <td className="muted" data-label="Modifié">
@@ -475,6 +527,26 @@ function Library({ run, user }: { run: Run; user: User }) {
                   <td className="book-actions">
                     <a href={`#project/${p.id}`}>Ouvrir →</a>
                     {p.owner_id === user.id && (
+                      <button
+                        className="quiet"
+                        onClick={() =>
+                          void run(async () => {
+                            await send(
+                              `/projects/${p.id}/${p.archived_at ? "restore" : "archive"}`,
+                            );
+                            setSelected((previous) => {
+                              const next = new Set(previous);
+                              next.delete(p.id);
+                              return next;
+                            });
+                            await load();
+                          })
+                        }
+                      >
+                        {p.archived_at ? "Restaurer" : "Archiver"}
+                      </button>
+                    )}
+                    {p.owner_id === user.id && p.archived_at && (
                       <button
                         className="quiet danger"
                         aria-label={`Supprimer ${p.title}`}
@@ -513,6 +585,7 @@ function Library({ run, user }: { run: Run; user: User }) {
                 onClick={() => {
                   setQuery("");
                   setFilter("all");
+                  setSeriesFilter("all");
                 }}
               >
                 Effacer les filtres
@@ -534,9 +607,12 @@ function Library({ run, user }: { run: Run; user: User }) {
         </div>
       )}
       <footer className="library-footer">
-        {books.length} projet{books.length > 1 ? "s" : ""} ·{" "}
-        {number(books.reduce((n, p) => n + p.stats.translated, 0))} passages
-        traduits
+        {availableBooks.length} projet{availableBooks.length > 1 ? "s" : ""}
+        {archivedBooks.length
+          ? ` · ${archivedBooks.length} archivé(s)`
+          : ""} ·{" "}
+        {number(availableBooks.reduce((n, p) => n + p.stats.translated, 0))}{" "}
+        passages traduits
       </footer>
     </main>
   );

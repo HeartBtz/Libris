@@ -134,6 +134,9 @@ async def restore_project(file: UploadFile, user: CurrentUser, db: DB):
     project = import_book(db, user.id, original)
     info = payload["project"]
     project.target_language = str(info.get("target_language", "fr"))[:80]
+    project.series_name = str(info.get("series_name", ""))[:500]
+    volume_number = info.get("volume_number")
+    project.volume_number = volume_number if isinstance(volume_number, int) and 1 <= volume_number <= 10000 else None
     project.instructions = str(info.get("instructions", ""))[:20000]
     project.bible = BookBible.model_validate(info.get("bible", {})).model_dump()
     project.bible_validated = bool(info.get("bible_validated"))

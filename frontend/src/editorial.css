@@ -131,6 +131,18 @@
   box-shadow: none;
   border-radius: var(--ui-radius);
 }
+.series-meta {
+  display: block;
+  margin-top: var(--ui-space-xs);
+  color: var(--accent);
+  font-size: var(--ui-small);
+}
+.archived-row {
+  opacity: 0.72;
+}
+.badge.archived {
+  color: var(--muted);
+}
 .library-table th {
   text-transform: none;
   letter-spacing: 0;

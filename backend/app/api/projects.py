@@ -149,13 +149,12 @@ def import_book(db, owner_id: str, data: bytes) -> Project:
 
 
 @router.get("")
-def projects(user: CurrentUser, db: DB):
+def projects(user: CurrentUser, db: DB, include_archived: bool = False):
     member = select(Membership.project_id).where(Membership.user_id == user.id)
-    books = db.scalars(
-        select(Project)
-        .where(or_(Project.owner_id == user.id, Project.id.in_(member)))
-        .order_by(Project.updated_at.desc())
-    )
+    query = select(Project).where(or_(Project.owner_id == user.id, Project.id.in_(member)))
+    if not include_archived:
+        query = query.where(Project.archived_at.is_(None))
+    books = db.scalars(query.order_by(Project.updated_at.desc()))
     return [project_view(db, p) for p in books]
 
 
@@ -193,11 +192,15 @@ def final_review_info(project_id: str, user: CurrentUser, db: DB):
 @router.put("/{project_id}")
 def configure(project_id: str, body: ProjectConfig, user: CurrentUser, db: DB):
     project = access(db, project_id, user, write=True)
-    if db.scalar(select(Job.id).where(Job.project_id == project_id, Job.status.in_(ACTIVE))):
+    values = body.model_dump()
+    changed = {key for key, value in values.items() if getattr(project, key) != value}
+    if changed - {"series_name", "volume_number"} and db.scalar(
+        select(Job.id).where(Job.project_id == project_id, Job.status.in_(ACTIVE))
+    ):
         raise HTTPException(409, "Mettez le travail en pause avant de modifier sa configuration.")
     if body.provider_id and not db.get(Provider, body.provider_id):
         raise HTTPException(422, "Provider inconnu.")
-    for key, value in body.model_dump().items():
+    for key, value in values.items():
         setattr(project, key, value)
     for job in db.scalars(select(Job).where(Job.project_id == project_id, Job.status.in_(HELD))):
         if not job.options.get("provider_id"):
@@ -233,6 +236,24 @@ def remove(project_id: str, user: CurrentUser, db: DB, stop_jobs: bool = False):
     }
 
 
+@router.post("/{project_id}/archive")
+def archive(project_id: str, user: CurrentUser, db: DB):
+    project = access(db, project_id, user, owner=True)
+    if db.scalar(select(Job.id).where(Job.project_id == project_id, Job.status.in_(HELD))):
+        raise HTTPException(409, "Terminez ou annulez le travail avant d’archiver ce projet.")
+    project.archived_at = project.archived_at or time.time()
+    db.commit()
+    return project_view(db, project)
+
+
+@router.post("/{project_id}/restore")
+def restore(project_id: str, user: CurrentUser, db: DB):
+    project = access(db, project_id, user, owner=True)
+    project.archived_at = None
+    db.commit()
+    return project_view(db, project)
+
+
 @router.get("/{project_id}/chapters")
 def chapters(project_id: str, user: CurrentUser, db: DB):
     access(db, project_id, user)
@@ -259,6 +280,8 @@ def chapter_instructions(project_id: str, chapter_id: str, body: InstructionInpu
 @router.post("/{project_id}/jobs", status_code=202)
 def start_job(project_id: str, body: JobInput, user: CurrentUser, db: DB):
     project = access(db, project_id, user, write=True)
+    if project.archived_at is not None:
+        raise HTTPException(409, "Restaurez ce projet avant de lancer un travail.")
     if body.operation == "analyze" and not body.force:
         held = db.scalar(select(Job).where(Job.project_id == project_id, Job.status.in_(HELD)))
         if held and held.operation == "analyze":

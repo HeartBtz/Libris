@@ -44,6 +44,19 @@ Libris combines a persistent translation pipeline with a book bible, character m
 
 _Screenshots use fictional, synthetic demonstration data in the real UI. They do not represent translation quality benchmarks or expose a user's books._
 
+### Navigating Libris
+
+The library includes title/author search, activity filters and sorting. Inside a book, navigation groups translation and recovery, book memory, and configuration. Desktop navigation stays accessible while reviewing; mobile navigation is horizontally scrollable.
+
+<details>
+<summary>Light theme and mobile review</summary>
+
+![Light review workspace](docs/screenshots/validations-light.png)
+
+<img src="docs/screenshots/validations-mobile.png" alt="Mobile review workspace" width="390">
+
+</details>
+
 ## Quick start
 
 ### Requirements

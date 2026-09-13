@@ -184,6 +184,24 @@ export function ValidationPanel({
         >
           {startingReview ? "Mise en file…" : "Lancer la revue IA"}
         </button>
+        <p className="review-reason">
+          {loading
+            ? "Vérification des passages éligibles…"
+            : !finalReview.eligible
+              ? "Aucun passage éligible : les décisions humaines sont protégées, ou il ne reste rien à réexaminer."
+              : [
+                    "pending",
+                    "waiting",
+                    "paused",
+                    "blocked",
+                    "analyzing",
+                    "translating",
+                    "reviewing",
+                    "syncing",
+                  ].includes(project.status)
+                ? "Un travail occupe ce livre. Terminez-le ou annulez-le pour lancer une revue manuelle ; une simple pause ne libère pas le livre."
+                : "Disponible : le provider du livre réexaminera les passages signalés. Les modifications humaines seront conservées."}
+        </p>
       </div>
 
       {!!refused.length && (

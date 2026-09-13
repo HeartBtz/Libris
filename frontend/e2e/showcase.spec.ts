@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 
 // Synthetic content written for documentation. Never connects to a real API.
 test("capture public Libris showcase", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
   const output = resolve(process.cwd(), "../docs/screenshots");
   mkdirSync(output, { recursive: true });
   const base = process.env.SHOWCASE_URL || "http://127.0.0.1:4173";
@@ -137,7 +138,29 @@ test("capture public Libris showcase", async ({ page }) => {
     page.getByRole("heading", { name: "Bibliothèque", exact: true }),
   ).toBeVisible();
   await page.screenshot({ path: resolve(output, "library.png") });
+  await page.getByRole("button", { name: /En cours/ }).click();
+  await expect(page.locator(".library-table tbody tr")).toHaveCount(1);
+  await expect(
+    page.getByRole("link", { name: "Les jardins de cuivre", exact: true }),
+  ).toBeVisible();
+  await page.getByLabel("Rechercher un livre").fill("introuvable");
+  await expect(
+    page.getByText("Aucun livre ne correspond.", { exact: true }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Effacer les filtres" }).click();
+  await expect(page.locator(".library-table tbody tr")).toHaveCount(3);
+  await page.getByLabel("Trier par").selectOption("title");
+  await page
+    .getByRole("button", { name: "+ Importer des EPUB", exact: true })
+    .focus();
+  await expect(
+    page.getByRole("button", { name: "+ Importer des EPUB", exact: true }),
+  ).toBeFocused();
+  await page.getByLabel("Trier par").selectOption("recent");
   await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(
+    390,
+  );
   await page.screenshot({
     path: resolve(output, "mobile.png"),
     fullPage: true,
@@ -152,6 +175,22 @@ test("capture public Libris showcase", async ({ page }) => {
   await expect(page.getByText("Avis de l’IA", { exact: true })).toBeVisible();
   await page.screenshot({
     path: resolve(output, "validations.png"),
+    fullPage: true,
+  });
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(
+    390,
+  );
+  await page.screenshot({
+    path: resolve(output, "validations-mobile.png"),
+    fullPage: true,
+  });
+  await page.setViewportSize({ width: 1440, height: 1040 });
+  await page
+    .getByRole("button", { name: "Changer de thème", exact: true })
+    .click();
+  await page.screenshot({
+    path: resolve(output, "validations-light.png"),
     fullPage: true,
   });
   expect(errors).toEqual([]);

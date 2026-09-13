@@ -380,87 +380,125 @@ export function Workspace({
             : ""}
         </span>
       </div>
-      <div className="tabs">
-        {[
-          ["editor", "Traduction"],
-          ["completion", "Bilan & récupération"],
-          [
-            "validations",
-            `Validations${project.stats.flagged + project.stats.refused ? ` (${project.stats.flagged + project.stats.refused})` : ""}`,
-          ],
-          ["bible", "Book Bible"],
-          ["characters", "Personnages & liens"],
-          ["glossary", "Glossaire"],
-          ["quality", "Qualité"],
-          ["requests", "Observabilité"],
-          ["config", "Configuration"],
-        ].map(([key, label]) => (
-          <button
-            key={key}
-            className={tab === key ? "active" : ""}
-            onClick={() => setTab(key)}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
-      {tab === "editor" ? (
-        <div className="workspace-body">
-          <aside className="chapter-list">
-            <h3>
-              Sections du livre <span>{chapters.length}</span>
-            </h3>
-            {chapters.map((c) => (
-              <button
-                key={c.id}
-                className={chapter === c.id ? "active" : ""}
-                onClick={() => setChapter(c.id)}
-              >
-                <small>{String(c.position + 1).padStart(2, "0")}</small>
-                <span>{c.title}</span>
-                {c.analyzed && <span className="dot" title="Analysé" />}
-              </button>
-            ))}
-          </aside>
-          {chapter && (
-            <Editor
-              project={project}
-              chapter={chapters.find((c) => c.id === chapter)!}
-              tick={tick}
-              run={run}
-              refresh={refresh}
-              focusRefusal={focusRefusal}
-            />
-          )}
-        </div>
-      ) : (
-        <div className="workspace-panel">
-          {tab === "characters" ? (
-            <Suspense fallback={<p>Chargement du graphe…</p>}>
-              <CharacterGraph pid={id} tick={tick} run={run} />
-            </Suspense>
-          ) : tab === "bible" ? (
-            <Bible project={project} run={run} refresh={refresh} tick={tick} />
-          ) : tab === "glossary" ? (
-            <Glossary project={project} run={run} tick={tick} />
-          ) : tab === "quality" ? (
-            <Quality project={project} run={run} tick={tick} />
-          ) : tab === "completion" ? (
-            <CompletionPanel project={project} run={run} refresh={refresh} />
-          ) : tab === "validations" ? (
-            <ValidationPanel
-              project={project}
-              chapters={chapters}
-              run={run}
-              refresh={refresh}
-            />
-          ) : tab === "requests" ? (
-            <Observability project={project} run={run} tick={tick} />
+      <div className="workspace-shell">
+        <nav className="workspace-nav" aria-label="Navigation du livre">
+          {[
+            {
+              title: "Traduire",
+              items: [
+                ["editor", "Traduction"],
+                [
+                  "validations",
+                  `Validations${project.stats.flagged + project.stats.refused ? ` (${project.stats.flagged + project.stats.refused})` : ""}`,
+                ],
+                ["completion", "Bilan & récupération"],
+                ["quality", "Qualité"],
+              ],
+            },
+            {
+              title: "Mémoire du livre",
+              items: [
+                ["bible", "Book Bible"],
+                ["characters", "Personnages & liens"],
+                ["glossary", "Glossaire"],
+              ],
+            },
+            {
+              title: "Réglages & suivi",
+              items: [
+                ["config", "Configuration"],
+                ["requests", "Observabilité"],
+              ],
+            },
+          ].map((group) => (
+            <div className="workspace-nav-group" key={group.title}>
+              <h2>{group.title}</h2>
+              {group.items.map(([key, label]) => (
+                <button
+                  key={key}
+                  aria-current={tab === key ? "page" : undefined}
+                  aria-controls="workspace-content"
+                  onClick={() => setTab(key)}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          ))}
+        </nav>
+        <div id="workspace-content" className="workspace-content">
+          {tab === "editor" ? (
+            <div className="workspace-body">
+              <aside className="chapter-list">
+                <h3>
+                  Sections du livre <span>{chapters.length}</span>
+                </h3>
+                {chapters.map((c) => (
+                  <button
+                    key={c.id}
+                    className={chapter === c.id ? "active" : ""}
+                    onClick={() => setChapter(c.id)}
+                  >
+                    <small>{String(c.position + 1).padStart(2, "0")}</small>
+                    <span>{c.title}</span>
+                    {c.analyzed && <span className="dot" title="Analysé" />}
+                  </button>
+                ))}
+              </aside>
+              {chapter && (
+                <Editor
+                  project={project}
+                  chapter={chapters.find((c) => c.id === chapter)!}
+                  tick={tick}
+                  run={run}
+                  refresh={refresh}
+                  focusRefusal={focusRefusal}
+                />
+              )}
+            </div>
           ) : (
-            <ProjectSettings project={project} run={run} refresh={refresh} />
+            <div className="workspace-panel">
+              {tab === "characters" ? (
+                <Suspense fallback={<p>Chargement du graphe…</p>}>
+                  <CharacterGraph pid={id} tick={tick} run={run} />
+                </Suspense>
+              ) : tab === "bible" ? (
+                <Bible
+                  project={project}
+                  run={run}
+                  refresh={refresh}
+                  tick={tick}
+                />
+              ) : tab === "glossary" ? (
+                <Glossary project={project} run={run} tick={tick} />
+              ) : tab === "quality" ? (
+                <Quality project={project} run={run} tick={tick} />
+              ) : tab === "completion" ? (
+                <CompletionPanel
+                  project={project}
+                  run={run}
+                  refresh={refresh}
+                />
+              ) : tab === "validations" ? (
+                <ValidationPanel
+                  project={project}
+                  chapters={chapters}
+                  run={run}
+                  refresh={refresh}
+                />
+              ) : tab === "requests" ? (
+                <Observability project={project} run={run} tick={tick} />
+              ) : (
+                <ProjectSettings
+                  project={project}
+                  run={run}
+                  refresh={refresh}
+                />
+              )}
+            </div>
           )}
         </div>
-      )}
+      </div>
     </main>
   );
 }

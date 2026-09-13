@@ -177,6 +177,37 @@ function Login({ run, onLogin }: { run: Run; onLogin: (user: User) => void }) {
 
 function Library({ run, user }: { run: Run; user: User }) {
   const [books, setBooks] = useState<Project[]>([]);
+  const [query, setQuery] = useState("");
+  const [filter, setFilter] = useState("all");
+  const [sort, setSort] = useState("recent");
+  const active = (p: Project) =>
+    ["pending", "analyzing", "translating", "reviewing", "syncing"].includes(
+      p.status,
+    );
+  const attention = (p: Project) =>
+    !!(p.stats.flagged || p.stats.errors || p.stats.refused) ||
+    ["failed", "blocked", "waiting"].includes(p.status);
+  const normalize = (value: string) =>
+    value
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLocaleLowerCase();
+  const visibleBooks = books
+    .filter(
+      (p) =>
+        normalize(`${p.title} ${p.author}`).includes(normalize(query)) &&
+        (filter === "all" ||
+          (filter === "active" && active(p)) ||
+          (filter === "attention" && attention(p)) ||
+          (filter === "complete" &&
+            p.stats.total > 0 &&
+            p.stats.translated === p.stats.total)),
+    )
+    .sort((a, b) =>
+      sort === "title"
+        ? a.title.localeCompare(b.title, "fr", { numeric: true })
+        : b.updated_at - a.updated_at,
+    );
   const [busy, setBusy] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [imports, setImports] = useState<{ name: string; state: string }[]>([]);
@@ -242,14 +273,25 @@ function Library({ run, user }: { run: Run; user: User }) {
     <main className="library">
       <div className="page-heading">
         <div>
-          <p className="eyebrow">Libris · Vos projets</p>
+          <p className="eyebrow">Votre atelier de traduction</p>
           <h1>Bibliothèque</h1>
           <p className="page-lede">
-            Une continuité de traduction pensée à l’échelle de la collection.
+            Retrouvez vos livres et reprenez là où vous en étiez.
           </p>
         </div>
         <div className="actions">
-          <label className="button">
+          <label
+            className="button"
+            role="button"
+            tabIndex={busy ? -1 : 0}
+            aria-disabled={busy}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                if (!busy) e.currentTarget.querySelector("input")?.click();
+              }
+            }}
+          >
             Réimporter un projet
             <input
               type="file"
@@ -261,7 +303,18 @@ function Library({ run, user }: { run: Run; user: User }) {
               }}
             />
           </label>
-          <label className="button primary">
+          <label
+            className="button primary"
+            role="button"
+            tabIndex={busy ? -1 : 0}
+            aria-disabled={busy}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                if (!busy) e.currentTarget.querySelector("input")?.click();
+              }
+            }}
+          >
             {busy ? "Import en cours…" : "+ Importer des EPUB"}
             <input
               type="file"
@@ -276,6 +329,51 @@ function Library({ run, user }: { run: Run; user: User }) {
             />
           </label>
         </div>
+      </div>
+      <div
+        className="library-overview"
+        aria-label="Vue d’ensemble de la bibliothèque"
+      >
+        {[
+          ["all", "Tous les livres", books.length],
+          ["active", "En cours", books.filter(active).length],
+          ["attention", "À examiner", books.filter(attention).length],
+          [
+            "complete",
+            "Traduction complète",
+            books.filter(
+              (p) => p.stats.total > 0 && p.stats.translated === p.stats.total,
+            ).length,
+          ],
+        ].map(([key, title, count]) => (
+          <button
+            key={key}
+            aria-pressed={filter === key}
+            onClick={() => setFilter(String(key))}
+          >
+            <strong>{count}</strong>
+            <span>{title}</span>
+          </button>
+        ))}
+      </div>
+      <div className="library-toolbar">
+        <label>
+          Rechercher un livre
+          <input
+            type="search"
+            placeholder="Titre ou auteur…"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
+        </label>
+        <label>
+          Trier par
+          <select value={sort} onChange={(e) => setSort(e.target.value)}>
+            <option value="recent">Dernière activité</option>
+            <option value="title">Titre</option>
+          </select>
+        </label>
+        <span role="status">{visibleBooks.length} livre(s) affiché(s)</span>
       </div>
       {!!imports.length && (
         <ul className="muted" role="status">
@@ -308,12 +406,19 @@ function Library({ run, user }: { run: Run; user: User }) {
                 <th>
                   <input
                     type="checkbox"
-                    aria-label="Sélectionner tous les livres"
-                    checked={!!books.length && selected.size === books.length}
+                    aria-label={
+                      query || filter !== "all"
+                        ? "Sélectionner les livres affichés"
+                        : "Sélectionner tous les livres"
+                    }
+                    checked={
+                      !!visibleBooks.length &&
+                      visibleBooks.every((p) => selected.has(p.id))
+                    }
                     onChange={(e) =>
                       setSelected(
                         e.target.checked
-                          ? new Set(books.map((p) => p.id))
+                          ? new Set(visibleBooks.map((p) => p.id))
                           : new Set(),
                       )
                     }
@@ -328,7 +433,7 @@ function Library({ run, user }: { run: Run; user: User }) {
               </tr>
             </thead>
             <tbody>
-              {books.map((p) => (
+              {visibleBooks.map((p) => (
                 <tr key={p.id}>
                   <td className="select-cell">
                     <input
@@ -400,6 +505,20 @@ function Library({ run, user }: { run: Run; user: User }) {
               ))}
             </tbody>
           </table>
+          {!visibleBooks.length && (
+            <div className="empty">
+              <h2>Aucun livre ne correspond.</h2>
+              <p>Essayez un autre titre ou affichez tous vos livres.</p>
+              <button
+                onClick={() => {
+                  setQuery("");
+                  setFilter("all");
+                }}
+              >
+                Effacer les filtres
+              </button>
+            </div>
+          )}
         </div>
       ) : (
         <div className="empty">

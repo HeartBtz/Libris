@@ -88,6 +88,7 @@ def project_progress(db, project: Project, stats: dict) -> dict:
     checkpoint = job.checkpoint if job else {}
     analysis_done = stats["analyzed_segments"] + stats["synthesized_chapters"]
     analysis_total = stats["total"] + stats["chapters"]
+    translation_started = bool(stats["translated"] or stats["errors"] or stats["refused"])
     review_targets: set[str] = set()
     review_done_ids: set[str] = set()
     outcomes: dict[str, dict] = {}
@@ -152,11 +153,13 @@ def project_progress(db, project: Project, stats: dict) -> dict:
         or active_job.operation in {"review", "consistency", "resolve_validations"}
     ):
         active = "review"
-    elif active_job and active_job.operation == "translate" and stats["translated"] < stats["total"]:
+    elif active_job and active_job.operation == "translate" and (
+        stats["translated"] < stats["total"] or stats["errors"] or stats["refused"]
+    ):
         active = "translation"
-    elif analysis_done < analysis_total:
+    elif not translation_started and analysis_done < analysis_total:
         active = "analysis"
-    elif stats["translated"] < stats["total"]:
+    elif stats["translated"] < stats["total"] or stats["errors"] or stats["refused"]:
         active = "translation"
     elif not export_ready:
         active = "review"

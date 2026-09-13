@@ -13,6 +13,7 @@ const stageLabels: Record<string, string> = {
   translation: "Traduction",
   consistency: "Cohérence globale",
   final_review: "Résolution finale des validations",
+  recovery_required: "Récupération requise",
 };
 import {
   Bible,
@@ -267,6 +268,15 @@ export function Workspace({
               >
                 Traduire
               </button>
+              {!!(project.stats.errors || project.stats.refused) && (
+                <button
+                  className="primary"
+                  onClick={() => setTab("completion")}
+                >
+                  Récupérer {project.stats.errors + project.stats.refused}{" "}
+                  passage(s)
+                </button>
+              )}
             </>
           )}
           <details className="export-menu">

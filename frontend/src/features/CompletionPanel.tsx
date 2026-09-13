@@ -83,6 +83,12 @@ export function CompletionPanel({
             ? "Traduction complète"
             : "Traduction incomplète"}
         </h3>
+        {!!report.recovery.length && !report.processing && (
+          <p>
+            Sélectionnez les passages ci-dessous puis relancez-les avec le
+            provider du livre ou un provider de remplacement.
+          </p>
+        )}
         <p>
           {report.translated} / {report.total} passages traduits ·{" "}
           {report.missing} manquants · {report.retained} conservés en original
@@ -188,6 +194,7 @@ export function CompletionPanel({
                   operation: "translate",
                   segment_ids: selected,
                   provider_id: provider,
+                  continue_pipeline: true,
                 });
                 setSelected([]);
                 setMessage(

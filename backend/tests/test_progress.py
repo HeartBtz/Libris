@@ -60,3 +60,16 @@ def test_canonical_progress_tracks_active_job_and_review_outcomes(seeded):
         assert cumulative["resolved"] == 1
         assert cumulative["failed"] == 1
         assert cumulative["protected"] == 1
+
+
+def test_progress_does_not_regress_to_analysis_after_translation_started(seeded):
+    pid = seeded[0]
+    with SessionLocal() as db:
+        project = db.get(Project, pid)
+        segment = db.scalar(select(Segment).where(Segment.project_id == pid))
+        segment.status = "error"
+        segment.error = "Invalid response"
+        project.status = "ready"
+        db.flush()
+        progress = project_view(db, project)["progress"]
+        assert progress["active_stage"] == "translation"

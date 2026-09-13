@@ -220,6 +220,7 @@ class JobInput(StrictModel):
     force: bool = False
     provider_id: str | None = None
     refused_only: bool = False
+    continue_pipeline: bool = False
 
 
 class AskInput(StrictModel):

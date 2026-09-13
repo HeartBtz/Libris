@@ -37,7 +37,9 @@ export function StageProgress({
       : stage.key === "analysis"
         ? `${project.stats.analyzed_segments}/${project.stats.total} passages analysés · ${project.stats.synthesized_chapters}/${project.stats.chapters} sections synthétisées.`
         : stage.key === "translation"
-          ? `${project.stats.translated}/${project.stats.total} passages traduits · ${project.stats.retained_source} conservés en original.`
+          ? _job?.checkpoint.step === "recovery_required"
+            ? `${Number(_job.checkpoint.recovery_required) || 0} passage(s) doivent être récupérés avant la revue finale.`
+            : `${project.stats.translated}/${project.stats.total} passages traduits · ${project.stats.retained_source} conservés en original.`
           : stage.key === "review"
             ? `${progress.review.examined}/${progress.review.total} passages examinés · ${progress.review.resolved} résolus · ${progress.review.remaining} à vérifier.`
             : exportState === "running"

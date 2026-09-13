@@ -1,7 +1,7 @@
 import hashlib
 import json
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, or_, select
 
 from app.db import SessionLocal
 from app.engines.context.builder import build_context
@@ -324,11 +324,36 @@ async def translate(job: Job, owner: str) -> None:
                 segment.error = str(exc)[:1500]
                 db.commit()
             raise
+    with SessionLocal() as db:
+        recovery_count = db.scalar(
+            select(func.count())
+            .select_from(Segment)
+            .where(
+                Segment.project_id == job.project_id,
+                or_(
+                    Segment.status.in_(("error", "refused", "blocked")),
+                    (Segment.translation == "") & Segment.retained_source.is_(False),
+                ),
+            )
+        )
+    if recovery_count:
+        checkpoint(
+            job.id,
+            owner,
+            {
+                "step": "recovery_required",
+                "recovery_required": recovery_count,
+                "segment_id": None,
+            },
+        )
+        return
+    continue_pipeline = job.options.get("continue_pipeline") or not any(
+        job.options.get(key)
+        for key in ("segment_id", "chapter_id", "refused_only", "segment_ids")
+    )
     if (
         project.quality in {"high", "maximum"}
-        and not job.options.get("segment_id")
-        and not job.options.get("refused_only")
-        and not job.options.get("segment_ids")
+        and continue_pipeline
     ):
         await consistency(job, owner)
     from app.config import settings
@@ -336,10 +361,7 @@ async def translate(job: Job, owner: str) -> None:
 
     if (
         settings().final_review_enabled
-        and not job.options.get("segment_id")
-        and not job.options.get("chapter_id")
-        and not job.options.get("refused_only")
-        and not job.options.get("segment_ids")
+        and continue_pipeline
     ):
         await resolve_validations(job, owner)
 

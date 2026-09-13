@@ -6,7 +6,7 @@ from sqlalchemy import select
 
 from app.api import segments as segment_api
 from app.db import SessionLocal
-from app.engines.translation import repair
+from app.engines.translation import pipeline, repair
 from app.jobs.execution import execution
 from app.jobs.queue import claim, enqueue
 from app.main import app
@@ -70,12 +70,44 @@ def test_recovery_selection_and_completion(seeded):
             == 422
         )
         response = client.post(
-            f"/api/projects/{pid}/jobs", json={"operation": "translate", "segment_ids": [sid]}
+            f"/api/projects/{pid}/jobs",
+            json={"operation": "translate", "segment_ids": [sid], "continue_pipeline": True},
         )
         assert response.status_code == 202, response.text
         with SessionLocal() as db:
             job = db.get(Job, response.json()["id"])
             assert job.options["force"] and job.options["segment_ids"] == [sid]
+            assert job.options["continue_pipeline"]
+
+
+async def test_full_translation_stops_before_review_when_recovery_is_required(seeded, monkeypatch):
+    with SessionLocal() as db:
+        project = db.get(Project, seeded[0])
+        project.quality = "high"
+        segments = list(db.scalars(select(Segment).where(Segment.project_id == project.id)))
+        for segment in segments:
+            segment.translation = "Traduit"
+            segment.translated_units = [{"id": unit["id"], "text": "Traduit"} for unit in segment.units]
+            segment.stage = "done"
+            segment.status = "ok"
+        segments[0].translation = ""
+        segments[0].translated_units = []
+        segments[0].status = "error"
+        job = enqueue(db, project, "translate", {})
+        jid = job.id
+        db.commit()
+    claimed = claim()
+    assert claimed and claimed[0] == jid
+
+    async def unexpected_review(*args, **kwargs):
+        raise AssertionError("Consistency review must wait for passage recovery")
+
+    monkeypatch.setattr(pipeline, "consistency", unexpected_review)
+    await pipeline.translate(job, claimed[1])
+    with SessionLocal() as db:
+        current = db.get(Job, jid)
+        assert current.checkpoint["step"] == "recovery_required"
+        assert current.checkpoint["recovery_required"] == 1
 
 
 @pytest.mark.parametrize("valid", [True, False])

@@ -5,6 +5,9 @@ export function projectProgress(project: Project): ProjectProgress {
   const stats = project.stats;
   const analysisDone = stats.analyzed_segments + stats.synthesized_chapters;
   const analysisTotal = stats.total + stats.chapters;
+  const translationStarted = Boolean(
+    stats.translated || stats.errors || stats.refused,
+  );
   const reviewTotal = stats.review_total || stats.total;
   const values: Array<[ProgressStage["key"], string, number, number]> = [
     ["import", "Import", 1, 1],
@@ -26,15 +29,19 @@ export function projectProgress(project: Project): ProjectProgress {
     percent: total ? Math.min(100, Math.round((done / total) * 100)) : 0,
   }));
   const active_stage =
-    project.status === "analyzing"
+    project.status === "analyzing" && !translationStarted
       ? "analysis"
-      : project.status === "reviewing" || stats.translated === stats.total
+      : (project.status === "reviewing" || stats.translated === stats.total) &&
+          !stats.errors &&
+          !stats.refused
         ? stats.flagged
           ? "review"
           : "export"
-        : analysisDone < analysisTotal
-          ? "analysis"
-          : "translation";
+        : translationStarted
+          ? "translation"
+          : analysisDone < analysisTotal
+            ? "analysis"
+            : "translation";
   return {
     active_stage,
     state: project.status,

@@ -142,7 +142,12 @@ def accept_critique(
         raise HTTPException(409, "Modification concurrente détectée.")
     db.refresh(segment)
     segment.critique = [item for item_index, item in enumerate(segment.critique) if item_index != index]
-    segment.status = "check"
+    unresolved_issue = db.scalar(
+        select(Issue.id).where(Issue.segment_id == sid, Issue.resolved.is_(False)).limit(1)
+    )
+    segment.status = (
+        "check" if segment.critique or segment.uncertainties or unresolved_issue else "ok"
+    )
     emit(db, segment.project_id, segment_id=sid, status="ai_suggestion_accepted")
     db.commit()
     db.refresh(segment)

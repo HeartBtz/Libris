@@ -1,10 +1,10 @@
 import time
 
-from sqlalchemy import and_, or_, select, update
+from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.orm import Session
 
 from app.db import SessionLocal
-from app.models import Event, Job, Project, RequestLog
+from app.models import Event, Job, Project, Provider, RequestLog
 from app.models.common import uid
 
 RUNNING = ("analyzing", "translating", "reviewing", "syncing")
@@ -26,7 +26,8 @@ def enqueue(db: Session, project: Project, operation: str, options: dict) -> Job
     active = db.scalar(select(Job).where(Job.project_id == project.id, Job.status.in_(HELD)))
     if active:
         raise ValueError("Un travail existe déjà. Reprenez-le ou annulez-le avant d’en lancer un autre.")
-    job = Job(project_id=project.id, operation=operation, options=options)
+    provider_id = None if operation == "sync_memory" else options.get("provider_id") or project.provider_id
+    job = Job(project_id=project.id, provider_id=provider_id, operation=operation, options=options)
     db.add(job)
     db.flush()
     project.status = "pending"
@@ -42,10 +43,44 @@ def claim(operations: tuple[str, ...] | None = None) -> tuple[str, str] | None:
             and_(Job.status == "waiting", Job.next_attempt <= now),
             and_(Job.status.in_(RUNNING), Job.lease_until < now),
         )
-        query = select(Job).where(condition)
+        query = select(Job.id, Job.provider_id, Job.operation).where(condition)
         if operations:
             query = query.where(Job.operation.in_(operations))
-        job = db.scalar(query.order_by(Job.created_at).with_for_update(skip_locked=True).limit(1))
+        candidates = db.execute(query.order_by(Job.created_at)).all()
+        job = None
+        saturated: set[str] = set()
+        for job_id, provider_id, operation in candidates:
+            if provider_id:
+                if provider_id in saturated:
+                    continue
+                provider = db.scalar(
+                    select(Provider)
+                    .where(Provider.id == provider_id)
+                    .with_for_update(skip_locked=True)
+                )
+                if not provider:
+                    continue
+                active = db.scalar(
+                    select(func.count())
+                    .select_from(Job)
+                    .where(
+                        Job.provider_id == provider_id,
+                        Job.status.in_(RUNNING),
+                        Job.lease_until >= now,
+                    )
+                )
+                if active >= provider.max_concurrency:
+                    saturated.add(provider_id)
+                    continue
+            elif operation != "sync_memory":
+                continue
+            job = db.scalar(
+                select(Job)
+                .where(Job.id == job_id, condition)
+                .with_for_update(skip_locked=True)
+            )
+            if job:
+                break
         if not job:
             return None
         owner = uid()

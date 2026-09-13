@@ -35,7 +35,7 @@ async def analyze(job: Job, owner: str) -> None:
         built = await build_context(project.id, sid, "chapter_analysis")
         result = await llm.complete(
             project_id=project.id,
-            provider_id=project.provider_id,
+            provider_id=job.provider_id,
             segment_id=sid,
             operation="chapter_analysis",
             messages=built.messages,
@@ -140,7 +140,7 @@ async def analyze(job: Job, owner: str) -> None:
             ]
             result = await llm.complete(
                 project_id=project.id,
-                provider_id=project.provider_id,
+                provider_id=job.provider_id,
                 operation="book_analysis",
                 messages=messages,
                 response_model=BookOverview,

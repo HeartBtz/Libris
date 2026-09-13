@@ -196,6 +196,49 @@ async def worker_slot(stopped: asyncio.Event, operations: tuple[str, ...] | None
                 pass
 
 
+async def provider_dispatcher(stopped: asyncio.Event) -> None:
+    operations = ("analyze", "translate", "review", "consistency")
+    running: set[asyncio.Task] = set()
+    shutdown = asyncio.create_task(stopped.wait())
+    try:
+        while not stopped.is_set():
+            try:
+                while item := claim(operations):
+                    running.add(asyncio.create_task(execute(*item)))
+            except SQLAlchemyError:
+                logger.error("operation=provider_dispatch status=waiting retry_seconds=2")
+                try:
+                    await asyncio.wait_for(stopped.wait(), timeout=2)
+                except TimeoutError:
+                    pass
+                continue
+            if not running:
+                try:
+                    await asyncio.wait_for(stopped.wait(), timeout=2)
+                except TimeoutError:
+                    pass
+                continue
+            done, _ = await asyncio.wait(
+                {*running, shutdown}, timeout=2, return_when=asyncio.FIRST_COMPLETED
+            )
+            if shutdown in done:
+                break
+            for task in done:
+                if task is shutdown:
+                    continue
+                running.discard(task)
+                with contextlib.suppress(asyncio.CancelledError):
+                    await task
+    finally:
+        shutdown.cancel()
+        for task in running:
+            task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await shutdown
+        if running:
+            await asyncio.gather(*running, return_exceptions=True)
+
+
 async def memory_pump(stopped: asyncio.Event) -> None:
     last_catalog = 0.0
     while not stopped.is_set():
@@ -227,19 +270,11 @@ async def main() -> None:
     loop = asyncio.get_running_loop()
     for sig in (signal.SIGINT, signal.SIGTERM):
         loop.add_signal_handler(sig, stopped.set)
-    config = settings()
-    logger.info(
-        "analysis_concurrency=%s translation_concurrency=%s",
-        config.analysis_concurrency,
-        config.translation_concurrency,
-    )
+    logger.info("provider_scoped_concurrency=enabled")
     await asyncio.gather(
         memory_pump(stopped),
-        *(worker_slot(stopped, ("analyze", "sync_memory")) for _ in range(config.analysis_concurrency)),
-        *(
-            worker_slot(stopped, ("translate", "review", "consistency"))
-            for _ in range(config.translation_concurrency)
-        ),
+        provider_dispatcher(stopped),
+        worker_slot(stopped, ("sync_memory",)),
     )
 
 

@@ -261,14 +261,14 @@ function ProviderSettings({ run }: { run: Run }) {
                       temperature: "Température",
                       top_p: "Top P",
                       timeout: "Timeout (secondes)",
-                      max_concurrency: "Requêtes simultanées",
+                      max_concurrency: "Livres simultanés",
                       input_cost: "Coût / million tokens entrée",
                       output_cost: "Coût / million tokens sortie",
                     }[name]
                   }
                   <input
                     type="number"
-                    min="0"
+                    min={name === "max_concurrency" ? "1" : "0"}
                     step={
                       [
                         "temperature",
@@ -285,6 +285,11 @@ function ProviderSettings({ run }: { run: Run }) {
                 </label>
               ))}
           </div>
+          <p className="muted">
+            La limite de livres simultanés s’applique à ce provider, analyses,
+            traductions et relectures confondues. Chaque provider dispose de sa
+            propre capacité indépendante.
+          </p>
           {value.kind === "codex_chatgpt" && (
             <CodexConnection
               key={value.id}

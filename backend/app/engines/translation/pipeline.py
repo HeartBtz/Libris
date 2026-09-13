@@ -56,7 +56,7 @@ async def translation_call(
 
     return await llm.complete(
         project_id=project.id,
-        provider_id=job.options.get("provider_id") or project.provider_id,
+        provider_id=job.provider_id,
         segment_id=segment.id,
         operation=operation,
         messages=built.messages,
@@ -137,7 +137,7 @@ async def translate(job: Job, owner: str) -> None:
             built = await build_context(project.id, sid, "context_planner")
             plan = await llm.complete(
                 project_id=project.id,
-                provider_id=job.options.get("provider_id") or project.provider_id,
+                provider_id=job.provider_id,
                 segment_id=sid,
                 operation="context_planner",
                 messages=built.messages,
@@ -169,7 +169,7 @@ async def translate(job: Job, owner: str) -> None:
                     )
                     review = await llm.complete(
                         project_id=project.id,
-                        provider_id=job.options.get("provider_id") or project.provider_id,
+                        provider_id=job.provider_id,
                         segment_id=sid,
                         operation="translation_review",
                         messages=built.messages,
@@ -378,7 +378,7 @@ async def consistency(job: Job, owner: str) -> None:
             system, _ = load_prompt("consistency_check", project.source_language, project.target_language)
             review = await llm.complete(
                 project_id=project.id,
-                provider_id=job.options.get("provider_id") or project.provider_id,
+                provider_id=job.provider_id,
                 operation="consistency_check",
                 messages=[
                     {"role": "system", "content": system},

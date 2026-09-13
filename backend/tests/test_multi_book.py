@@ -1,4 +1,5 @@
 import asyncio
+from collections import Counter
 from pathlib import Path
 
 import respx
@@ -9,8 +10,9 @@ from test_resilience import prepare
 from app.api.projects import import_book
 from app.db import SessionLocal
 from app.jobs.execution import execution
+from app.jobs.queue import claim, enqueue, suspend
 from app.jobs.worker import worker_slot
-from app.models import Job, Provider
+from app.models import Job, Project, Provider
 
 
 @respx.mock
@@ -52,6 +54,45 @@ async def test_two_books_are_processed_concurrently_without_mixing_jobs(seeded, 
         release.set()
         stopped.set()
         await asyncio.gather(*workers)
+
+
+def test_provider_limits_are_independent_and_shared_by_all_operations(seeded, book_bytes):
+    first_id, user_id, codex_id = seeded
+    with SessionLocal() as db:
+        codex = db.get(Provider, codex_id)
+        codex.name, codex.max_concurrency = "Codex", 3
+        qwen = Provider(
+            name="Qwen",
+            base_url="https://qwen.test/v1",
+            model="qwen-uncensored",
+            capabilities={"supports_json_schema": True},
+            context_window=64000,
+            max_concurrency=1,
+        )
+        db.add(qwen)
+        db.flush()
+        qwen_id = qwen.id
+        projects = [db.get(Project, first_id)]
+        for provider_id in [codex_id] * 4 + [qwen_id] * 5:
+            project = import_book(db, user_id, book_bytes)
+            project.provider_id = provider_id
+            projects.append(project)
+        for index, project in enumerate(projects):
+            enqueue(db, project, "translate" if index % 2 else "analyze", {})
+        db.commit()
+
+    claimed = [claim() for _ in range(4)]
+    assert all(claimed)
+    with SessionLocal() as db:
+        providers = Counter(db.get(Job, item[0]).provider_id for item in claimed)
+        codex_claim = next(item for item in claimed if db.get(Job, item[0]).provider_id == codex_id)
+    assert providers == Counter({codex_id: 3, qwen_id: 1})
+    assert claim() is None
+
+    suspend(codex_claim[0], codex_claim[1], "paused", "test")
+    replacement = claim()
+    with SessionLocal() as db:
+        assert replacement and db.get(Job, replacement[0]).provider_id == codex_id
 
 
 async def test_codex_supports_parallel_isolated_threads(monkeypatch):

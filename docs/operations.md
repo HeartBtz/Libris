@@ -6,7 +6,7 @@ La bibliothèque accepte plusieurs EPUB en un import (deux fichiers traités sim
 
 La suppression est confirmée une seule fois pour la sélection. Elle arrête les travaux concernés et supprime le projet local. Les documents déjà présents dans OpenViking restent distincts.
 
-Le worker exécute au maximum une analyse et une traduction simultanément (`ANALYSIS_CONCURRENCY=1`, `TRANSLATION_CONCURRENCY=1`). Les relectures et contrôles de cohérence partagent le slot de traduction. Les requêtes restent aussi soumises à `max_concurrency` de chaque provider. Les passages d’un même livre restent séquentiels.
+Le worker ordonnance les livres selon `max_concurrency` de leur provider. Cette limite réunit analyses, traductions, relectures et contrôles de cohérence : un provider réglé à 3 exécute au plus trois livres à la fois, quelle que soit la combinaison des opérations. Les capacités des providers sont indépendantes ; Codex à 3 et Qwen à 1 autorisent donc jusqu’à quatre livres actifs. Les passages d’un même livre restent séquentiels. Le limiteur des requêtes LLM applique la même valeur comme seconde protection.
 
 ## Les deux progressions
 

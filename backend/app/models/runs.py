@@ -19,8 +19,12 @@ class Job(Identified, Base):
                 "status IN ('pending','waiting','paused','blocked','analyzing','translating','reviewing','syncing')"
             ),
         ),
+        Index("ix_jobs_provider_status", "provider_id", "status"),
     )
     project_id: Mapped[str] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), index=True)
+    provider_id: Mapped[str | None] = mapped_column(
+        ForeignKey("providers.id", ondelete="SET NULL"), nullable=True
+    )
     operation: Mapped[str] = mapped_column(String(40))
     status: Mapped[str] = mapped_column(String(30), default="pending", index=True)
     options: Mapped[dict] = mapped_column(JSON, default=dict)

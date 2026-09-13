@@ -109,7 +109,7 @@ Les contrôles globaux LLM échantillonnent les occurrences dans tout le livre, 
 - Un ancien worker ne peut plus appliquer un résultat après pause, annulation ou reprise par un nouveau worker.
 - Traductions et étapes intermédiaires enregistrées séparément ; cache des appels valides par contenu du prompt, contexte, modèle et paramètres.
 - Une correction humaine arrivée pendant l’inférence gagne : le résultat IA devient une proposition dans l’historique.
-- Une analyse et une traduction peuvent s’exécuter simultanément. Les limites par défaut sont strictement d’une analyse (`ANALYSIS_CONCURRENCY=1`) et d’une traduction ou relecture (`TRANSLATION_CONCURRENCY=1`) ; les passages d’un livre restent séquentiels. Ne pas multiplier les réplicas du worker sans adapter cette politique globale.
+- La concurrence est définie par provider : `max_concurrency=3` autorise trois livres utilisant ce provider, analyses et traductions confondues. Les capacités de Codex et des providers personnalisés sont indépendantes, tandis que les passages d’un livre restent séquentiels.
 
 ### Tokens et observabilité
 

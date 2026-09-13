@@ -1,7 +1,6 @@
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -24,8 +23,6 @@ class Settings(BaseSettings):
     frontend_dir: Path = Path("/app/frontend/dist")
     codex_bridge_url: str = "http://codex:8092"
     codex_bridge_token: str = ""
-    analysis_concurrency: int = Field(default=1, ge=1, le=16)
-    translation_concurrency: int = Field(default=1, ge=1, le=16)
     prompt_dir: Path = Path(__file__).resolve().parents[2] / "prompts"
 
     def prepare(self) -> None:

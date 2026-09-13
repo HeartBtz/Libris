@@ -156,6 +156,6 @@ def test_accepting_ai_critique_applies_protected_human_correction(seeded):
 
     assert response.status_code == 200, response.text
     saved = response.json()
-    assert saved["human"] and not saved["validated"] and saved["status"] == "check"
+    assert saved["human"] and not saved["validated"] and saved["status"] == "ok"
     assert "Texte corrigé." in saved["translated_units"][0]["text"]
     assert saved["critique"] == []

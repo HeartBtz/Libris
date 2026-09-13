@@ -10,7 +10,7 @@ from app.db import SessionLocal
 from app.engines.translation import final_review, pipeline
 from app.jobs.queue import claim, enqueue
 from app.jobs.worker import execute
-from app.models import Issue, Job, Project, RequestLog, Segment
+from app.models import Issue, Job, Project, Segment
 from app.providers.llm import ProviderUnavailable
 from app.schemas import FinalReviewResult, TranslationResult
 
@@ -43,29 +43,22 @@ def verdict(issues=None):
     return FinalReviewResult(issues=issues or [], uncertainties=[], explanation="Réexamen terminé.")
 
 
-def test_project_stats_count_distinct_reviewed_segments(seeded):
-    pid, _, provider_id = seeded
+def test_project_stats_use_final_review_checkpoint(seeded):
+    pid, _, _ = seeded
     with SessionLocal() as db:
         project = db.get(Project, pid)
         segments = list(db.scalars(select(Segment).where(Segment.project_id == pid).limit(2)))
-        segments[0].validated = True
-        for operation in ["final_review", "translation_review"]:
-            db.add(
-                RequestLog(
-                    job_id=None,
-                    project_id=pid,
-                    segment_id=segments[1].id,
-                    provider_id=provider_id,
-                    operation=operation,
-                    model="test-model",
-                    fingerprint=operation,
-                    status="success",
-                    parameters={},
-                    messages=[],
-                )
-            )
+        job = enqueue(db, project, "resolve_validations", {})
+        job.checkpoint = {
+            "step": "final_review",
+            "total": 2,
+            "final_review_targets": [segment.id for segment in segments],
+            "final_review_done": [segments[0].id],
+        }
         db.flush()
-        assert project_stats(db, project)["reviewed_segments"] == 2
+        result = project_stats(db, project)
+        assert result["reviewed_segments"] == 1
+        assert result["review_total"] == 2
 
 
 async def test_final_review_clears_obsolete_critique_and_keeps_text(seeded, monkeypatch):

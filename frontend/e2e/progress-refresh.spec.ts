@@ -40,10 +40,12 @@ test("library shows active-stage progress and refresh reloads metrics", async ({
     (project.stats.translated / project.stats.total) * 100,
   );
   const review = Math.floor(
-    ((project.stats.reviewed_segments || 0) / project.stats.total) * 100,
+    ((project.stats.reviewed_segments || 0) /
+      (project.stats.review_total || project.stats.total)) *
+      100,
   );
   const expected =
-    project.status === "completed"
+    project.status === "completed" && !project.stats.flagged
       ? { label: "Export", value: 100 }
       : project.status === "analyzing"
         ? { label: "Analyse", value: analysis }

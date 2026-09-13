@@ -24,7 +24,6 @@ from app.models import (
     Outbox,
     Project,
     Provider,
-    RequestLog,
     Segment,
     User,
 )
@@ -46,22 +45,34 @@ def stats(db, project: Project) -> dict:
             func.count(Segment.id).filter(Segment.status == "refused"),
         ).where(Segment.project_id == project.id)
     ).one()
-    return {
-        "reviewed_segments": db.scalar(
-            select(func.count(Segment.id)).where(
-                Segment.project_id == project.id,
-                or_(
-                    Segment.validated.is_(True),
-                    Segment.id.in_(
-                        select(RequestLog.segment_id).where(
-                            RequestLog.project_id == project.id,
-                            RequestLog.operation.in_(["translation_review", "final_review"]),
-                            RequestLog.status == "success",
-                        )
-                    ),
-                ),
+    review_job = next(
+        (
+            candidate
+            for candidate in db.scalars(
+                select(Job)
+                .where(
+                    Job.project_id == project.id,
+                    Job.operation.in_(["translate", "resolve_validations"]),
+                )
+                .order_by(Job.created_at.desc())
             )
+            if candidate.checkpoint.get("step") == "final_review"
+            or candidate.checkpoint.get("final_review_targets")
+            or candidate.checkpoint.get("final_review_done")
         ),
+        None,
+    )
+    review_checkpoint = review_job.checkpoint if review_job else {}
+    review_done = len(set(review_checkpoint.get("final_review_done", [])))
+    review_total = int(
+        review_checkpoint.get("total")
+        or len(review_checkpoint.get("final_review_targets", []))
+        or flagged
+        or total
+    )
+    return {
+        "reviewed_segments": review_done,
+        "review_total": review_total,
         "analyzed_segments": db.scalar(
             select(func.count(func.distinct(Memory.segment_id))).where(
                 Memory.project_id == project.id, Memory.kind == "analysis"

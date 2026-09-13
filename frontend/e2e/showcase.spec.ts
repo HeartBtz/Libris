@@ -13,6 +13,7 @@ test("capture public Libris showcase", async ({ page }) => {
     translated: 18,
     validated: 12,
     reviewed_segments: 16,
+    review_total: 24,
     flagged: 1,
     errors: 0,
     refused: 0,

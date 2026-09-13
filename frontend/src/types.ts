@@ -5,6 +5,7 @@ export interface User {
 }
 export interface Stats {
   reviewed_segments?: number;
+  review_total?: number;
   retained_source: number;
   analyzed_segments: number;
   synthesized_chapters: number;

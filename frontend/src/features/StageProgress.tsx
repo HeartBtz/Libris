@@ -24,7 +24,7 @@ export function StageProgress({
     : stats.reviewed_segments || 0;
   const reviewTotal = finalReview
     ? Number(job?.checkpoint.total || 0)
-    : stats.total;
+    : stats.review_total || stats.total;
   const active =
     exportState === "running" ||
     exportState === "done" ||

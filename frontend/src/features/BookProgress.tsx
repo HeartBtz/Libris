@@ -11,10 +11,11 @@ export function BookProgress({ project }: { project: Project }) {
   const translation = stats.total
     ? Math.min(100, Math.floor((stats.translated / stats.total) * 100))
     : 0;
-  const review = stats.total
+  const reviewTotal = stats.review_total || stats.total;
+  const review = reviewTotal
     ? Math.min(
         100,
-        Math.floor(((stats.reviewed_segments || 0) / stats.total) * 100),
+        Math.floor(((stats.reviewed_segments || 0) / reviewTotal) * 100),
       )
     : 0;
   const analysisStage = {
@@ -24,7 +25,7 @@ export function BookProgress({ project }: { project: Project }) {
     detail: `${stats.analyzed_segments || 0}/${stats.total} passages · ${stats.synthesized_chapters || 0}/${stats.chapters} sections`,
   };
   let stage: { key: string; label: string; value: number; detail: string };
-  if (project.status === "completed") {
+  if (project.status === "completed" && !stats.flagged) {
     stage = {
       key: "export",
       label: "Export",
@@ -38,7 +39,7 @@ export function BookProgress({ project }: { project: Project }) {
       key: "review",
       label: "Relecture",
       value: review,
-      detail: `${stats.reviewed_segments || 0}/${stats.total} passages relus`,
+      detail: `${stats.reviewed_segments || 0}/${reviewTotal} passages relus${stats.flagged ? ` · ${stats.flagged} à vérifier` : ""}`,
     };
   } else if (project.status === "translating" || analysis === 100) {
     stage = {

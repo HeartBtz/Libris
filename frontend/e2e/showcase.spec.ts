@@ -75,8 +75,8 @@ test("capture public Libris showcase", async ({ page }) => {
       ...book,
       id: "demo-archive",
       title: "Mist Journal",
-      series_name: "",
-      volume_number: null,
+      series_name: "Tide Chronicles",
+      volume_number: 4,
       archived_at: 1789167600,
       status: "completed",
       stats: { ...stats, translated: 24, validated: 24, flagged: 0 },
@@ -205,6 +205,10 @@ test("capture public Libris showcase", async ({ page }) => {
      .getByRole("combobox", { name: "Series", exact: true })
      .selectOption("Tide Chronicles");
   await expect(page.locator(".library-table tbody tr")).toHaveCount(2);
+  await expect(page.locator(".series-volumes li")).toHaveCount(3);
+  await expect(page.locator(".series-volumes .badge.archived")).toHaveText(
+    "Archived",
+  );
   await page.screenshot({
     path: resolve(output, "series.png"),
     fullPage: true,

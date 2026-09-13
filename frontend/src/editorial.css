@@ -165,6 +165,9 @@
   color: var(--accent);
   font-size: var(--ui-h3);
 }
+.series-volumes .badge {
+  margin-left: var(--ui-space-xs);
+}
 .series-warning {
   grid-column: 1 / -1;
   color: var(--coral);

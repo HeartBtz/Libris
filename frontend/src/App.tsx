@@ -35,6 +35,7 @@ const translations: Record<string, string> = {
   "{count} livre(s) affiché(s)": "{count} book(s) shown",
   "Série {series}": "Series {series}",
   "Collection active": "Active collection",
+  "Collection": "Collection",
   "{count} volume(s), classés dans l’ordre de lecture. Les conventions acceptées et décisions humaines des volumes antérieurs alimentent les volumes suivants, sans importer leur narration.": "{count} volume(s), ordered by reading sequence. Approved conventions and human decisions from earlier volumes inform later volumes without importing their narrative.",
   "Volumes manquants dans cette bibliothèque : {volumes}. ": "Missing volumes in this library: {volumes}. ",
   "Numéros dupliqués : {volumes}.": "Duplicate numbers: {volumes}.",
@@ -321,7 +322,7 @@ function Library({ run, user }: { run: Run; user: User }) {
   const seriesBooks =
     seriesFilter === "all"
       ? []
-      : availableBooks
+      : books
           .filter((project) => project.series_name === seriesFilter)
           .sort(
             (a, b) =>
@@ -329,6 +330,9 @@ function Library({ run, user }: { run: Run; user: User }) {
                 (b.volume_number ?? Number.MAX_SAFE_INTEGER) ||
                a.title.localeCompare(b.title, locale, { numeric: true }),
           );
+  const activeSeriesBooks = seriesBooks.filter(
+    (project) => !project.archived_at,
+  );
   const numberedVolumes = seriesBooks
     .map((project) => project.volume_number)
     .filter((value): value is number => value !== null);
@@ -539,7 +543,7 @@ function Library({ run, user }: { run: Run; user: User }) {
           aria-label={t("Série {series}").replace("{series}", seriesFilter)}
         >
           <div>
-            <p className="eyebrow">{t("Collection active")}</p>
+            <p className="eyebrow">{t("Collection")}</p>
             <h2>{seriesFilter}</h2>
             <p className="muted">
               {t("{count} volume(s), classés dans l’ordre de lecture. Les conventions acceptées et décisions humaines des volumes antérieurs alimentent les volumes suivants, sans importer leur narration.").replace("{count}", String(seriesBooks.length))}
@@ -549,7 +553,12 @@ function Library({ run, user }: { run: Run; user: User }) {
             {seriesBooks.map((project) => (
               <li key={project.id}>
                 <strong>{project.volume_number ?? "?"}</strong>
-                <span>{project.title}</span>
+                <span>
+                  {project.title}
+                  {project.archived_at && (
+                    <small className="badge archived">{t("Archivé")}</small>
+                  )}
+                </span>
               </li>
             ))}
           </ol>
@@ -563,8 +572,9 @@ function Library({ run, user }: { run: Run; user: User }) {
           )}
           <button
             onClick={() =>
-              setSelected(new Set(seriesBooks.map((project) => project.id)))
+              setSelected(new Set(activeSeriesBooks.map((project) => project.id)))
             }
+            disabled={!activeSeriesBooks.length}
           >
             {t("Sélectionner toute la série")}
           </button>

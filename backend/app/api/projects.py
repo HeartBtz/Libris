@@ -24,6 +24,7 @@ from app.models import (
     Outbox,
     Project,
     Provider,
+    RequestLog,
     Segment,
     User,
 )
@@ -46,6 +47,21 @@ def stats(db, project: Project) -> dict:
         ).where(Segment.project_id == project.id)
     ).one()
     return {
+        "reviewed_segments": db.scalar(
+            select(func.count(Segment.id)).where(
+                Segment.project_id == project.id,
+                or_(
+                    Segment.validated.is_(True),
+                    Segment.id.in_(
+                        select(RequestLog.segment_id).where(
+                            RequestLog.project_id == project.id,
+                            RequestLog.operation.in_(["translation_review", "final_review"]),
+                            RequestLog.status == "success",
+                        )
+                    ),
+                ),
+            )
+        ),
         "analyzed_segments": db.scalar(
             select(func.count(func.distinct(Memory.segment_id))).where(
                 Memory.project_id == project.id, Memory.kind == "analysis"

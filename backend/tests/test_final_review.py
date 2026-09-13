@@ -4,12 +4,13 @@ import pytest
 import respx
 from sqlalchemy import select
 
+from app.api.projects import stats as project_stats
 from app.config import settings
 from app.db import SessionLocal
 from app.engines.translation import final_review, pipeline
 from app.jobs.queue import claim, enqueue
 from app.jobs.worker import execute
-from app.models import Issue, Job, Project, Segment
+from app.models import Issue, Job, Project, RequestLog, Segment
 from app.providers.llm import ProviderUnavailable
 from app.schemas import FinalReviewResult, TranslationResult
 
@@ -40,6 +41,31 @@ async def context(*args, **kwargs):
 
 def verdict(issues=None):
     return FinalReviewResult(issues=issues or [], uncertainties=[], explanation="Réexamen terminé.")
+
+
+def test_project_stats_count_distinct_reviewed_segments(seeded):
+    pid, _, provider_id = seeded
+    with SessionLocal() as db:
+        project = db.get(Project, pid)
+        segments = list(db.scalars(select(Segment).where(Segment.project_id == pid).limit(2)))
+        segments[0].validated = True
+        for operation in ["final_review", "translation_review"]:
+            db.add(
+                RequestLog(
+                    job_id=None,
+                    project_id=pid,
+                    segment_id=segments[1].id,
+                    provider_id=provider_id,
+                    operation=operation,
+                    model="test-model",
+                    fingerprint=operation,
+                    status="success",
+                    parameters={},
+                    messages=[],
+                )
+            )
+        db.flush()
+        assert project_stats(db, project)["reviewed_segments"] == 2
 
 
 async def test_final_review_clears_obsolete_critique_and_keeps_text(seeded, monkeypatch):
@@ -138,7 +164,9 @@ async def test_final_review_outage_is_resumable(seeded, monkeypatch):
     await execute(*claim())
     with SessionLocal() as db:
         assert db.get(Job, jid).status == "waiting"
-        assert sid not in db.get(Job, jid).checkpoint.get("final_review_done", [])
+        checkpoint = db.get(Job, jid).checkpoint
+        assert checkpoint["final_review_targets"] == [sid]
+        assert sid not in checkpoint.get("final_review_done", [])
 
 
 async def test_human_edit_during_final_review_wins(seeded, monkeypatch):

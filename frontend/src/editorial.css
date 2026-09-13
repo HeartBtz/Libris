@@ -12,6 +12,55 @@
   --ui-motion: 160ms;
   --ui-header-offset: 72px;
 }
+.pipeline-bar {
+  flex-wrap: wrap;
+}
+.stage-progress {
+  flex: 1 1 100%;
+  min-width: 0;
+}
+.stage-selectors {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ui-space-xs);
+  margin-bottom: var(--ui-space-md);
+}
+.stage-selectors button {
+  background: transparent;
+  border-color: transparent;
+  color: var(--muted);
+}
+.stage-selectors button[aria-pressed="true"] {
+  border-color: var(--accent);
+  background: var(--accent-bg);
+  color: var(--text);
+}
+.stage-progress-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--ui-space-md);
+  margin-bottom: var(--ui-space-xs);
+  font-variant-numeric: tabular-nums;
+}
+.stage-progress progress {
+  width: 100%;
+}
+.stage-progress p {
+  margin: var(--ui-space-xs) 0;
+  color: var(--muted);
+  font-size: var(--ui-small);
+}
+@media (max-width: 700px) {
+  .stage-selectors {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    padding-bottom: var(--ui-space-xs);
+    scrollbar-width: thin;
+  }
+  .stage-selectors button {
+    flex: 0 0 auto;
+  }
+}
 .library h1,
 .login h1 {
   font-family: Georgia, "Times New Roman", serif;

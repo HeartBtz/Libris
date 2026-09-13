@@ -4,6 +4,7 @@ import type { Chapter, Job, Project, Run, Segment, User } from "../types";
 import { Editor } from "./Editor";
 import { ValidationPanel } from "./ValidationPanel";
 import { CompletionPanel } from "./CompletionPanel";
+import { StageProgress, type ExportState } from "./StageProgress";
 const CharacterGraph = lazy(() => import("./CharacterGraph"));
 const stageLabels: Record<string, string> = {
   chapter_analysis: "Analyse des passages",
@@ -35,6 +36,7 @@ export function Workspace({
   const [chapter, setChapter] = useState("");
   const [focusRefusal, setFocusRefusal] = useState("");
   const [tab, setTab] = useState("editor");
+  const [exportState, setExportState] = useState<ExportState>("idle");
   const [tick, setTick] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
   const [refreshedAt, setRefreshedAt] = useState("");
@@ -92,7 +94,6 @@ export function Workspace({
     (["failed", "cancelled"].includes(project.status)
       ? jobs.find((j) => j.status === project.status)
       : undefined);
-  const analyzing = job?.operation === "analyze";
   const sourceDone = project.stats.analyzed_segments || 0;
   const bibleDone = project.stats.synthesized_chapters || 0;
   const analysisReady =
@@ -104,6 +105,33 @@ export function Workspace({
   const progress = project.stats.total
     ? Math.round((project.stats.translated / project.stats.total) * 100)
     : 0;
+  async function exportFile(format: string, allowSource = false) {
+    if (exportState === "running") return;
+    setExportState("running");
+    try {
+      const response = await fetch(
+        `/api/projects/${id}/export/${format}${allowSource ? "?allow_source=true" : ""}`,
+      );
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(
+          typeof error.detail === "string"
+            ? error.detail
+            : `Export refusé (HTTP ${response.status}).`,
+        );
+      }
+      const url = URL.createObjectURL(await response.blob());
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `${project!.title}.${format === "project" ? "zip" : format === "bible" ? "json" : format}`;
+      link.click();
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+      setExportState("done");
+    } catch (error) {
+      setExportState("error");
+      throw error;
+    }
+  }
   return (
     <main className="workspace">
       <div className="workspace-heading">
@@ -129,46 +157,15 @@ export function Workspace({
           </span>
         </div>
         <div className="workspace-progress">
-          <strong>
-            {analyzing
-              ? "Analyse"
-              : analysisReady && !project.stats.translated
-                ? "Prêt"
-                : `${progress}%`}
-          </strong>
-          <progress
-            value={
-              analyzing
-                ? sourceDone < project.stats.total
-                  ? sourceDone
-                  : bibleDone
-                : project.stats.translated
-            }
-            max={
-              analyzing && sourceDone === project.stats.total
-                ? project.stats.chapters || 1
-                : project.stats.total || 1
-            }
-          />
+          <strong>{progress}%</strong>
           <span>
-            {analyzing
-              ? `Lecture ${sourceDone}/${project.stats.total} · Synthèse ${bibleDone}/${project.stats.chapters}`
-              : analysisReady && !project.stats.translated
-                ? "Analyse terminée · traduction à lancer"
-                : `${number(project.stats.translated)} / ${number(project.stats.total)} passages traduits`}
+            {number(project.stats.translated)} / {number(project.stats.total)}{" "}
+            passages traduits
           </span>
         </div>
       </div>
       <div className="pipeline-bar">
-        <div className="pipeline-steps">
-          <span className="done">1 · Import</span>
-          <span className={Object.keys(project.bible).length ? "done" : ""}>
-            2 · Analyse & mémoire
-          </span>
-          <span className={progress === 100 ? "done" : ""}>3 · Traduction</span>
-          <span>4 · Relecture</span>
-          <span>5 · Export</span>
-        </div>
+        <StageProgress project={project} job={job} exportState={exportState} />
         <div className="actions">
           {job ? (
             <>
@@ -274,11 +271,24 @@ export function Workspace({
                 ["bible", "Book Bible JSON"],
                 ["project", "Projet complet"],
               ].map(([format, label]) => (
-                <a key={format} href={`/api/projects/${id}/export/${format}`}>
+                <a
+                  key={format}
+                  href={`/api/projects/${id}/export/${format}`}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    void run(() => exportFile(format));
+                  }}
+                >
                   {label}
                 </a>
               ))}
-              <a href={`/api/projects/${id}/export/epub?allow_source=true`}>
+              <a
+                href={`/api/projects/${id}/export/epub?allow_source=true`}
+                onClick={(e) => {
+                  e.preventDefault();
+                  void run(() => exportFile("epub", true));
+                }}
+              >
                 EPUB partiel · originaux conservés
               </a>
               <a

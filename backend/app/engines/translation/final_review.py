@@ -66,6 +66,11 @@ async def resolve_validations(job: Job, owner: str) -> None:
                 .order_by(Segment.position)
             )
         )
+    stored = checkpoint(job.id, owner)
+    if "final_review_targets" in stored.checkpoint:
+        ids = stored.checkpoint["final_review_targets"]
+    else:
+        checkpoint(job.id, owner, {"final_review_targets": ids})
     for index, sid in enumerate(ids):
         current_job = checkpoint(
             job.id,

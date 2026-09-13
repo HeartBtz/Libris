@@ -35,6 +35,10 @@ Libris combines a persistent translation pipeline with a book bible, character m
 
 ![Translation editor](docs/screenshots/editor.png)
 
+### Follow every stage
+
+![Selectable progress for import, analysis, translation, review and export](docs/screenshots/progress-stages.png)
+
 <details>
 <summary>Mobile library</summary>
 

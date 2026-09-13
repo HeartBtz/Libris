@@ -12,6 +12,7 @@ test("capture public Libris showcase", async ({ page }) => {
     total: 24,
     translated: 18,
     validated: 12,
+    reviewed_segments: 16,
     flagged: 1,
     errors: 0,
     refused: 0,
@@ -168,6 +169,35 @@ test("capture public Libris showcase", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1040 });
   await page.goto(`${base}/#project/demo`);
   await expect(page.getByText(source, { exact: true })).toBeVisible();
+  await expect(page.getByRole("progressbar")).toHaveCount(1);
+  for (const [button, detail] of [
+    ["1 · Import", "EPUB importé et structure chargée."],
+    [
+      "2 · Analyse & mémoire",
+      "24/24 passages analysés · 4/4 sections synthétisées.",
+    ],
+    ["3 · Traduction", "18/24 passages traduits · 0 conservés en original."],
+    [
+      "4 · Relecture",
+      "16/24 passages ayant reçu une relecture IA ou une validation humaine · 1 à vérifier.",
+    ],
+    [
+      "5 · Export",
+      "Choisissez un format dans Exporter. Aucun fichier généré dans cette session.",
+    ],
+  ]) {
+    await page.getByRole("button", { name: button, exact: true }).click();
+    await expect(page.getByText(detail, { exact: true })).toBeVisible();
+    await expect(page.getByRole("progressbar")).toHaveCount(1);
+  }
+  await page
+    .getByRole("button", { name: "3 · Traduction", exact: true })
+    .click();
+  await page.getByRole("button", { name: "Suivre l’étape active" }).click();
+  await page.screenshot({
+    path: resolve(output, "progress-stages.png"),
+    fullPage: true,
+  });
   await page.screenshot({ path: resolve(output, "editor.png") });
   await page
     .getByRole("button", { name: "Validations (1)", exact: true })
@@ -193,5 +223,12 @@ test("capture public Libris showcase", async ({ page }) => {
     path: resolve(output, "validations-light.png"),
     fullPage: true,
   });
+  await page.getByText("Exporter ↓", { exact: true }).click();
+  const download = page.waitForEvent("download");
+  await page.getByRole("link", { name: "EPUB traduit", exact: true }).click();
+  await download;
+  await expect(
+    page.getByText("Fichier reçu ; téléchargement transmis au navigateur."),
+  ).toBeVisible();
   expect(errors).toEqual([]);
 });

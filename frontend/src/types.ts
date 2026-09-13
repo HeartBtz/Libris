@@ -4,6 +4,7 @@ export interface User {
   admin: boolean;
 }
 export interface Stats {
+  reviewed_segments?: number;
   retained_source: number;
   analyzed_segments: number;
   synthesized_chapters: number;

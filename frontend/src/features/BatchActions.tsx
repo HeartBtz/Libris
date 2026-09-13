@@ -10,7 +10,7 @@ const translations: Record<string, string> = {
   "Série {series} appliquée à {count} livre(s), numéros conservés.": "Series {series} applied to {count} book(s), numbers retained.",
   "{count} livre(s) numéroté(s) dans {series}.": "{count} book(s) numbered in {series}.",
   "supprimé.": "deleted.", "archivé.": "archived.", "en pause": "paused", "reprise planifiée": "resumption scheduled", "travail annulé": "work cancelled", "aucun travail concerné": "no relevant work", "configuré": "configured", "travail ajouté à la file": "work queued",
-  "Actions sur plusieurs livres": "Actions for multiple books", "livre(s) sélectionné(s)": "selected book(s)", "Série commune": "Common series", "Premier volume": "First volume", "Appliquer sans renuméroter": "Apply without renumbering", "Numéroter par titre": "Number by title", "Retirer de la série": "Remove from series", "Provider commun": "Common provider", "Conserver les providers individuels": "Keep individual providers", "Langue cible": "Target language", "Qualité": "Quality", "Rapide": "Fast", "Haute qualité": "High quality", "Instructions communes": "Common instructions", "Conserver si vide": "Keep if empty", "Configurer la sélection": "Configure selection", "Analyser la sélection": "Analyze selection", "Traduire la sélection": "Translate selection", "Mettre la sélection en pause": "Pause selection", "Reprendre la sélection": "Resume selection", "Annuler les analyses": "Cancel analyses", "Annuler les traductions": "Cancel translations", "Archiver la sélection": "Archive selection", "Supprimer la sélection": "Delete selection",
+  "Actions sur plusieurs livres": "Actions for multiple books", "livre(s) sélectionné(s)": "selected book(s)", "Série commune": "Common series", "Premier volume": "First volume", "Appliquer sans renuméroter": "Apply without renumbering", "Numéroter par titre": "Number by title", "Retirer de la série": "Remove from series", "Provider commun": "Common provider", "Conserver les providers individuels": "Keep individual providers", "Source mémoire": "Memory source", "Conserver les sources individuelles": "Keep individual sources", "Mémoire interne": "Internal memory", "Langue cible": "Target language", "Qualité": "Quality", "Rapide": "Fast", "Haute qualité": "High quality", "Instructions communes": "Common instructions", "Conserver si vide": "Keep if empty", "Configurer la sélection": "Configure selection", "Analyser la sélection": "Analyze selection", "Traduire la sélection": "Translate selection", "Mettre la sélection en pause": "Pause selection", "Reprendre la sélection": "Resume selection", "Annuler les analyses": "Cancel analyses", "Annuler les traductions": "Cancel translations", "Archiver la sélection": "Archive selection", "Supprimer la sélection": "Delete selection",
   "Les livres avancent en parallèle selon les limites du worker et de chaque provider. Les passages d’un même livre gardent leur ordre narratif.": "Books progress in parallel according to worker and provider limits. Segments in the same book retain their narrative order.",
 };
 registerTranslations(translations);
@@ -31,6 +31,9 @@ export function BatchActions({
   const { t } = useI18n();
   const [providers, setProviders] = useState<Provider[]>([]);
   const [provider, setProvider] = useState("");
+  const [memoryBackend, setMemoryBackend] = useState<
+    "" | Project["context_backend"]
+  >("");
   const [language, setLanguage] = useState("fr");
   const [quality, setQuality] = useState("high");
   const [seriesName, setSeriesName] = useState(books[0]?.series_name || "");
@@ -202,7 +205,7 @@ export function BatchActions({
                 target_language: language,
                 provider_id: provider || p.provider_id,
                 quality,
-                context_backend: p.context_backend,
+                context_backend: memoryBackend || p.context_backend,
                 instructions: commonInstructions || p.instructions,
               },
               "PUT",
@@ -290,6 +293,22 @@ export function BatchActions({
             value={language}
             onChange={(e) => setLanguage(e.target.value)}
           />
+        </label>
+        <label>
+          {t("Source mémoire")}
+          <select
+            value={memoryBackend}
+            onChange={(event) =>
+              setMemoryBackend(
+                event.target.value as "" | Project["context_backend"],
+              )
+            }
+          >
+            <option value="">{t("Conserver les sources individuelles")}</option>
+            <option value="internal">{t("Mémoire interne")}</option>
+            <option value="hybrid">Hybrid</option>
+            <option value="openviking">OpenViking</option>
+          </select>
         </label>
         <label>
           {t("Qualité")}

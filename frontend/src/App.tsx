@@ -533,7 +533,11 @@ function Library({ run, user }: { run: Run; user: User }) {
         </label>
         <label>
           {t("Trier par")}
-          <select value={sort} onChange={(e) => setSort(e.target.value)}>
+          <select
+            aria-label={t("Trier par")}
+            value={sort}
+            onChange={(e) => setSort(e.target.value)}
+          >
             <option value="recent">{t("Dernière activité")}</option>
             <option value="title">{t("Titre")}</option>
             <option value="series">{t("Série et volume")}</option>

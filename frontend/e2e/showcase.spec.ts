@@ -204,6 +204,13 @@ test("capture public Libris showcase", async ({ page }) => {
       name: "Export for Atlas for Tomorrow",
     }),
   ).toHaveAttribute("value", "100");
+  const firstBook = page.getByRole("checkbox", {
+    name: "Select Tide Lighthouse",
+  });
+  await firstBook.check();
+  await expect(page.getByLabel("Memory source")).toBeVisible();
+  await page.getByLabel("Memory source").selectOption("hybrid");
+  await firstBook.uncheck();
   await page.screenshot({ path: resolve(output, "library.png") });
   await page.getByRole("button", { name: /In progress/ }).click();
   await expect(page.locator(".library-table tbody tr")).toHaveCount(1);
@@ -243,15 +250,17 @@ test("capture public Libris showcase", async ({ page }) => {
     fullPage: true,
   });
   await page.getByRole("button", { name: /All books/ }).click();
-  await page.getByLabel("Sort by").selectOption("title");
+  await page.getByLabel("Sort by", { exact: true }).selectOption("title");
   await page.getByRole("button", { name: "Sort by status" }).click();
-  await expect(page.getByLabel("Sort by")).toHaveValue("status");
+  await expect(page.getByLabel("Sort by", { exact: true })).toHaveValue(
+    "status",
+  );
   await expect(page.locator(".library-table .book-title")).toHaveText([
     "Copper Gardens",
     "Atlas for Tomorrow",
     "Tide Lighthouse",
   ]);
-  await page.getByLabel("Sort by").selectOption("model");
+  await page.getByLabel("Sort by", { exact: true }).selectOption("model");
   await expect(page.locator(".library-table .book-title")).toHaveText([
     "Copper Gardens",
     "Tide Lighthouse",
@@ -263,7 +272,7 @@ test("capture public Libris showcase", async ({ page }) => {
   await expect(
     page.getByRole("button", { name: "+ Import EPUBs", exact: true }),
   ).toBeFocused();
-  await page.getByLabel("Sort by").selectOption("recent");
+  await page.getByLabel("Sort by", { exact: true }).selectOption("recent");
   await page.setViewportSize({ width: 390, height: 844 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(
     390,

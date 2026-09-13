@@ -210,6 +210,20 @@
   text-transform: none;
   letter-spacing: 0;
 }
+.table-sort {
+  display: inline-flex;
+  gap: var(--ui-space-xs);
+  align-items: center;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+}
+.table-sort:hover,
+.table-sort[aria-pressed="true"] {
+  color: var(--accent);
+}
 .book-title {
   font-family: Georgia, "Times New Roman", serif;
   font-size: 1.2rem;

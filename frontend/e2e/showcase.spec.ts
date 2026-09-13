@@ -244,7 +244,8 @@ test("capture public Libris showcase", async ({ page }) => {
   });
   await page.getByRole("button", { name: /All books/ }).click();
   await page.getByLabel("Sort by").selectOption("title");
-  await page.getByLabel("Sort by").selectOption("status");
+  await page.getByRole("button", { name: "Sort by status" }).click();
+  await expect(page.getByLabel("Sort by")).toHaveValue("status");
   await expect(page.locator(".library-table .book-title")).toHaveText([
     "Copper Gardens",
     "Atlas for Tomorrow",

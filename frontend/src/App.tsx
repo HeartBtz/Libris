@@ -28,6 +28,7 @@ const translations: Record<string, string> = {
   "Rechercher un livre": "Search for a book",
   "Titre, auteur ou série…": "Title, author, or series…",
   "Trier par": "Sort by",
+  "Trier par statut": "Sort by status",
   "Dernière activité": "Recent activity",
   Titre: "Title",
   "Série et volume": "Series and volume",
@@ -670,7 +671,18 @@ function Library({ run, user }: { run: Run; user: User }) {
                 <th>{t("Livre / auteur")}</th>
                 <th>{t("Langues")}</th>
                 <th>{t("Avancement")}</th>
-                <th>{t("Statut")}</th>
+                <th aria-sort={sort === "status" ? "ascending" : "none"}>
+                  <button
+                    className="table-sort"
+                    type="button"
+                    aria-label={t("Trier par statut")}
+                    aria-pressed={sort === "status"}
+                    onClick={() => setSort("status")}
+                  >
+                    {t("Statut")}
+                    <span aria-hidden="true">{sort === "status" ? "↑" : "↕"}</span>
+                  </button>
+                </th>
                 <th>{t("Modèle")}</th>
                 <th>{t("Modifié")}</th>
                 <th />

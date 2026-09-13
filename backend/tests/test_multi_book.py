@@ -19,7 +19,7 @@ from app.models import Job, Project, Provider
 async def test_two_books_are_processed_concurrently_without_mixing_jobs(seeded, book_bytes):
     pid, user_id, provider_id = seeded
     with SessionLocal() as db:
-        second = import_book(db, user_id, book_bytes)
+        second = import_book(db, user_id, book_bytes + b"\nsecond")
         second.provider_id = provider_id
         second.context_backend = "internal"
         second.quality = "fast"
@@ -73,8 +73,8 @@ def test_provider_limits_are_independent_and_shared_by_all_operations(seeded, bo
         db.flush()
         qwen_id = qwen.id
         projects = [db.get(Project, first_id)]
-        for provider_id in [codex_id] * 4 + [qwen_id] * 5:
-            project = import_book(db, user_id, book_bytes)
+        for variant, provider_id in enumerate([codex_id] * 4 + [qwen_id] * 5, start=1):
+            project = import_book(db, user_id, book_bytes + f"\n{variant}".encode())
             project.provider_id = provider_id
             projects.append(project)
         for index, project in enumerate(projects):

@@ -145,6 +145,7 @@ def test_export_reimport_restores_translations(book_bytes):
         units = [{"id": u["id"], "text": u["text"]} for u in segment["units"]]
         client.put(f"/api/segments/{segment['id']}", json={"revision": 0, "units": units, "validated": True})
         exported = client.get(f"/api/projects/{pid}/export/project")
+        assert client.delete(f"/api/projects/{pid}").status_code == 200
         imported = client.post("/api/projects/import", files={"file": ("project.zip", exported.content)})
         assert imported.status_code == 201, imported.text
         new_id = imported.json()["id"]

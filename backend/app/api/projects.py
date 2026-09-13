@@ -113,6 +113,21 @@ def project_view(db, project: Project) -> dict:
 
 
 def import_book(db, owner_id: str, data: bytes) -> Project:
+    original_hash = hashlib.sha256(data).hexdigest()
+    if db.get_bind().dialect.name == "postgresql":
+        lock_digest = hashlib.sha256(f"{owner_id}:{original_hash}".encode()).digest()
+        db.execute(select(func.pg_advisory_xact_lock(int.from_bytes(lock_digest[:8], signed=True))))
+    existing = db.scalar(
+        select(Project).where(Project.owner_id == owner_id, Project.original_hash == original_hash)
+    )
+    if existing:
+        if existing.archived_at:
+            raise HTTPException(
+                409,
+                f"Cet EPUB est déjà importé dans le projet archivé « {existing.title} ». "
+                "Restaurez-le depuis les archives.",
+            )
+        raise HTTPException(409, f"Cet EPUB est déjà importé dans « {existing.title} ».")
     parsed = parse_book(data)
     project_id = uid()
     book_path = settings().data_dir / "books" / f"{project_id}.epub"
@@ -122,7 +137,7 @@ def import_book(db, owner_id: str, data: bytes) -> Project:
         title=parsed["title"],
         author=parsed["author"],
         source_language=parsed["language"],
-        original_hash=hashlib.sha256(data).hexdigest(),
+        original_hash=original_hash,
         original_path=str(book_path),
         book_info=parsed["info"],
     )

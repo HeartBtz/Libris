@@ -1,11 +1,13 @@
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
+from app.api.projects import import_book
 from app.db import SessionLocal
 from app.jobs.queue import claim, enqueue
 from app.main import app
-from app.models import Chapter, Job, Memory, Project, Provider, Segment
+from app.models import Chapter, Job, Memory, Project, Provider, Segment, User
 from app.schemas import ProjectConfig
+from app.security import password_hash
 
 
 def test_new_project_configuration_defaults_to_private_memory():
@@ -71,7 +73,7 @@ def test_owner_can_assign_series_archive_and_restore_project(seeded, book_bytes)
         client.post("/api/auth/login", json={"username": "tester", "password": "test-password-123456789"})
         second = client.post(
             "/api/projects",
-            files={"file": ("second.epub", book_bytes, "application/epub+zip")},
+            files={"file": ("second.epub", book_bytes + b"\nsecond", "application/epub+zip")},
         ).json()
         configured = client.put(
             "/api/projects/batch/series",
@@ -115,6 +117,30 @@ def test_owner_can_assign_series_archive_and_restore_project(seeded, book_bytes)
         restored = client.post(f"/api/projects/{pid}/restore")
         assert restored.status_code == 200 and restored.json()["archived_at"] is None
         assert any(project["id"] == pid for project in client.get("/api/projects").json())
+
+
+def test_duplicate_epub_is_rejected_even_when_archived(seeded, book_bytes):
+    pid = seeded[0]
+    with TestClient(app) as client:
+        client.post("/api/auth/login", json={"username": "tester", "password": "test-password-123456789"})
+        duplicate = client.post("/api/projects", files={"file": ("duplicate.epub", book_bytes)})
+        assert duplicate.status_code == 409
+        assert "déjà importé" in duplicate.json()["detail"]
+
+        assert client.post(f"/api/projects/{pid}/archive").status_code == 200
+        archived = client.post("/api/projects", files={"file": ("duplicate.epub", book_bytes)})
+        assert archived.status_code == 409
+        assert "projet archivé" in archived.json()["detail"]
+
+
+def test_duplicate_epub_check_is_scoped_to_owner(seeded, book_bytes):
+    with SessionLocal() as db:
+        owner = User(username="second-owner", password_hash=password_hash("second-password-123456789"))
+        db.add(owner)
+        db.flush()
+        imported = import_book(db, owner.id, book_bytes)
+        db.commit()
+        assert imported.owner_id == owner.id
 
 
 def test_analyze_already_completed_is_idempotent_and_does_not_queue(seeded):

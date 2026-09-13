@@ -158,6 +158,7 @@ def test_project_export_reimport_keeps_canonical_identities_and_edges(seeded):
             == 200
         )
         archive = client.get(f"/api/projects/{pid}/export/project")
+        assert client.delete(f"/api/projects/{pid}").status_code == 200
         result = client.post("/api/projects/import", files={"file": ("project.zip", archive.content)})
         assert result.status_code == 201, result.text
         graph = client.get(f"/api/projects/{result.json()['id']}/characters/graph").json()

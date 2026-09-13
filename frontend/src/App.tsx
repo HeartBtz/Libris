@@ -11,10 +11,11 @@ import { locales, registerTranslations, useI18n } from "./i18n";
 const translations: Record<string, string> = {
   "En attente": "Pending",
   "Import / validation…": "Importing / validating…",
-  "Importé": "Imported",
+  Importé: "Imported",
   "Votre atelier de traduction": "Your translation workspace",
-  "Bibliothèque": "Library",
-  "Retrouvez vos livres et reprenez là où vous en étiez.": "Find your books and resume where you left off.",
+  Bibliothèque: "Library",
+  "Retrouvez vos livres et reprenez là où vous en étiez.":
+    "Find your books and resume where you left off.",
   "Réimporter un projet": "Reimport a project",
   "Import en cours…": "Importing…",
   "+ Importer des EPUB": "+ Import EPUBs",
@@ -23,47 +24,52 @@ const translations: Record<string, string> = {
   "En cours": "In progress",
   "À examiner": "Needs attention",
   "Traduction complète": "Translation complete",
-  "Archives": "Archives",
+  Archives: "Archives",
   "Rechercher un livre": "Search for a book",
   "Titre, auteur ou série…": "Title, author, or series…",
   "Trier par": "Sort by",
   "Dernière activité": "Recent activity",
-  "Titre": "Title",
+  Titre: "Title",
   "Série et volume": "Series and volume",
-  "Série": "Series",
+  Série: "Series",
   "Toutes les séries": "All series",
   "{count} livre(s) affiché(s)": "{count} book(s) shown",
   "Série {series}": "Series {series}",
   "Collection active": "Active collection",
-  "Collection": "Collection",
-  "{count} volume(s), classés dans l’ordre de lecture. Les conventions acceptées et décisions humaines des volumes antérieurs alimentent les volumes suivants, sans importer leur narration.": "{count} volume(s), ordered by reading sequence. Approved conventions and human decisions from earlier volumes inform later volumes without importing their narrative.",
-  "Volumes manquants dans cette bibliothèque : {volumes}. ": "Missing volumes in this library: {volumes}. ",
+  Collection: "Collection",
+  "{count} volume(s), classés dans l’ordre de lecture. Les conventions acceptées et décisions humaines des volumes antérieurs alimentent les volumes suivants, sans importer leur narration.":
+    "{count} volume(s), ordered by reading sequence. Approved conventions and human decisions from earlier volumes inform later volumes without importing their narrative.",
+  "Volumes manquants dans cette bibliothèque : {volumes}. ":
+    "Missing volumes in this library: {volumes}. ",
   "Numéros dupliqués : {volumes}.": "Duplicate numbers: {volumes}.",
   "Sélectionner toute la série": "Select the entire series",
   "Sélectionner les livres affichés": "Select displayed books",
   "Sélectionner tous les livres actifs": "Select all active books",
   "Livre / auteur": "Book / author",
-  "Langues": "Languages",
-  "Avancement": "Progress",
-  "Statut": "Status",
-  "Modèle": "Model",
-  "Modifié": "Modified",
+  Langues: "Languages",
+  Avancement: "Progress",
+  Statut: "Status",
+  Modèle: "Model",
+  Modifié: "Modified",
   "Sélectionner {title}": "Select {title}",
-  "Livre": "Book",
+  Livre: "Book",
   "Auteur non renseigné": "Unknown author",
   " · volume {volume}": " · volume {volume}",
-  "Archivé": "Archived",
+  Archivé: "Archived",
   "Ouvrir →": "Open →",
-  "Restaurer": "Restore",
-  "Archiver": "Archive",
+  Restaurer: "Restore",
+  Archiver: "Archive",
   "Supprimer {title}": "Delete {title}",
-  "Supprimer définitivement le projet local « {title} » et arrêter ses travaux ? La mémoire OpenViking distante reste séparée.": "Permanently delete local project \"{title}\" and stop its work? Remote OpenViking memory remains separate.",
-  "Supprimer": "Delete",
+  "Supprimer définitivement le projet local « {title} » et arrêter ses travaux ? La mémoire OpenViking distante reste séparée.":
+    'Permanently delete local project "{title}" and stop its work? Remote OpenViking memory remains separate.',
+  Supprimer: "Delete",
   "Aucun livre ne correspond.": "No books match.",
-  "Essayez un autre titre ou affichez tous vos livres.": "Try another title or show all your books.",
+  "Essayez un autre titre ou affichez tous vos livres.":
+    "Try another title or show all your books.",
   "Effacer les filtres": "Clear filters",
   "Votre premier livre commence ici.": "Your first book starts here.",
-  "Importez un EPUB pour examiner sa structure, préparer sa mémoire et traduire avec continuité.": "Import an EPUB to inspect its structure, prepare its memory, and translate consistently.",
+  "Importez un EPUB pour examiner sa structure, préparer sa mémoire et traduire avec continuité.":
+    "Import an EPUB to inspect its structure, prepare its memory, and translate consistently.",
   "Images et balises préservées": "Images and tags preserved",
   "{count} projet{plural}": "{count} project{plural}",
   " · {count} archivé(s)": " · {count} archived",
@@ -156,7 +162,12 @@ export function App() {
           </button>
           <label className="locale-select">
             <span className="sr-only">{t("app.language")}</span>
-            <select value={locale} onChange={(event) => setLocale(event.target.value as typeof locale)}>
+            <select
+              value={locale}
+              onChange={(event) =>
+                setLocale(event.target.value as typeof locale)
+              }
+            >
               {locales.map((value) => (
                 <option key={value} value={value}>
                   {t(value === "fr" ? "language.french" : "language.english")}
@@ -219,9 +230,7 @@ function Login({ run, onLogin }: { run: Run; onLogin: (user: User) => void }) {
       <div className="login-card">
         <p className="eyebrow">{t("login.eyebrow")}</p>
         <h1>{t("login.title")}</h1>
-        <p className="muted">
-          {t("login.description")}
-        </p>
+        <p className="muted">{t("login.description")}</p>
         <form
           onSubmit={(e) => {
             e.preventDefault();
@@ -254,9 +263,7 @@ function Login({ run, onLogin }: { run: Run; onLogin: (user: User) => void }) {
             {busy ? t("login.submitting") : t("login.submit")}
           </button>
         </form>
-        <small className="muted">
-          {t("login.firstAccess")}
-        </small>
+        <small className="muted">{t("login.firstAccess")}</small>
       </div>
     </main>
   );
@@ -281,6 +288,10 @@ function Library({ run, user }: { run: Run; user: User }) {
       .normalize("NFD")
       .replace(/[\u0300-\u036f]/g, "")
       .toLocaleLowerCase(locale);
+  const compareText = (a: string, b: string) =>
+    a.localeCompare(b, locale, { numeric: true, sensitivity: "base" });
+  const compareOptionalText = (a?: string | null, b?: string | null) =>
+    a ? (b ? compareText(a, b) : -1) : b ? 1 : 0;
   const availableBooks = books.filter((project) => !project.archived_at);
   const archivedBooks = books.filter((project) => !!project.archived_at);
   const seriesNames = Array.from(
@@ -304,17 +315,21 @@ function Library({ run, user }: { run: Run; user: User }) {
     )
     .sort((a, b) =>
       sort === "title"
-        ? a.title.localeCompare(b.title, locale, { numeric: true })
+        ? compareText(a.title, b.title)
         : sort === "series"
-          ? (a.series_name || a.title).localeCompare(
-              b.series_name || b.title,
-               locale,
-              { numeric: true },
-            ) ||
+          ? compareText(a.series_name || a.title, b.series_name || b.title) ||
             (a.volume_number ?? Number.MAX_SAFE_INTEGER) -
               (b.volume_number ?? Number.MAX_SAFE_INTEGER) ||
-             a.title.localeCompare(b.title, locale, { numeric: true })
-          : b.updated_at - a.updated_at,
+            compareText(a.title, b.title)
+          : sort === "status"
+            ? compareText(
+                labels[a.archived_at ? "archived" : a.status],
+                labels[b.archived_at ? "archived" : b.status],
+              ) || compareText(a.title, b.title)
+            : sort === "model"
+              ? compareOptionalText(a.progress?.model, b.progress?.model) ||
+                compareText(a.title, b.title)
+              : b.updated_at - a.updated_at,
     );
   const selectableBooks = visibleBooks.filter(
     (project) => !project.archived_at,
@@ -328,7 +343,7 @@ function Library({ run, user }: { run: Run; user: User }) {
             (a, b) =>
               (a.volume_number ?? Number.MAX_SAFE_INTEGER) -
                 (b.volume_number ?? Number.MAX_SAFE_INTEGER) ||
-               a.title.localeCompare(b.title, locale, { numeric: true }),
+              a.title.localeCompare(b.title, locale, { numeric: true }),
           );
   const activeSeriesBooks = seriesBooks.filter(
     (project) => !project.archived_at,
@@ -344,7 +359,7 @@ function Library({ run, user }: { run: Run; user: User }) {
     ),
   );
   const missingVolumes = numberedVolumes.length
-      ? Array.from(
+    ? Array.from(
         {
           length: Math.max(...numberedVolumes),
         },
@@ -378,7 +393,7 @@ function Library({ run, user }: { run: Run; user: User }) {
           const index = cursor++;
           setImports((values) =>
             values.map((v, i) =>
-                i === index ? { ...v, state: t("Import / validation…") } : v,
+              i === index ? { ...v, state: t("Import / validation…") } : v,
             ),
           );
           const form = new FormData();
@@ -481,7 +496,11 @@ function Library({ run, user }: { run: Run; user: User }) {
         {[
           ["all", t("Tous les livres"), availableBooks.length],
           ["active", t("En cours"), availableBooks.filter(active).length],
-          ["attention", t("À examiner"), availableBooks.filter(attention).length],
+          [
+            "attention",
+            t("À examiner"),
+            availableBooks.filter(attention).length,
+          ],
           [
             "complete",
             t("Traduction complète"),
@@ -517,6 +536,8 @@ function Library({ run, user }: { run: Run; user: User }) {
             <option value="recent">{t("Dernière activité")}</option>
             <option value="title">{t("Titre")}</option>
             <option value="series">{t("Série et volume")}</option>
+            <option value="status">{t("Statut")}</option>
+            <option value="model">{t("Modèle")}</option>
           </select>
         </label>
         <label>
@@ -534,7 +555,10 @@ function Library({ run, user }: { run: Run; user: User }) {
           </select>
         </label>
         <span role="status">
-          {t("{count} livre(s) affiché(s)").replace("{count}", String(visibleBooks.length))}
+          {t("{count} livre(s) affiché(s)").replace(
+            "{count}",
+            String(visibleBooks.length),
+          )}
         </span>
       </div>
       {!!seriesBooks.length && (
@@ -546,7 +570,9 @@ function Library({ run, user }: { run: Run; user: User }) {
             <p className="eyebrow">{t("Collection")}</p>
             <h2>{seriesFilter}</h2>
             <p className="muted">
-              {t("{count} volume(s), classés dans l’ordre de lecture. Les conventions acceptées et décisions humaines des volumes antérieurs alimentent les volumes suivants, sans importer leur narration.").replace("{count}", String(seriesBooks.length))}
+              {t(
+                "{count} volume(s), classés dans l’ordre de lecture. Les conventions acceptées et décisions humaines des volumes antérieurs alimentent les volumes suivants, sans importer leur narration.",
+              ).replace("{count}", String(seriesBooks.length))}
             </p>
           </div>
           <ol className="series-volumes">
@@ -565,14 +591,21 @@ function Library({ run, user }: { run: Run; user: User }) {
           {(missingVolumes.length > 0 || duplicateVolumes.length > 0) && (
             <p className="series-warning" role="status">
               {missingVolumes.length > 0 &&
-                t("Volumes manquants dans cette bibliothèque : {volumes}. ").replace("{volumes}", missingVolumes.join(", "))}
+                t(
+                  "Volumes manquants dans cette bibliothèque : {volumes}. ",
+                ).replace("{volumes}", missingVolumes.join(", "))}
               {duplicateVolumes.length > 0 &&
-                t("Numéros dupliqués : {volumes}.").replace("{volumes}", duplicateVolumes.join(", "))}
+                t("Numéros dupliqués : {volumes}.").replace(
+                  "{volumes}",
+                  duplicateVolumes.join(", "),
+                )}
             </p>
           )}
           <button
             onClick={() =>
-              setSelected(new Set(activeSeriesBooks.map((project) => project.id)))
+              setSelected(
+                new Set(activeSeriesBooks.map((project) => project.id)),
+              )
             }
             disabled={!activeSeriesBooks.length}
           >
@@ -652,7 +685,10 @@ function Library({ run, user }: { run: Run; user: User }) {
                   <td className="select-cell">
                     <input
                       type="checkbox"
-                      aria-label={t("Sélectionner {title}").replace("{title}", p.title)}
+                      aria-label={t("Sélectionner {title}").replace(
+                        "{title}",
+                        p.title,
+                      )}
                       disabled={!!p.archived_at}
                       checked={selected.has(p.id)}
                       onChange={(e) =>
@@ -675,7 +711,11 @@ function Library({ run, user }: { run: Run; user: User }) {
                     {p.series_name && (
                       <div className="series-meta">
                         {p.series_name}
-                        {p.volume_number && t(" · volume {volume}").replace("{volume}", String(p.volume_number))}
+                        {p.volume_number &&
+                          t(" · volume {volume}").replace(
+                            "{volume}",
+                            String(p.volume_number),
+                          )}
                       </div>
                     )}
                   </td>
@@ -689,7 +729,9 @@ function Library({ run, user }: { run: Run; user: User }) {
                     <span
                       className={`badge ${p.archived_at ? "archived" : p.status}`}
                     >
-                      {p.archived_at ? t("Archivé") : labels[p.status] || p.status}
+                      {p.archived_at
+                        ? t("Archivé")
+                        : labels[p.status] || p.status}
                     </span>
                   </td>
                   <td className="muted" data-label={t("Modèle")}>
@@ -723,11 +765,16 @@ function Library({ run, user }: { run: Run; user: User }) {
                     {p.owner_id === user.id && p.archived_at && (
                       <button
                         className="quiet danger"
-                        aria-label={t("Supprimer {title}").replace("{title}", p.title)}
+                        aria-label={t("Supprimer {title}").replace(
+                          "{title}",
+                          p.title,
+                        )}
                         onClick={() => {
                           if (
                             confirm(
-                              t("Supprimer définitivement le projet local « {title} » et arrêter ses travaux ? La mémoire OpenViking distante reste séparée.").replace("{title}", p.title),
+                              t(
+                                "Supprimer définitivement le projet local « {title} » et arrêter ses travaux ? La mémoire OpenViking distante reste séparée.",
+                              ).replace("{title}", p.title),
                             )
                           )
                             void run(async () => {
@@ -771,7 +818,9 @@ function Library({ run, user }: { run: Run; user: User }) {
         <div className="empty">
           <h2>{t("Votre premier livre commence ici.")}</h2>
           <p>
-            {t("Importez un EPUB pour examiner sa structure, préparer sa mémoire et traduire avec continuité.")}
+            {t(
+              "Importez un EPUB pour examiner sa structure, préparer sa mémoire et traduire avec continuité.",
+            )}
           </p>
           <p className="muted">
             EPUB 2 & 3 · {t("Images et balises préservées")} · Endpoint
@@ -784,9 +833,12 @@ function Library({ run, user }: { run: Run; user: User }) {
           .replace("{count}", String(availableBooks.length))
           .replace("{plural}", availableBooks.length > 1 ? "s" : "")}
         {archivedBooks.length
-          ? t(" · {count} archivé(s)").replace("{count}", String(archivedBooks.length))
-          : ""} ·{" "}
-        {number(availableBooks.reduce((n, p) => n + p.stats.translated, 0))}{" "}
+          ? t(" · {count} archivé(s)").replace(
+              "{count}",
+              String(archivedBooks.length),
+            )
+          : ""}{" "}
+        · {number(availableBooks.reduce((n, p) => n + p.stats.translated, 0))}{" "}
         {t("passages traduits")}
       </footer>
     </main>

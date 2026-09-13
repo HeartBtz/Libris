@@ -1,0 +1,28 @@
+stages:
+  - test
+
+backend:
+  stage: test
+  image: python:3.13
+  before_script:
+    - pip install -r backend/requirements.lock
+    - pip install -e './backend[test]'
+  script:
+    - cd backend
+    - pytest -q
+    - ruff check app tests
+
+frontend:
+  stage: test
+  image: node:22
+  cache:
+    key:
+      files:
+        - frontend/package-lock.json
+    paths:
+      - frontend/.npm/
+  before_script:
+    - cd frontend
+    - npm ci --cache .npm --prefer-offline
+  script:
+    - npm run build

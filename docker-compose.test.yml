@@ -1,0 +1,8 @@
+services:
+  mock-llm:
+    image: epub-translator:local
+    command: [uvicorn, mock_server:app, --app-dir, /app/backend/tests, --host, 0.0.0.0, --port, "8091"]
+    environment:
+      DATABASE_URL: sqlite://
+      PYTHONPATH: /app/backend
+    profiles: [test]

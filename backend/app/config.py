@@ -1,0 +1,40 @@
+from functools import lru_cache
+from pathlib import Path
+
+from pydantic import Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    database_url: str = "sqlite:////data/app.db"
+    data_dir: Path = Path("/data")
+    secret_key: str = ""
+    bootstrap_password: str = ""
+    bootstrap_username: str = "admin"
+    cookie_secure: bool = False
+    allowed_origins: str = "http://localhost:8088,http://127.0.0.1:8088"
+    max_upload_mb: int = 60
+    max_unpacked_mb: int = 300
+    max_entries: int = 5000
+    openviking_url: str = ""
+    openviking_api_key: str = ""
+    openviking_root_uri: str = "viking://resources/epub-translator"
+    epubcheck_jar: str = ""
+    frontend_dir: Path = Path("/app/frontend/dist")
+    codex_bridge_url: str = "http://codex:8092"
+    codex_bridge_token: str = ""
+    analysis_concurrency: int = Field(default=1, ge=1, le=16)
+    translation_concurrency: int = Field(default=1, ge=1, le=16)
+    prompt_dir: Path = Path(__file__).resolve().parents[2] / "prompts"
+
+    def prepare(self) -> None:
+        for name in ("books", "projects", "exports"):
+            (self.data_dir / name).mkdir(parents=True, exist_ok=True)
+        if len(self.secret_key) < 32:
+            raise RuntimeError("SECRET_KEY doit contenir au moins 32 caractères (voir .env.example).")
+
+
+@lru_cache
+def settings() -> Settings:
+    return Settings()

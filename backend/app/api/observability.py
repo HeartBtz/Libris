@@ -1,0 +1,119 @@
+import asyncio
+import json
+import time
+
+from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi.responses import StreamingResponse
+from sqlalchemy import func, select
+
+from app.api.common import row
+from app.db import SessionLocal
+from app.models import Event, Provider, RequestLog
+from app.security import DB, CurrentUser, access, current_user
+
+router = APIRouter(prefix="/api")
+
+
+@router.get("/projects/{pid}/metrics")
+def metrics(pid: str, user: CurrentUser, db: DB):
+    access(db, pid, user)
+    values = db.execute(
+        select(
+            func.count(),
+            func.sum(RequestLog.prompt_tokens),
+            func.sum(RequestLog.completion_tokens),
+            func.sum(RequestLog.duration),
+            func.count().filter(RequestLog.status == "error"),
+            func.count().filter(
+                RequestLog.status == "running", RequestLog.created_at > time.time() - Provider.timeout - 30
+            ),
+            func.count().filter(RequestLog.cached.is_(True)),
+        )
+        .select_from(RequestLog)
+        .join(Provider, RequestLog.provider_id == Provider.id)
+        .where(RequestLog.project_id == pid)
+    ).one()
+    cost = db.scalar(
+        select(
+            func.sum(
+                (
+                    RequestLog.prompt_tokens * Provider.input_cost
+                    + RequestLog.completion_tokens * Provider.output_cost
+                )
+                / 1_000_000
+            )
+        )
+        .join(Provider, RequestLog.provider_id == Provider.id)
+        .where(RequestLog.project_id == pid)
+    )
+    return dict(
+        zip(
+            ("requests", "input_tokens", "output_tokens", "duration", "errors", "active", "cache_hits"),
+            [v or 0 for v in values],
+        ),
+        cost=cost or 0,
+    )
+
+
+@router.get("/projects/{pid}/requests")
+def requests(pid: str, user: CurrentUser, db: DB, offset: int = Query(0, ge=0)):
+    access(db, pid, user)
+    return [
+        row(r, ("messages", "raw", "parsed", "context", "parameters"))
+        for r in db.scalars(
+            select(RequestLog)
+            .where(RequestLog.project_id == pid)
+            .order_by(RequestLog.created_at.desc())
+            .offset(offset)
+            .limit(100)
+        )
+    ]
+
+
+@router.get("/requests/{rid}")
+def request(rid: str, user: CurrentUser, db: DB):
+    log = db.get(RequestLog, rid)
+    if not log:
+        raise HTTPException(404, "Requête introuvable.")
+    access(db, log.project_id, user)
+    return row(log)
+
+
+@router.get("/projects/{pid}/events")
+def events(pid: str, request: Request, user: CurrentUser, db: DB, after: int = Query(0, ge=0)):
+    access(db, pid, user)
+    try:
+        last_id = max(after, int(request.headers.get("Last-Event-ID", "0")))
+    except ValueError:
+        raise HTTPException(422, "Identifiant d’événement invalide.") from None
+    db.close()
+
+    async def stream():
+        nonlocal last_id
+        while not await request.is_disconnected():
+            with SessionLocal() as session:
+                try:
+                    account = current_user(session, request.cookies.get("epub_session"))
+                    access(session, pid, account)
+                except HTTPException:
+                    return
+                rows = list(
+                    session.scalars(
+                        select(Event)
+                        .where(Event.project_id == pid, Event.id > last_id)
+                        .order_by(Event.id)
+                        .limit(100)
+                    )
+                )
+            for event in rows:
+                last_id = event.id
+                yield f"id: {event.id}\ndata: {json.dumps(event.payload, ensure_ascii=False)}\n\n"
+            if not rows:
+                yield ": heartbeat\n\n"
+            await asyncio.sleep(2)
+
+    return StreamingResponse(
+        stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )

@@ -1,0 +1,2 @@
+Audit the supplied bounded evidence from a {source_language} to {target_language} book translation for genuine cross-passage inconsistencies. Compare names, terminology, dialogue register, character identity and narrative facts. Account for intentional changes over time and explicit user rules.
+Report only actionable issues with an existing unit_id and evidence. Do not claim a global conclusion unsupported by this evidence batch. Return JSON issues; do not rewrite.

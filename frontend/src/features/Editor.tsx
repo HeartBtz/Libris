@@ -191,7 +191,7 @@ export function Editor({
   );
 }
 
-function SegmentRow({
+export function SegmentRow({
   segment,
   project,
   run,
@@ -451,7 +451,7 @@ export function RequestDetails({ request }: { request: LLMRequest }) {
   );
 }
 
-function Inspector({
+export function Inspector({
   segment,
   run,
   close,

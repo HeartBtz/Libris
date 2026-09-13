@@ -74,6 +74,13 @@ export interface Unit {
   id: string;
   text: string;
 }
+export interface Critique {
+  unit_id: string;
+  category: string;
+  severity: "warning" | "error";
+  description: string;
+  suggestion: string;
+}
 export interface Segment {
   retained_source: boolean;
   id: string;
@@ -93,7 +100,7 @@ export interface Segment {
   instructions: string;
   error: string;
   uncertainties: string[];
-  critique: unknown[];
+  critique: Critique[];
 }
 export interface Job {
   next_attempt: number;
@@ -141,10 +148,12 @@ export interface LLMRequest {
 }
 export interface Issue {
   id: string;
-  segment_id: string;
+  project_id: string;
+  segment_id: string | null;
   severity: string;
   code: string;
   message: string;
   resolved: boolean;
+  created_at: number;
 }
 export type Run = (task: () => Promise<void>) => Promise<void>;

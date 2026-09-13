@@ -2,6 +2,7 @@ import { lazy, Suspense, useCallback, useEffect, useState } from "react";
 import { api, date, labels, number, send } from "../api";
 import type { Chapter, Job, Project, Run, Segment, User } from "../types";
 import { Editor } from "./Editor";
+import { ValidationPanel } from "./ValidationPanel";
 const CharacterGraph = lazy(() => import("./CharacterGraph"));
 const stageLabels: Record<string, string> = {
   chapter_analysis: "Analyse des passages",
@@ -380,6 +381,10 @@ export function Workspace({
       <div className="tabs">
         {[
           ["editor", "Traduction"],
+          [
+            "validations",
+            `Validations${project.stats.flagged ? ` (${project.stats.flagged})` : ""}`,
+          ],
           ["bible", "Book Bible"],
           ["characters", "Personnages & liens"],
           ["glossary", "Glossaire"],
@@ -437,6 +442,14 @@ export function Workspace({
             <Glossary project={project} run={run} tick={tick} />
           ) : tab === "quality" ? (
             <Quality project={project} run={run} tick={tick} />
+          ) : tab === "validations" ? (
+            <ValidationPanel
+              project={project}
+              chapters={chapters}
+              run={run}
+              refresh={refresh}
+              tick={tick}
+            />
           ) : tab === "requests" ? (
             <Observability project={project} run={run} tick={tick} />
           ) : (

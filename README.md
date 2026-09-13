@@ -1,5 +1,8 @@
 # Libris
 
+[![Tests](https://github.com/HeartBtz/Libris/actions/workflows/tests.yml/badge.svg)](https://github.com/HeartBtz/Libris/actions/workflows/tests.yml)
+[![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
+
 <p align="center">
   <img src="frontend/public/assets/libris-logo.png" alt="Libris" width="360">
 </p>
@@ -120,7 +123,13 @@ Then open http://localhost:8088 on your computer. For LAN or HTTPS access, follo
 5. Use **Validations** to resolve flagged passages and **Traduction** to edit.
 6. Export EPUB, TXT, Markdown, JSON or a project archive.
 
-The UI is currently in French. Model quality, language coverage, latency and costs depend on your chosen provider. Structural validation is not a guarantee of literary fidelity.
+The UI is available in French and English. Model quality, language coverage, latency and costs depend on your chosen provider. Structural validation is not a guarantee of literary fidelity.
+
+## Supported environments
+
+The officially supported deployment is **Docker Compose v2 on Linux/amd64**, tested with Python 3.13, Node.js 22 and PostgreSQL 17 through the supplied containers. Ubuntu and Debian hosts are expected to work when they run a supported Docker Engine, but host distributions are not tested independently. Windows, macOS, WSL and ARM64 are not currently verified.
+
+See the [compatibility matrix](docs/compatibility.md) for the distinction between verified, conditional, untested and unsupported environments.
 
 ## Deployment and maintenance
 
@@ -167,8 +176,28 @@ npm --prefix frontend run build
 
 GitHub Actions and GitLab CI run backend tests and build the frontend. Live integration tests must use a disposable installation; see [Contributing](CONTRIBUTING.md).
 
+Useful commands:
+
+```bash
+python3 scripts/check_version.py
+python3 scripts/check_installation.py  # disposable Compose installation
+docker compose logs --since=5m api worker
+```
+
+## Documentation
+
+- [Installation, configuration, updates, backup and removal](docs/installation.md)
+- [Architecture](docs/architecture.md)
+- [Compatibility matrix](docs/compatibility.md)
+- [Operations](docs/operations.md)
+- [Recovery and resumable jobs](docs/recovery.md)
+- [Security audit](docs/security-audit.md)
+- [Release process](docs/release.md)
+- [French user guide](docs/user-guide.fr.md)
+- [Support](SUPPORT.md) and [contributing](CONTRIBUTING.md)
+
 ## Project status and publication
 
-Libris is an early-stage application. See the [quality evaluation protocol](docs/quality-evaluation.md) and [architecture](docs/architecture.md) for limitations. Report security issues privately following [SECURITY.md](SECURITY.md).
+Libris follows Semantic Versioning and is currently an early-stage `0.x` application. See [CHANGELOG.md](CHANGELOG.md), the [release process](docs/release.md), the [quality evaluation protocol](docs/quality-evaluation.md) and [architecture](docs/architecture.md) for limitations. Report security issues privately following [SECURITY.md](SECURITY.md).
 
 Licensed under **GNU AGPL-3.0-only**. See [LICENSE](LICENSE). If you modify Libris and offer it over a network, provide those users access to the corresponding source code under the license's terms. Dependency licenses and the rights to imported books remain separate. See [third-party notices](THIRD_PARTY_NOTICES.md).

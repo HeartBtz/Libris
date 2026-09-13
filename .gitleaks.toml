@@ -1,0 +1,4 @@
+[allowlist]
+description = "Known non-secret tokenizer identifier"
+regexTarget = "match"
+regexes = ['''tokenizer["']?\s*[:=]\s*["']conservative_utf8_bytes["']''']

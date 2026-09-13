@@ -11,6 +11,7 @@ from lxml import etree
 from sqlalchemy import select, text
 from sqlalchemy.exc import IntegrityError
 
+from app import __version__
 from app.api import (
     characters,
     coverage,
@@ -53,7 +54,7 @@ async def lifespan(_app: FastAPI):
     yield
 
 
-app = FastAPI(title="Libris", version="0.1.0", lifespan=lifespan, docs_url=None, redoc_url=None)
+app = FastAPI(title="Libris", version=__version__, lifespan=lifespan, docs_url=None, redoc_url=None)
 login_attempts: dict[str, deque] = defaultdict(deque)
 
 
@@ -133,7 +134,7 @@ for module in (identity, providers, exports, projects, segments, memory, observa
 def health():
     with SessionLocal() as db:
         db.execute(text("SELECT 1"))
-    return {"status": "ok", "version": "0.1.0"}
+    return {"status": "ok", "version": __version__}
 
 
 if (settings().frontend_dir / "assets").exists():

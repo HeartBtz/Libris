@@ -6,6 +6,8 @@ Read the README and architecture guide first. Keep changes focused and preserve 
 
 Use Python 3.13 and Node.js 22, matching the container and CI toolchains. Install dependencies and run the checks in the README. Backend tests use a disposable temporary SQLite database and mocked providers; production uses PostgreSQL, so concurrency/migration changes also require PostgreSQL verification.
 
+Run `python3 scripts/check_version.py` when changing release metadata. Keep Python imports and errors compatible with Ruff, and ensure `npm run build` passes TypeScript strict checks. Do not introduce a dependency without documenting why it is needed and updating the relevant lockfile.
+
 ## Browser screenshots
 
 `frontend/e2e/showcase.spec.ts` renders the real interface with synthetic API fixtures. It uses no login credentials, book data or inference. Run against Vite preview on a disposable local port:
@@ -28,3 +30,5 @@ Other E2E/smoke scripts operate on a running installation and may create/delete 
 ## Pull requests
 
 Describe the problem, change, verification and any migration impact. Include UI screenshots when useful. Do not commit generated build outputs, datasets, keys, logs, cookies or personal books. Discuss large refactors and license changes with the maintainer first.
+
+By participating, you agree to follow [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md). Usage questions belong in the support channel described in [SUPPORT.md](SUPPORT.md); security reports must remain private.

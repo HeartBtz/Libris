@@ -1,5 +1,6 @@
 stages:
   - test
+  - build
 
 migration-postgres:
   stage: test
@@ -29,6 +30,7 @@ backend:
     - pip install -r backend/requirements.lock
     - pip install -e './backend[test]'
   script:
+    - python3 scripts/check_version.py
     - cd backend
     - pytest -q
     - ruff check app tests
@@ -47,3 +49,25 @@ frontend:
     - npm ci --cache .npm --prefer-offline
   script:
     - npm run build
+    - npm audit --omit=dev --audit-level=high
+
+security:
+  stage: test
+  image: python:3.13
+  before_script:
+    - pip install pip-audit==2.9.0
+  script:
+    - pip-audit -r backend/requirements.lock
+
+container-build:
+  stage: build
+  image: docker:27-cli
+  services:
+    - name: docker:27-dind
+      alias: docker
+  variables:
+    DOCKER_HOST: tcp://docker:2375
+    DOCKER_TLS_CERTDIR: ""
+  script:
+    - docker build --tag libris:ci .
+    - docker build --file codex_bridge/Dockerfile --tag libris-codex:ci .

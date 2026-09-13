@@ -9,7 +9,7 @@ from sqlalchemy import func, select
 from app.api.common import row
 from app.db import SessionLocal
 from app.models import Event, Provider, RequestLog
-from app.security import Admin, DB, CurrentUser, access, current_user
+from app.security import DB, Admin, CurrentUser, access, current_user
 
 router = APIRouter(prefix="/api")
 

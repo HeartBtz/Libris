@@ -1,6 +1,6 @@
 # Public release checklist
 
-The source includes AGPL-3.0-only licensing, a neutral installation guide, GitHub Actions, GitLab CI and screenshots made from synthetic data.
+The source includes AGPL-3.0-only licensing, a neutral installation guide, GitHub Actions, GitLab CI and screenshots made from synthetic data. The release procedure is documented in [release.md](release.md).
 
 Before making a GitHub repository public:
 
@@ -18,4 +18,4 @@ Before making a GitHub repository public:
 - Alembic schema consistency on the fresh PostgreSQL instance.
 - Synthetic browser screenshots without production API calls.
 
-No GitHub repository has been created or published by these preparation steps. CI execution on the destination, multi-architecture builds, a complete backup restoration drill and model-quality evaluation remain separate checks.
+GitHub/GitLab publication state and CI results must be checked again for every release. Multi-architecture builds, a complete backup restoration drill and model-quality evaluation remain separate checks until explicitly recorded as successful.

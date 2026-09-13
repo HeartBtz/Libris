@@ -72,7 +72,7 @@ class ProjectConfig(StrictModel):
     target_language: str = Field(default="fr", min_length=2, max_length=80)
     provider_id: str | None = None
     quality: Literal["fast", "normal", "high", "maximum"] = "normal"
-    context_backend: Literal["internal", "openviking", "hybrid"] = "hybrid"
+    context_backend: Literal["internal", "openviking", "hybrid"] = "internal"
     instructions: str = Field(default="", max_length=20000)
 
 

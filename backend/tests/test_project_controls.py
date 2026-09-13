@@ -5,6 +5,11 @@ from app.db import SessionLocal
 from app.jobs.queue import claim, enqueue
 from app.main import app
 from app.models import Chapter, Job, Memory, Project, Provider, Segment
+from app.schemas import ProjectConfig
+
+
+def test_new_project_configuration_defaults_to_private_memory():
+    assert ProjectConfig(title="Private by default").context_backend == "internal"
 
 
 def test_explicit_resume_of_cancelled_job_keeps_analysis_checkpoint(seeded):

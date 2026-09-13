@@ -102,6 +102,36 @@ If using Codex, also back up the `codex-state` named volume with the bridge stop
 
 Restore into an isolated installation with the **same application revision and saved `.env`**. Start the database, restore the dump using `pg_restore -U translator -d translator --clean --if-exists`, extract the books archive into the `/data` volume, then start the application. Test login, book preview, provider decryption and EPUB export before using the recovered instance. A backup file's presence alone is not a restore test.
 
+Example restoration in an empty Compose project:
+
+```bash
+cp /secure/backup/config.env .env
+docker compose up -d --wait database
+docker compose exec -T database pg_restore -U translator -d translator --clean --if-exists < /secure/backup/database.dump
+docker compose run --rm --no-deps -T api tar -C /data -xzf - < /secure/backup/books.tar.gz
+docker compose up -d --build --wait
+docker compose exec -T api alembic check
+```
+
+Do not run `pg_restore --clean` against an installation you intend to preserve.
+
+## Removal
+
+Stop Libris while retaining every named volume:
+
+```bash
+docker compose down
+```
+
+After a verified external backup, permanent removal of application data is explicit and destructive:
+
+```bash
+docker compose down --volumes --remove-orphans
+docker image rm epub-translator:local epub-translator-codex:local  # optional
+```
+
+Review `docker volume ls` before and after removal. A different Compose project name uses different volumes and must be removed separately.
+
 ## Troubleshooting
 
 - **403 on login:** browser origin must exactly match an `ALLOWED_ORIGINS` entry. Check scheme, hostname and port.

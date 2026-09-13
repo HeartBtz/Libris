@@ -1,4 +1,9 @@
 name: epub-translator
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: 10m
+    max-file: "3"
 x-app: &app
   build: .
   image: epub-translator:local
@@ -12,6 +17,8 @@ x-app: &app
   security_opt:
     - no-new-privileges:true
   cap_drop: [ALL]
+  pids_limit: 512
+  logging: *logging
 services:
   codex:
     profiles: [codex]
@@ -36,6 +43,8 @@ services:
     security_opt:
       - no-new-privileges:true
     cap_drop: [ALL]
+    pids_limit: 256
+    logging: *logging
   database:
     image: postgres:17-bookworm
     environment:
@@ -49,6 +58,8 @@ services:
       interval: 5s
       timeout: 5s
       retries: 20
+    pids_limit: 256
+    logging: *logging
     restart: unless-stopped
   migrate:
     <<: *app

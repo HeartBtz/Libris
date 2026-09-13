@@ -19,7 +19,7 @@ class Project(Identified, Base):
     target_language: Mapped[str] = mapped_column(String(80), default="fr")
     provider_id: Mapped[str | None] = mapped_column(ForeignKey("providers.id"))
     quality: Mapped[str] = mapped_column(String(30), default="normal")
-    context_backend: Mapped[str] = mapped_column(String(20), default="hybrid")
+    context_backend: Mapped[str] = mapped_column(String(20), default="internal")
     status: Mapped[str] = mapped_column(String(30), default="pending")
     original_hash: Mapped[str] = mapped_column(String(64))
     original_path: Mapped[str] = mapped_column(Text)

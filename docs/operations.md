@@ -8,6 +8,8 @@ La suppression est confirmée une seule fois pour la sélection. Elle arrête le
 
 Le worker ordonnance les livres selon `max_concurrency` de leur provider. Cette limite réunit analyses, traductions, relectures et contrôles de cohérence : un provider réglé à 3 exécute au plus trois livres à la fois, quelle que soit la combinaison des opérations. Les capacités des providers sont indépendantes ; Codex à 3 et Qwen à 1 autorisent donc jusqu’à quatre livres actifs. Les passages d’un même livre restent séquentiels. Le limiteur des requêtes LLM applique la même valeur comme seconde protection.
 
+Le provider est figé pendant une exécution afin de préserver les limites et le fencing des résultats. Pour changer de modèle en cours de livre, mettre le job en pause, modifier le provider du projet puis reprendre : le job est alors réaffecté au nouveau provider à partir du prochain passage. Les jobs de reprise ciblée conservent leur provider explicitement choisi.
+
 ## Les deux progressions
 
 - **Analyse, en bleu** : proportion des passages analysés et sections synthétisées dans la Book Bible parmi ces unités de travail. La synthèse compte dans la progression ; 100 % exige que les deux étapes soient terminées. Ce pourcentage représente la couverture, pas une estimation du temps restant.

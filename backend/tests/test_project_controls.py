@@ -4,7 +4,7 @@ from sqlalchemy import select
 from app.db import SessionLocal
 from app.jobs.queue import claim, enqueue
 from app.main import app
-from app.models import Chapter, Job, Memory, Project, Segment
+from app.models import Chapter, Job, Memory, Project, Provider, Segment
 
 
 def test_explicit_resume_of_cancelled_job_keeps_analysis_checkpoint(seeded):
@@ -68,3 +68,44 @@ def test_analyze_already_completed_is_idempotent_and_does_not_queue(seeded):
         assert first.status_code == 202 and first.json()["status"] == "completed"
         assert first.json()["id"] == second.json()["id"]
     assert claim() is None
+
+
+def test_paused_job_uses_new_project_provider_when_resumed(seeded):
+    pid = seeded[0]
+    with SessionLocal() as db:
+        project = db.get(Project, pid)
+        job = enqueue(db, project, "analyze", {})
+        alternate = Provider(
+            name="Alternate",
+            base_url="https://alternate.test/v1",
+            model="alternate-model",
+            capabilities={"supports_json_schema": True},
+            context_window=64000,
+        )
+        db.add(alternate)
+        db.commit()
+        jid, alternate_id = job.id, alternate.id
+
+    with TestClient(app) as client:
+        client.post("/api/auth/login", json={"username": "tester", "password": "test-password-123456789"})
+        assert client.post(f"/api/projects/{pid}/jobs/{jid}/pause").status_code == 200
+        current = client.get(f"/api/projects/{pid}").json()
+        config = {
+            key: current[key]
+            for key in (
+                "title",
+                "author",
+                "source_language",
+                "target_language",
+                "quality",
+                "context_backend",
+                "instructions",
+            )
+        }
+        config["provider_id"] = alternate_id
+        assert client.put(f"/api/projects/{pid}", json=config).status_code == 200
+        resumed = client.post(f"/api/projects/{pid}/jobs/{jid}/resume")
+        assert resumed.status_code == 200 and resumed.json()["provider_id"] == alternate_id
+
+    with SessionLocal() as db:
+        assert db.get(Job, jid).provider_id == alternate_id

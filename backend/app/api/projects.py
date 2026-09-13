@@ -156,6 +156,9 @@ def configure(project_id: str, body: ProjectConfig, user: CurrentUser, db: DB):
         raise HTTPException(422, "Provider inconnu.")
     for key, value in body.model_dump().items():
         setattr(project, key, value)
+    for job in db.scalars(select(Job).where(Job.project_id == project_id, Job.status.in_(HELD))):
+        if not job.options.get("provider_id"):
+            job.provider_id = body.provider_id
     db.commit()
     return project_view(db, project)
 
@@ -319,6 +322,8 @@ def control(
     if action in {"pause", "cancel"} and job.status not in (*HELD, "failed"):
         raise HTTPException(409, "Ce travail est déjà terminé.")
     job.status = {"pause": "paused", "resume": "pending", "retry": "pending", "cancel": "cancelled"}[action]
+    if action in {"resume", "retry"} and not job.options.get("provider_id"):
+        job.provider_id = project.provider_id
     job.lease_owner, job.lease_until, job.error = "", 0, ""
     job.next_attempt, job.outage_count = 0, 0
     job.stop_reason = (

@@ -81,6 +81,10 @@ async def execute(job_id: str, owner: str) -> None:
             await translate(job, owner)
         elif job.operation == "consistency":
             await consistency(job, owner)
+        elif job.operation == "resolve_validations":
+            from app.engines.translation.final_review import resolve_validations
+
+            await resolve_validations(job, owner)
         else:
             await sync_outbox(job.project_id)
         with SessionLocal() as db:
@@ -197,7 +201,7 @@ async def worker_slot(stopped: asyncio.Event, operations: tuple[str, ...] | None
 
 
 async def provider_dispatcher(stopped: asyncio.Event) -> None:
-    operations = ("analyze", "translate", "review", "consistency")
+    operations = ("analyze", "translate", "review", "consistency", "resolve_validations")
     running: set[asyncio.Task] = set()
     shutdown = asyncio.create_task(stopped.wait())
     try:

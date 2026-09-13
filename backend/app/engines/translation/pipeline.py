@@ -307,6 +307,16 @@ async def translate(job: Job, owner: str) -> None:
         and not job.options.get("refused_only")
     ):
         await consistency(job, owner)
+    from app.config import settings
+    from app.engines.translation.final_review import resolve_validations
+
+    if (
+        settings().final_review_enabled
+        and not job.options.get("segment_id")
+        and not job.options.get("chapter_id")
+        and not job.options.get("refused_only")
+    ):
+        await resolve_validations(job, owner)
 
 
 async def consistency(job: Job, owner: str) -> None:

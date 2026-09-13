@@ -26,6 +26,12 @@ export function ValidationPanel({
   const [reloading, setReloading] = useState(false);
   const [reload, setReload] = useState(0);
   const [accepting, setAccepting] = useState("");
+  const [finalReview, setFinalReview] = useState({
+    automatic: false,
+    web_enabled: false,
+    eligible: 0,
+  });
+  const [startingReview, setStartingReview] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -42,17 +48,24 @@ export function ValidationPanel({
           offset += PAGE_SIZE;
         }
       }
-      const [found, refusedSegments, projectIssues, availableProviders] =
-        await Promise.all([
-          segmentsWithStatus("check"),
-          segmentsWithStatus("refused"),
-          api<Issue[]>(`/projects/${project.id}/issues`),
-          api<Provider[]>("/providers"),
-        ]);
+      const [
+        found,
+        refusedSegments,
+        projectIssues,
+        availableProviders,
+        reviewInfo,
+      ] = await Promise.all([
+        segmentsWithStatus("check"),
+        segmentsWithStatus("refused"),
+        api<Issue[]>(`/projects/${project.id}/issues`),
+        api<Provider[]>("/providers"),
+        api<typeof finalReview>(`/projects/${project.id}/final-review`),
+      ]);
       if (active) {
         setSegments(found);
         setRefused(refusedSegments);
         setProviders(availableProviders);
+        setFinalReview(reviewInfo);
         setRecoveryProvider((current) =>
           current &&
           availableProviders.some((provider) => provider.id === current)
@@ -123,6 +136,54 @@ export function ValidationPanel({
             <small>à vérifier</small>
           </span>
         </div>
+      </div>
+
+      <div className="notice">
+        <strong>Revue finale IA</strong>
+        <p>
+          {finalReview.automatic
+            ? "Lancée automatiquement après la traduction du livre."
+            : "La revue automatique est désactivée sur cette installation."}{" "}
+          L’IA réexamine les alertes, tente une correction puis la vérifie. Les
+          choix humains restent protégés. {finalReview.eligible} passage(s)
+          éligible(s).
+        </p>
+        <p className="muted">
+          {finalReview.web_enabled
+            ? "Recherche terminologique SearXNG disponible si nécessaire."
+            : "Recherche web désactivée : analyse fondée sur le livre et son contexte."}
+        </p>
+        <button
+          disabled={
+            startingReview ||
+            !finalReview.eligible ||
+            [
+              "pending",
+              "waiting",
+              "paused",
+              "blocked",
+              "analyzing",
+              "translating",
+              "reviewing",
+              "syncing",
+            ].includes(project.status)
+          }
+          onClick={() => {
+            setStartingReview(true);
+            void run(async () => {
+              try {
+                await send(`/projects/${project.id}/jobs`, {
+                  operation: "resolve_validations",
+                });
+                refreshAfterAction();
+              } finally {
+                setStartingReview(false);
+              }
+            });
+          }}
+        >
+          {startingReview ? "Mise en file…" : "Lancer la revue IA"}
+        </button>
       </div>
 
       {!!refused.length && (

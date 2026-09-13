@@ -186,6 +186,12 @@ class ReviewResult(StrictModel):
     issues: list[Critique] = Field(default_factory=list)
 
 
+class FinalReviewResult(ReviewResult):
+    uncertainties: list[str]
+    explanation: str
+    search_queries: list[str] = Field(default_factory=list, max_length=2)
+
+
 class AskResult(StrictModel):
     answer: str
     variants: list[str] = Field(default_factory=list)
@@ -197,7 +203,7 @@ class ContextNeeds(StrictModel):
 
 
 class JobInput(StrictModel):
-    operation: Literal["analyze", "translate", "review", "consistency", "sync_memory"]
+    operation: Literal["analyze", "translate", "review", "consistency", "sync_memory", "resolve_validations"]
     chapter_id: str | None = None
     segment_id: str | None = None
     instruction: str = Field(default="", max_length=8000)

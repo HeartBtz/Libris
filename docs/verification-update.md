@@ -2,7 +2,7 @@
 
 Vérifications exécutées pendant l’implémentation :
 
-- 83 tests backend réussis : import/reconstruction, accès, providers, concurrence indépendante par provider, changement de provider après pause, Codex, reprise, interruptions, refus avec poursuite du livre et provider de remplacement, acceptation ou rejet des propositions IA, couverture, identités, graphes et catalogues.
+- 92 tests backend réussis : import/reconstruction, accès, providers, concurrence indépendante par provider, changement de provider après pause, Codex, reprise, interruptions, refus avec poursuite du livre et provider de remplacement, acceptation ou rejet des propositions IA, couverture, identités, graphes, catalogues et revue finale bornée (corrections vérifiées, choix humains protégés, reprise et SearXNG facultatif).
 - TypeScript strict, build Vite et Ruff validés.
 - Migrations SQLite de développement et PostgreSQL Docker vérifiées.
 - Test Docker réel : HTTP 503 → attente persistante ; pause volontaire conservée après redémarrage ; SIGTERM pendant l’inférence → reprise sans retraduire les étapes terminées ; pause en cours de requête → interruption auditée.

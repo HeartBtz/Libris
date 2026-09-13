@@ -9,6 +9,7 @@ const stageLabels: Record<string, string> = {
   book_bible: "Synthèse de la Book Bible",
   translation: "Traduction",
   consistency: "Cohérence globale",
+  final_review: "Résolution finale des validations",
 };
 import {
   Bible,

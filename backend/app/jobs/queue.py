@@ -90,6 +90,7 @@ def claim(operations: tuple[str, ...] | None = None) -> tuple[str, str] | None:
             "review": "reviewing",
             "consistency": "reviewing",
             "sync_memory": "syncing",
+            "resolve_validations": "reviewing",
         }[job.operation]
         result = db.execute(
             update(Job)

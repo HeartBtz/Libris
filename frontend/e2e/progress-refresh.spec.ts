@@ -55,6 +55,9 @@ test("library has separate analysis/translation progress and refresh reloads met
   await page.goto(`${base}/#project/${project.id}`);
   await page.getByRole("button", { name: /Validations/ }).click();
   await expect(
+    page.getByRole("button", { name: "Lancer la revue IA", exact: true }),
+  ).toBeVisible();
+  await expect(
     page.getByRole("heading", {
       name: "Validations de traduction",
       exact: true,

@@ -147,6 +147,20 @@ def get_project(project_id: str, user: CurrentUser, db: DB):
     return project_view(db, access(db, project_id, user))
 
 
+@router.get("/{project_id}/final-review")
+def final_review_info(project_id: str, user: CurrentUser, db: DB):
+    access(db, project_id, user)
+    return {
+        "automatic": settings().final_review_enabled,
+        "web_enabled": bool(settings().searxng_url),
+        "eligible": db.scalar(select(func.count(Segment.id)).where(
+            Segment.project_id == project_id, Segment.status == "check",
+            Segment.translation != "", Segment.human.is_(False),
+            Segment.validated.is_(False), Segment.retained_source.is_(False),
+        )),
+    }
+
+
 @router.put("/{project_id}")
 def configure(project_id: str, body: ProjectConfig, user: CurrentUser, db: DB):
     project = access(db, project_id, user, write=True)

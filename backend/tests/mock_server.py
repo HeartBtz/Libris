@@ -60,6 +60,10 @@ async def complete(body: dict):
         )
     elif name == "ReviewResult":
         result = ReviewResult()
+    elif name == "FinalReviewResult":
+        from app.schemas import FinalReviewResult
+
+        result = FinalReviewResult(issues=[], uncertainties=[], explanation="Synthetic final review")
     elif name == "ContextNeeds":
         result = ContextNeeds(needs=["Earlier ownership of the pendant"])
     elif name == "AskResult":

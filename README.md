@@ -20,6 +20,7 @@ Libris combines a persistent translation pipeline with a book bible, character m
 - **Independent concurrency:** each provider has its own limit, shared by analysis, translation and review jobs.
 - **Resumable work:** persistent jobs, checkpoints, pause/resume and retries after temporary failures.
 - **Human decisions:** compare source and translation, accept or reject AI suggestions, edit and keep version history.
+- **Final AI review:** automatically revisit flagged translations, attempt one verified correction and leave only unresolved items for review. Optional SearXNG terminology lookup; see [final review](docs/final-review.md).
 - **Refusal recovery:** after two translation refusals, continue the book and retry refused passages later with a chosen provider.
 - **EPUB preservation:** preserve resources and inline structure, with EPUBCheck validation on export.
 - **Optional external memory:** use internal SQL memory alone, or connect your own OpenViking instance.

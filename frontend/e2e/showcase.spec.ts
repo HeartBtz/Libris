@@ -127,6 +127,8 @@ test("capture public Libris showcase", async ({ page }) => {
     else if (path.endsWith("/segments"))
       data = url.searchParams.get("status") === "refused" ? [] : [segment];
     else if (path === "/api/providers") data = [];
+    else if (path.endsWith("/final-review"))
+      data = { automatic: true, web_enabled: false, eligible: 1 };
     await route.fulfill({ json: data });
   });
   await page.setViewportSize({ width: 1440, height: 1040 });

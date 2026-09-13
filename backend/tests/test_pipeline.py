@@ -27,6 +27,8 @@ def mock_completion(request):
         ).model_dump()
     elif schema_name == "ReviewResult":
         result = ReviewResult().model_dump()
+    elif schema_name == "FinalReviewResult":
+        result = {"issues": [], "uncertainties": [], "explanation": "Synthetic final review", "search_queries": []}
     else:
         text = "\n".join(m["content"] for m in body["messages"])
         target = json.loads(re.search(r"<TARGET_TEXT>\n(.*?)\n</TARGET_TEXT>", text, re.S)[1])

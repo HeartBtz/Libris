@@ -18,6 +18,8 @@ class Settings(BaseSettings):
     max_entries: int = 5000
     openviking_url: str = ""
     openviking_api_key: str = ""
+    searxng_url: str = ""
+    final_review_enabled: bool = True
     openviking_root_uri: str = "viking://resources/epub-translator"
     epubcheck_jar: str = ""
     frontend_dir: Path = Path("/app/frontend/dist")

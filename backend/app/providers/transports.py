@@ -5,7 +5,11 @@ from app.models import Provider
 
 def generation_parameters(provider: Provider, temperature: float | None) -> dict:
     params = {"model": provider.model}
-    effort = provider.capabilities.get("reasoning_effort")
+    effort = (
+        provider.capabilities.get("reasoning_effort")
+        if provider.capabilities.get("supports_reasoning")
+        else ""
+    )
     if provider.kind == "openai":
         params.update(
             temperature=provider.temperature if temperature is None else temperature, top_p=provider.top_p

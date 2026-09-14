@@ -264,14 +264,21 @@ class OpenAIProvider:
                 if not raw.get("choices"):
                     raise LLMError("Réponse du provider sans choices exploitables.")
                 choice = raw["choices"][0]
-                refused = refusal_reason(raw, choice.get("message", {}).get("content") or "")
+                message = choice.get("message", {})
+                refused = refusal_reason(raw, message.get("content") or "")
                 if refused:
                     raise ProviderContentRefused(refused)
                 if choice.get("finish_reason") not in ("stop", "eos_token"):
                     raise LLMError(
                         "Réponse tronquée ou arrêt inattendu : " + str(choice.get("finish_reason"))
                     )
-                message = choice.get("message", {})
+                if not message.get("content") and (
+                    message.get("reasoning") or message.get("reasoning_content")
+                ):
+                    raise LLMError(
+                        "Le provider a renvoyé du raisonnement sans contenu final (content=null). "
+                        "Désactivez ou réduisez le niveau de raisonnement."
+                    )
                 if message.get("refusal"):
                     raise LLMError("Le provider a refusé la requête.")
                 parsed = parse_json(message.get("content") or "", response_model)

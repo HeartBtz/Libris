@@ -18,7 +18,7 @@ class Capabilities(StrictModel):
     supports_json_object: bool = True
     supports_reasoning: bool = False
     supports_tool_calls: bool = False
-    reasoning_effort: Literal["", "none", "minimal", "low", "medium", "high"] = ""
+    reasoning_effort: Literal["", "none", "minimal", "low", "medium", "high", "xhigh"] = ""
     max_tokens_parameter: Literal["max_tokens", "max_completion_tokens"] = "max_tokens"
 
 

@@ -2,6 +2,17 @@
 
 All notable changes are documented here. Libris follows [Semantic Versioning](https://semver.org/); while the project is below 1.0, minor versions may include breaking operational changes that are called out explicitly.
 
+## [0.2.3] - 2026-09-14
+
+### Added
+
+- First-class per-provider reasoning control: unsupported, model default, disabled, minimal, low, medium, high or extra high.
+- Specific diagnostics when a provider returns reasoning but no final content.
+
+### Fixed
+
+- Reasoning settings now respect the declared capability consistently across Chat Completions, Responses and Codex transports.
+
 ## [0.2.2] - 2026-09-14
 
 ### Added
@@ -70,3 +81,4 @@ All notable changes are documented here. Libris follows [Semantic Versioning](ht
 [0.2.0]: https://github.com/HeartBtz/Libris/releases/tag/v0.2.0
 [0.2.1]: https://github.com/HeartBtz/Libris/releases/tag/v0.2.1
 [0.2.2]: https://github.com/HeartBtz/Libris/releases/tag/v0.2.2
+[0.2.3]: https://github.com/HeartBtz/Libris/releases/tag/v0.2.3

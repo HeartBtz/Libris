@@ -22,6 +22,18 @@ registerTranslations({
   "Compte enregistré. Les sessions ont été révoquées.": "Account saved. Sessions have been revoked.",
   "La désactivation conserve les livres. Les changements de rôle révoquent les sessions du compte.": "Deactivation preserves books. Role changes revoke the account's sessions.",
 });
+registerTranslations({
+  "Niveau de raisonnement": "Reasoning level",
+  "Non pris en charge": "Not supported",
+  "Automatique (modèle)": "Automatic (model default)",
+  "Minimal": "Minimal",
+  "Faible": "Low",
+  "Moyen": "Medium",
+  "Élevé": "High",
+  "Très élevé": "Extra high",
+  "Désactivé envoie explicitement « none ». Automatique laisse le modèle choisir. Non pris en charge n’envoie aucun paramètre de raisonnement.":
+    "Disabled explicitly sends ‘none’. Automatic lets the model decide. Not supported sends no reasoning parameter.",
+});
 
 const initial: Provider = {
   id: "",
@@ -354,6 +366,37 @@ function ProviderSettings({ run }: { run: Run }) {
                 ))}
               </datalist>
             </label>
+            <label>
+              {t("Niveau de raisonnement")}
+              <select
+                value={
+                  value.capabilities.supports_reasoning
+                    ? value.capabilities.reasoning_effort || "auto"
+                    : "unsupported"
+                }
+                onChange={(event) => {
+                  const effort = event.target.value;
+                  field("capabilities", {
+                    ...value.capabilities,
+                    supports_reasoning: effort !== "unsupported",
+                    reasoning_effort:
+                      effort === "unsupported" || effort === "auto" ? "" : effort,
+                  });
+                }}
+              >
+                <option value="unsupported">{t("Non pris en charge")}</option>
+                <option value="auto">{t("Automatique (modèle)")}</option>
+                <option value="none">{t("Désactivé")}</option>
+                <option value="minimal">{t("Minimal")}</option>
+                <option value="low">{t("Faible")}</option>
+                <option value="medium">{t("Moyen")}</option>
+                <option value="high">{t("Élevé")}</option>
+                <option value="xhigh">{t("Très élevé")}</option>
+              </select>
+              <small className="muted">
+                {t("Désactivé envoie explicitement « none ». Automatique laisse le modèle choisir. Non pris en charge n’envoie aucun paramètre de raisonnement.")}
+              </small>
+            </label>
             {(
               [
                 "context_window",
@@ -430,7 +473,6 @@ function ProviderSettings({ run }: { run: Run }) {
                 [
                   "supports_json_schema",
                   "supports_json_object",
-                  "supports_reasoning",
                   "supports_tool_calls",
                 ] as const
               ).map((cap) => (
@@ -465,24 +507,6 @@ function ProviderSettings({ run }: { run: Run }) {
                 >
                   <option>max_tokens</option>
                   <option>max_completion_tokens</option>
-                </select>
-              </label>
-              <label>
-                Reasoning effort
-                <select
-                  value={value.capabilities.reasoning_effort || ""}
-                  onChange={(e) =>
-                    field("capabilities", {
-                      ...value.capabilities,
-                      reasoning_effort: e.target.value,
-                    })
-                  }
-                >
-                  {["", "none", "minimal", "low", "medium", "high"].map((v) => (
-                    <option key={v} value={v}>
-                      {v || t("Non envoyé")}
-                    </option>
-                  ))}
                 </select>
               </label>
             </div>

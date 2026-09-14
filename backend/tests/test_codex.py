@@ -10,9 +10,69 @@ from sqlalchemy import select
 from app.config import settings
 from app.db import SessionLocal
 from app.models import Provider, RequestLog
-from app.providers.llm import LLMError, llm
-from app.providers.transports import normalize_response
+from app.providers.llm import InvalidResponseExhausted, LLMError, llm
+from app.providers.transports import generation_parameters, normalize_response
 from app.schemas import BookBible, ProviderInput
+
+
+def test_reasoning_level_is_explicit_and_capability_gated():
+    provider = SimpleNamespace(
+        kind="openai",
+        model="qwen",
+        temperature=0.2,
+        top_p=0.9,
+        max_output_tokens=4096,
+        capabilities={
+            "supports_reasoning": True,
+            "reasoning_effort": "none",
+            "max_tokens_parameter": "max_tokens",
+        },
+    )
+    assert generation_parameters(provider, None)["reasoning_effort"] == "none"
+    provider.capabilities["supports_reasoning"] = False
+    assert "reasoning_effort" not in generation_parameters(provider, None)
+
+
+@respx.mock
+async def test_reasoning_without_final_content_has_specific_error(seeded, monkeypatch):
+    pid, _, provider_id = seeded
+    route = respx.post("https://llm.test/v1/chat/completions").respond(
+        200,
+        json={
+            "choices": [
+                {
+                    "finish_reason": "stop",
+                    "message": {"content": None, "reasoning": "internal reasoning"},
+                }
+            ],
+            "usage": {"prompt_tokens": 10, "completion_tokens": 20},
+        },
+    )
+
+    async def no_wait(_seconds):
+        pass
+
+    monkeypatch.setattr("app.providers.llm.asyncio.sleep", no_wait)
+    with pytest.raises(InvalidResponseExhausted, match="raisonnement sans contenu final"):
+        await llm.complete(
+            project_id=pid,
+            provider_id=provider_id,
+            operation="book_analysis",
+            messages=[{"role": "system", "content": "Analyze"}],
+            response_model=BookBible,
+        )
+    assert route.call_count == 5
+    with SessionLocal() as db:
+        logs = list(
+            db.scalars(
+                select(RequestLog).where(
+                    RequestLog.project_id == pid,
+                    RequestLog.operation == "book_analysis",
+                )
+            )
+        )
+    assert len(logs) == 5
+    assert all("raisonnement sans contenu final" in log.error for log in logs)
 
 
 @respx.mock
@@ -21,7 +81,11 @@ async def test_responses_transport_preserves_schema_usage_and_cache(seeded):
     with SessionLocal() as db:
         provider = db.get(Provider, provider_id)
         provider.kind = "openai_responses"
-        provider.capabilities = {"supports_json_schema": True, "reasoning_effort": "high"}
+        provider.capabilities = {
+            "supports_json_schema": True,
+            "supports_reasoning": True,
+            "reasoning_effort": "high",
+        }
         db.commit()
     route = respx.post("https://llm.test/v1/responses").respond(
         200,

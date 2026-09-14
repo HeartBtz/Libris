@@ -131,7 +131,7 @@ async def accept_queued_critiques(job: Job, owner: str) -> None:
                         segment_id=segment.id,
                         severity="warning",
                         code="queued_critique_failed",
-                        message=f"Proposition acceptée non appliquée : {type(exc).__name__}.",
+                        message=f"Proposition acceptée non appliquée : {str(exc)[:500]}",
                     )
                 )
             db.commit()

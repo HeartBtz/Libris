@@ -9,10 +9,11 @@ from sqlalchemy import select
 
 from app.config import settings
 from app.db import SessionLocal
+from app.engines.quality.checks import validate_translation
 from app.models import Provider, RequestLog
 from app.providers.llm import InvalidResponseExhausted, LLMError, llm
 from app.providers.transports import generation_parameters, normalize_response
-from app.schemas import BookBible, ProviderInput
+from app.schemas import BookBible, ProviderInput, TranslationResult
 
 
 def test_reasoning_level_is_explicit_and_capability_gated():
@@ -73,6 +74,56 @@ async def test_reasoning_without_final_content_has_specific_error(seeded, monkey
         )
     assert len(logs) == 5
     assert all("raisonnement sans contenu final" in log.error for log in logs)
+
+
+@respx.mock
+async def test_marker_violation_gets_one_repair_attempt_then_stops(seeded):
+    pid, _, provider_id = seeded
+    route = respx.post("https://llm.test/v1/chat/completions").respond(
+        200,
+        json={
+            "choices": [
+                {
+                    "finish_reason": "stop",
+                    "message": {
+                        "content": json.dumps(
+                            {
+                                "units": [{"id": "u1", "text": "Le feu brille."}],
+                                "new_terms": [],
+                                "events": [],
+                                "uncertainties": [],
+                            }
+                        )
+                    },
+                }
+            ],
+            "usage": {"prompt_tokens": 10, "completion_tokens": 20},
+        },
+    )
+    source = [{"id": "u1", "text": "The ⟦t0⟧fire⟦/t0⟧ shines."}]
+    with pytest.raises(LLMError, match="marqueurs EPUB immuables"):
+        await llm.complete(
+            project_id=pid,
+            provider_id=provider_id,
+            operation="translation_revision",
+            messages=[{"role": "system", "content": "Revise"}],
+            response_model=TranslationResult,
+            validator=lambda result: validate_translation(source, result),
+        )
+    assert route.call_count == 2
+    retry_payload = json.loads(route.calls[1].request.content)
+    assert "exact marker sequence" in retry_payload["messages"][-1]["content"]
+    with SessionLocal() as db:
+        logs = list(
+            db.scalars(
+                select(RequestLog).where(
+                    RequestLog.project_id == pid,
+                    RequestLog.operation == "translation_revision",
+                )
+            )
+        )
+    assert len(logs) == 2
+    assert all("marqueurs EPUB immuables" in log.error for log in logs)
 
 
 @respx.mock

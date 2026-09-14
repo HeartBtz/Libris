@@ -2,6 +2,13 @@
 
 All notable changes are documented here. Libris follows [Semantic Versioning](https://semver.org/); while the project is below 1.0, minor versions may include breaking operational changes that are called out explicitly.
 
+## [0.2.5] - 2026-09-14
+
+### Fixed
+
+- Targeted revisions that alter immutable EPUB markers now receive one explicit marker-repair retry instead of five identical retries.
+- Persistent marker violations retain the current translation and report an actionable reason in the quality issue.
+
 ## [0.2.4] - 2026-09-14
 
 ### Added
@@ -93,3 +100,4 @@ All notable changes are documented here. Libris follows [Semantic Versioning](ht
 [0.2.2]: https://github.com/HeartBtz/Libris/releases/tag/v0.2.2
 [0.2.3]: https://github.com/HeartBtz/Libris/releases/tag/v0.2.3
 [0.2.4]: https://github.com/HeartBtz/Libris/releases/tag/v0.2.4
+[0.2.5]: https://github.com/HeartBtz/Libris/releases/tag/v0.2.5

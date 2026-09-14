@@ -199,6 +199,7 @@ class OpenAIProvider:
                 db.commit()
                 return parsed
         last_error = ""
+        marker_repair_requested = False
         for attempt in range(1, 6):
             current_mode = modes[0]
             payload = wire_payload(
@@ -222,6 +223,7 @@ class OpenAIProvider:
             unavailable = False
             authentication_required = False
             content_refused = False
+            marker_error = False
             retry_after = 0
             try:
                 async with (
@@ -314,7 +316,16 @@ class OpenAIProvider:
                     )
             except ProviderContentRefused as exc:
                 error, content_refused, transient = str(exc), True, False
-            except (httpx.RequestError, ValueError, ValidationError, LLMError, KeyError, TypeError) as exc:
+            except ValueError as exc:
+                unavailable = False
+                marker_error = "marqueurs de mise en forme" in str(exc).casefold()
+                error = (
+                    "La réponse a modifié les marqueurs EPUB immuables. "
+                    "Libris conserve la traduction existante."
+                    if marker_error
+                    else f"Réponse invalide ({type(exc).__name__})."
+                )
+            except (httpx.RequestError, ValidationError, LLMError, KeyError, TypeError) as exc:
                 unavailable = isinstance(exc, httpx.RequestError)
                 error = (
                     str(exc)[:1200]
@@ -381,6 +392,22 @@ class OpenAIProvider:
                 } and attempt < 2:
                     continue
                 raise ProviderContentRefused(error)
+            if marker_error:
+                if not marker_repair_requested:
+                    marker_repair_requested = True
+                    actual_messages = [
+                        *actual_messages,
+                        {
+                            "role": "system",
+                            "content": (
+                                "Your previous response removed, added, or moved EPUB markers. "
+                                "Retry once with the exact marker sequence from TARGET_TEXT, "
+                                "including every opening and closing marker in the same order."
+                            ),
+                        },
+                    ]
+                    continue
+                break
             if authentication_required:
                 raise ProviderAuthenticationRequired(error)
             if unavailable:

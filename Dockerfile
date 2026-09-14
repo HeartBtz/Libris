@@ -6,7 +6,7 @@ COPY frontend/ ./
 RUN npm run build
 
 FROM python:3.13-slim-bookworm AS runtime
-ARG LIBRIS_VERSION=0.2.4
+ARG LIBRIS_VERSION=0.2.5
 ARG VCS_REF=unknown
 LABEL org.opencontainers.image.title="Libris" \
       org.opencontainers.image.version="${LIBRIS_VERSION}" \

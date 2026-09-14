@@ -4,7 +4,7 @@ from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.orm import Session
 
 from app.db import SessionLocal
-from app.models import Event, Job, Project, Provider, RequestLog
+from app.models import AppSetting, Event, Job, Project, Provider, RequestLog
 from app.models.common import uid
 
 RUNNING = ("analyzing", "translating", "reviewing", "syncing")
@@ -103,6 +103,7 @@ def claim(operations: tuple[str, ...] | None = None) -> tuple[str, str] | None:
             "resolve_validations": "reviewing",
             "accept_critiques": "reviewing",
         }[job.operation]
+        state = STEP_STATUS.get(job.checkpoint.get("step"), state)
         result = db.execute(
             update(Job)
             .where(Job.id == job.id, condition)
@@ -167,7 +168,9 @@ def suspend(
             return
         if status == "waiting":
             job.outage_count += 1
-            delay = max(min(30 * 2 ** min(job.outage_count - 1, 5), 900), min(retry_after, 86400))
+            saved = db.get(AppSetting, "provider_recovery")
+            configured = saved.value.get("retry_seconds", 60) if saved else 60
+            delay = max(max(5, min(int(configured), 3600)), min(retry_after, 86400))
             job.next_attempt = time.time() + delay
         else:
             job.next_attempt = 0

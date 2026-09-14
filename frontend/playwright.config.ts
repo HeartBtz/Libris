@@ -9,4 +9,9 @@ export default defineConfig({
     screenshot: "only-on-failure",
   },
   reporter: "list",
+  webServer: process.env.CI ? {
+    command: "npx vite preview --host 127.0.0.1 --port 4173",
+    url: "http://127.0.0.1:4173",
+    reuseExistingServer: false,
+  } : undefined,
 });

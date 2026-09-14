@@ -8,7 +8,9 @@ from ebooklib import epub
 
 temporary = tempfile.TemporaryDirectory(prefix="libris-tests-")
 atexit.register(temporary.cleanup)
-os.environ["DATABASE_URL"] = "sqlite:///" + temporary.name + "/tests.db"
+os.environ["DATABASE_URL"] = os.environ.get(
+    "LIBRIS_TEST_DATABASE_URL", "sqlite:///" + temporary.name + "/tests.db"
+)
 os.environ["DATA_DIR"] = temporary.name
 os.environ["SECRET_KEY"] = "test-only-secret-key-with-more-than-32-characters"
 os.environ["BOOTSTRAP_PASSWORD"] = "test-password-123456789"

@@ -44,7 +44,7 @@ def current_user(db: DB, epub_session: str | None = Cookie(default=None)) -> Use
     if not session or session.expires_at < time.time():
         raise HTTPException(401, "Connexion nécessaire.")
     user = db.get(User, session.user_id)
-    if not user:
+    if not user or not user.active:
         raise HTTPException(401, "Compte introuvable.")
     return user
 

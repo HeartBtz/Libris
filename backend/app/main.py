@@ -21,6 +21,7 @@ from app.api import (
     observability,
     projects,
     providers,
+    recovery,
     segments,
 )
 from app.config import settings
@@ -68,8 +69,10 @@ async def security_headers(request: Request, call_next):
             )
         if request.headers.get("sec-fetch-site") == "cross-site":
             return JSONResponse({"detail": "Requête intersite refusée."}, status_code=403)
-    if request.url.path == "/api/auth/login" and request.method == "POST":
-        key = request.client.host if request.client else "local"
+    if (request.url.path, request.method) in {
+        ("/api/auth/login", "POST"), ("/api/auth/password", "PUT"),
+    }:
+        key = (request.client.host if request.client else "local") + request.url.path
         attempts = login_attempts[key]
         now = time.monotonic()
         while attempts and attempts[0] < now - 300:
@@ -83,6 +86,12 @@ async def security_headers(request: Request, call_next):
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["Referrer-Policy"] = "same-origin"
     response.headers["X-Frame-Options"] = "SAMEORIGIN"
+    response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
+        "img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; "
+        "frame-src 'self' blob:; object-src 'none'; base-uri 'self'; frame-ancestors 'self'"
+    )
     if request.url.path.startswith("/api/"):
         response.headers["Cache-Control"] = "no-store"
     return response
@@ -126,7 +135,7 @@ async def unexpected(_request: Request, exc: Exception):
     )
 
 
-for module in (identity, providers, exports, projects, segments, memory, observability, characters, coverage):
+for module in (identity, providers, recovery, exports, projects, segments, memory, observability, characters, coverage):
     app.include_router(module.router)
 
 

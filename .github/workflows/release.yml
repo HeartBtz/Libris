@@ -50,8 +50,12 @@ jobs:
         working-directory: backend
       - run: alembic upgrade head && alembic check && alembic downgrade c93b8c242df1 && alembic upgrade head
         working-directory: backend
+      - run: LIBRIS_TEST_DATABASE_URL="$DATABASE_URL" pytest -q
+        working-directory: backend
       - run: pip-audit -r backend/requirements.lock
       - run: npm ci && npm audit --omit=dev --audit-level=high && npm run build
+        working-directory: frontend
+      - run: npx playwright install --with-deps chromium && npx playwright test e2e/accounts.spec.ts e2e/showcase.spec.ts
         working-directory: frontend
       - run: docker run --rm -v "$PWD:/repo" ghcr.io/gitleaks/gitleaks:v8.28.0 git /repo --redact --no-banner
 

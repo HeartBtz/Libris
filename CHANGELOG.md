@@ -2,6 +2,33 @@
 
 All notable changes are documented here. Libris follows [Semantic Versioning](https://semver.org/); while the project is below 1.0, minor versions may include breaking operational changes that are called out explicitly.
 
+## [0.2.0] - 2026-09-14
+
+### Added
+
+- Account page with password changes and individually revocable sessions.
+- Administrator controls for roles, account deactivation/reactivation and password resets.
+- Configurable provider recovery delay (5–3600 seconds, default 60), preserving checkpoints and provider capacity limits.
+- Automatic analysis-to-translation pipeline, one targeted recovery pass and full AI review.
+- Library sorting by status/model, visible status sort control and batch memory-source selection.
+- Desktop/mobile account and recovery browser tests, and the full test suite on PostgreSQL in CI.
+
+### Fixed
+
+- Chained jobs display their real translation/review stage instead of their initial analysis operation.
+- Temporary provider failures preserve accepted corrections for retry.
+- Obsolete correction-failure issues are closed when a successful correction clears the remaining critiques.
+- Duplicate EPUB imports are detected per owner, including archived projects.
+- Logout ends only the current session; password resets and account permission changes revoke all affected sessions.
+
+### Security and upgrade
+
+- Unknown-account password checks use a dummy hash; password-change attempts are rate limited.
+- Content Security Policy and browser permissions restrictions complement existing origin checks.
+- Migration `e92fa613bc10` adds `users.active`, defaulting existing accounts to active. Run migrations before starting the new API/worker.
+- Provider retries now use the configured fixed delay rather than exponential backoff. Provider `Retry-After` and concurrency limits still take precedence. Authentication errors, manual pauses and refusals are not automatically retried.
+- See [audit and operational notes](docs/audit-0.2.0.md) for coverage and remaining limitations.
+
 ## [0.1.0] - 2026-09-13
 
 ### Added
@@ -21,3 +48,4 @@ All notable changes are documented here. Libris follows [Semantic Versioning](ht
 - Bounded EPUB archive parsing and synthetic-only public screenshots.
 
 [0.1.0]: https://github.com/HeartBtz/Libris/releases/tag/v0.1.0
+[0.2.0]: https://github.com/HeartBtz/Libris/releases/tag/v0.2.0

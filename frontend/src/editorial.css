@@ -224,6 +224,42 @@
 .table-sort[aria-pressed="true"] {
   color: var(--accent);
 }
+
+.account-list {
+  list-style: none;
+  padding: 0;
+}
+.account-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--ui-space-xs);
+  border-bottom: 1px solid var(--line);
+}
+.account-page input {
+  max-width: 100%;
+}
+.settings .narrow {
+  overflow-wrap: anywhere;
+}
+.accounts-table th:first-child {
+  width: 30%;
+}
+.accounts-table td button {
+  display: block;
+  margin-top: var(--ui-space-xs);
+}
+.account-editor {
+  display: grid;
+  gap: var(--ui-space-md);
+  margin-block: var(--ui-space-lg);
+}
+.account-editor label:has(input[type="checkbox"]) {
+  flex-direction: row;
+  align-items: center;
+  gap: var(--ui-space-xs);
+}
 .book-title {
   font-family: Georgia, "Times New Roman", serif;
   font-size: 1.2rem;

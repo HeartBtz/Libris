@@ -1,0 +1,91 @@
+import pytest
+from fastapi.testclient import TestClient
+from sqlalchemy import select
+
+from app.db import SessionLocal
+from app.main import app, login_attempts
+from app.models import User
+
+
+@pytest.fixture(autouse=True)
+def isolate_rate_limit():
+    login_attempts.clear()
+    yield
+    login_attempts.clear()
+
+
+def login(client, username="tester", password="test-password-123456789"):
+    return client.post("/api/auth/login", json={"username": username, "password": password})
+
+
+def test_password_change_revokes_all_sessions(seeded):
+    with TestClient(app) as first, TestClient(app) as second:
+        assert login(first).status_code == 200
+        assert login(second).status_code == 200
+        assert len(first.get("/api/auth/sessions").json()) == 2
+        assert first.put("/api/auth/password", json={
+            "current_password": "wrong", "new_password": "replacement-password-123",
+        }).status_code == 400
+        assert first.put("/api/auth/password", json={
+            "current_password": "test-password-123456789", "new_password": "replacement-password-123",
+        }).status_code == 200
+        assert first.get("/api/auth/me").status_code == 401
+        assert second.get("/api/auth/me").status_code == 401
+        assert login(second).status_code == 401
+        assert login(second, password="replacement-password-123").status_code == 200
+
+
+def test_account_lifecycle_and_access_control(seeded):
+    with TestClient(app) as admin, TestClient(app) as member:
+        login(admin)
+        response = admin.post("/api/users", json={"username": "reader", "password": "reader-password-123"})
+        assert response.status_code == 201
+        uid = response.json()["id"]
+        assert "password_hash" not in response.json()
+        assert admin.post("/api/users", json={"username": "reader", "password": "reader-password-123"}).status_code == 409
+        login(member, "reader", "reader-password-123")
+        assert member.get("/api/users").status_code == 403
+        assert member.put(f"/api/users/{uid}", json={"active": True, "admin": True}).status_code == 403
+        assert member.get(f"/api/projects/{seeded[0]}").status_code == 404
+        assert admin.put(f"/api/users/{seeded[1]}", json={"active": False, "admin": True}).status_code == 409
+        assert admin.put(f"/api/users/{uid}", json={"active": False, "admin": False}).status_code == 200
+        assert member.get("/api/auth/me").status_code == 401
+        assert login(member, "reader", "reader-password-123").status_code == 401
+        assert admin.put(f"/api/users/{uid}", json={"active": True, "admin": False}).status_code == 200
+        assert admin.put(f"/api/users/{uid}/password", json={"password": "reset-password-123"}).status_code == 200
+        assert login(member, "reader", "reset-password-123").status_code == 200
+        with SessionLocal() as db:
+            assert db.scalar(select(User).where(User.id == uid)).active
+
+
+def test_logout_only_revokes_current_session(seeded):
+    with TestClient(app) as first, TestClient(app) as second:
+        login(first)
+        login(second)
+        assert first.post("/api/auth/logout").status_code == 200
+        assert second.get("/api/auth/me").status_code == 200
+        current = second.get("/api/auth/sessions").json()[0]
+        assert current["current"]
+        second.delete(f"/api/auth/sessions/{current['id']}")
+        assert second.get("/api/auth/me").status_code == 401
+
+
+def test_password_change_rejects_cross_site(seeded):
+    with TestClient(app) as client:
+        login(client)
+        assert client.put("/api/auth/password", headers={"Origin": "https://attacker.test"}, json={
+            "current_password": "test-password-123456789", "new_password": "replacement-password-123",
+        }).status_code == 403
+
+
+def test_https_session_cookie_is_secure_and_reissued(seeded, monkeypatch):
+    from app.config import settings
+
+    monkeypatch.setattr(settings(), "cookie_secure", True)
+    with TestClient(app, base_url="https://testserver") as client:
+        response = login(client)
+        assert "Secure" in response.headers["set-cookie"]
+        response = client.get("/api/auth/me")
+        assert response.status_code == 200
+        assert "Secure" in response.headers["set-cookie"]
+        assert "HttpOnly" in response.headers["set-cookie"]

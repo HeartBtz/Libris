@@ -3,6 +3,7 @@ import { api, download, send } from "../api";
 import { registerTranslations, useI18n } from "../i18n";
 import type { Provider, Run, User } from "../types";
 import { CodexConnection } from "./CodexConnection";
+import { RecoverySettings } from "./Account";
 
 const translations: Record<string, string> = {
   "Modèle local": "Local model", "Administration": "Administration", "Paramètres": "Settings", "← Bibliothèque": "← Library", "Mémoire · OpenViking": "Memory · OpenViking", "Utilisateurs": "Users",
@@ -13,6 +14,14 @@ const translations: Record<string, string> = {
 };
 registerTranslations(translations);
 registerTranslations({ "Codex · compte ChatGPT": "Codex · ChatGPT account" });
+registerTranslations({
+  "Gérer": "Manage", "Actif": "Active", "Désactivé": "Disabled",
+  "Compte actif": "Active account", "Enregistrer le compte": "Save account",
+  "Réinitialiser le mot de passe": "Reset password",
+  "Réinitialisation effectuée. Les sessions ont été révoquées.": "Password reset. Sessions have been revoked.",
+  "Compte enregistré. Les sessions ont été révoquées.": "Account saved. Sessions have been revoked.",
+  "La désactivation conserve les livres. Les changements de rôle révoquent les sessions du compte.": "Deactivation preserves books. Role changes revoke the account's sessions.",
+});
 
 const initial: Provider = {
   id: "",
@@ -77,6 +86,7 @@ export function Settings({ run }: { run: Run }) {
           ["search", "SearXNG"],
           ["prompts", "Prompts"],
           ["users", t("Utilisateurs")],
+          ["recovery", t("Reprise automatique")],
         ].map(([id, label]) => (
           <button
             key={id}
@@ -95,6 +105,8 @@ export function Settings({ run }: { run: Run }) {
         <Prompts run={run} />
       ) : tab === "search" ? (
         <SearchSettings run={run} />
+      ) : tab === "recovery" ? (
+        <RecoverySettings run={run} />
       ) : (
         <Users run={run} />
       )}
@@ -738,13 +750,17 @@ function Users({ run }: { run: Run }) {
   const [users, setUsers] = useState<User[]>([]);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [selected, setSelected] = useState<User | null>(null);
+  const [reset, setReset] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState("");
   useEffect(() => {
     void run(async () => setUsers(await api("/users")));
   }, [run]);
   return (
     <section className="narrow">
       <h2>{t("Utilisateurs de Libris")}</h2>
-      <table>
+      <table className="accounts-table">
         <thead>
           <tr>
             <th>{t("Utilisateur")}</th>
@@ -755,11 +771,33 @@ function Users({ run }: { run: Run }) {
           {users.map((u) => (
             <tr key={u.id}>
               <td>{u.username}</td>
-                <td>{u.admin ? t("Administrateur") : t("Utilisateur")}</td>
+              <td>{u.admin ? t("Administrateur") : t("Utilisateur")} · {t(u.active === false ? "Désactivé" : "Actif")}
+                <button disabled={busy} onClick={() => { setSelected(u); setReset(""); setNotice(""); }}>{t("Gérer")} {u.username}</button>
+              </td>
             </tr>
           ))}
         </tbody>
       </table>
+      {selected && <section className="account-editor" aria-label={selected.username}>
+        <h3>{selected.username}</h3>
+        <p>{t("La désactivation conserve les livres. Les changements de rôle révoquent les sessions du compte.")}</p>
+        <form onSubmit={e => { e.preventDefault(); setBusy(true); void run(async () => {
+          await send(`/users/${selected.id}`, { admin: selected.admin, active: selected.active !== false }, "PUT");
+          setUsers(await api("/users")); setNotice(t("Compte enregistré. Les sessions ont été révoquées."));
+        }).finally(() => setBusy(false)); }}>
+          <label><input type="checkbox" checked={selected.admin} onChange={e => setSelected({ ...selected, admin: e.target.checked })} />{t("Administrateur")}</label>
+          <label><input type="checkbox" checked={selected.active !== false} onChange={e => setSelected({ ...selected, active: e.target.checked })} />{t("Compte actif")}</label>
+          <button disabled={busy}>{t("Enregistrer le compte")}</button>
+        </form>
+        <form onSubmit={e => { e.preventDefault(); setBusy(true); void run(async () => {
+          await send(`/users/${selected.id}/password`, { password: reset }, "PUT"); setReset("");
+          setNotice(t("Réinitialisation effectuée. Les sessions ont été révoquées."));
+        }).finally(() => setBusy(false)); }}>
+          <label>{t("Nouveau mot de passe")}<input type="password" autoComplete="new-password" required minLength={12} maxLength={200} value={reset} onChange={e => setReset(e.target.value)} /></label>
+          <button disabled={busy}>{t("Réinitialiser le mot de passe")}</button>
+        </form>
+      </section>}
+      {notice && <p role="status">{notice}</p>}
       <h3>{t("Créer un compte")}</h3>
       <form
         onSubmit={(e) => {

@@ -17,12 +17,14 @@ const translations: Record<string, string> = {
   "Livre prêt à exporter": "Book ready to export",
   "EPUB importé": "EPUB imported",
   "de": "for",
+  "Reprise prévue à": "Retry scheduled at",
+  "En attente d’une place chez le provider": "Waiting for provider capacity",
 };
 
 registerTranslations(translations);
 
 export function BookProgress({ project }: { project: Project }) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const progress = projectProgress(project);
   const stage = progress.current;
   const detail =
@@ -51,6 +53,11 @@ export function BookProgress({ project }: { project: Project }) {
         />
       </div>
       <small>{detail}</small>
+      {progress.state === "waiting" && !!progress.next_attempt && <small>
+        {progress.next_attempt * 1000 > Date.now()
+          ? `${t("Reprise prévue à")} ${new Date(progress.next_attempt * 1000).toLocaleTimeString(locale)}`
+          : t("En attente d’une place chez le provider")}
+      </small>}
       {progress.estimate.remaining_seconds !== null && stage.percent < 100 && (
         <small>{duration(progress.estimate.remaining_seconds)}</small>
       )}

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { api, date, labels, number, send } from "./api";
 import type { Project, Run, User } from "./types";
 import { Settings } from "./features/Settings";
+import { Account } from "./features/Account";
 import { Workspace } from "./features/Workspace";
 import { BatchActions } from "./features/BatchActions";
 import { BookProgress } from "./features/BookProgress";
@@ -151,7 +152,7 @@ export function App() {
                   {t("app.statistics")}
                 </a>
               )}
-              <span className="muted">{user.username}</span>
+              <a href="#account" aria-current={route === "account" ? "page" : undefined}>{t("Mon compte")} · {user.username}</a>
             </>
           )}
           <button
@@ -201,6 +202,8 @@ export function App() {
       )}
       {!user ? (
         <Login run={run} onLogin={setUser} />
+      ) : route === "account" ? (
+        <Account user={user} run={run} onLogout={() => setUser(null)} />
       ) : route === "settings" && user.admin ? (
         <Settings run={run} />
       ) : route === "statistics" && user.admin ? (
@@ -216,7 +219,7 @@ export function App() {
 
 function Login({ run, onLogin }: { run: Run; onLogin: (user: User) => void }) {
   const { t } = useI18n();
-  const [username, setUsername] = useState("admin");
+  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   return (

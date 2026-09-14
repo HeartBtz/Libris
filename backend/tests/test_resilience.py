@@ -134,7 +134,7 @@ def test_database_enforces_one_live_job_per_project(seeded):
             db.commit()
 
 
-def test_wait_backoff_increases_and_caps(seeded):
+def test_default_retry_delay_remains_predictable_after_repeated_outages(seeded):
     jid = prepare(seeded[0])
     for count in range(1, 8):
         if count > 1:
@@ -147,8 +147,4 @@ def test_wait_backoff_increases_and_caps(seeded):
         with SessionLocal() as db:
             job = db.get(Job, jid)
             assert job.outage_count == count
-            assert (
-                min(30 * 2 ** (count - 1), 900)
-                <= job.next_attempt - start
-                < min(30 * 2 ** (count - 1), 900) + 2
-            )
+            assert 60 <= job.next_attempt - start < 62

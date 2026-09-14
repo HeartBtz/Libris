@@ -2,6 +2,7 @@ export interface User {
   id: string;
   username: string;
   admin: boolean;
+  active?: boolean;
 }
 export interface Stats {
   reviewed_segments?: number;
@@ -56,6 +57,8 @@ export interface ProjectProgress {
   state: string;
   operation: string | null;
   job_id: string | null;
+  next_attempt?: number;
+  stop_reason?: string;
   model: string | null;
   current: ProgressStage;
   stages: ProgressStage[];

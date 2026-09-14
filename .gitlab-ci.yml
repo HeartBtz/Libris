@@ -17,11 +17,13 @@ migration-postgres:
     BOOTSTRAP_PASSWORD: ci-only-password-with-more-than-16-characters
   before_script:
     - pip install -r backend/requirements.lock
+    - pip install -e './backend[test]'
   script:
     - cd backend
     - alembic upgrade head
     - alembic downgrade c93b8c242df1
     - alembic upgrade head
+    - LIBRIS_TEST_DATABASE_URL="$DATABASE_URL" pytest -q
 
 backend:
   stage: test
@@ -50,6 +52,8 @@ frontend:
   script:
     - npm run build
     - npm audit --omit=dev --audit-level=high
+    - npx playwright install --with-deps chromium
+    - npx playwright test e2e/accounts.spec.ts e2e/showcase.spec.ts
 
 security:
   stage: test

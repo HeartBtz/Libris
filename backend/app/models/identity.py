@@ -10,6 +10,7 @@ class User(Identified, Base):
     username: Mapped[str] = mapped_column(String(80), unique=True)
     password_hash: Mapped[str] = mapped_column(Text)
     admin: Mapped[bool] = mapped_column(Boolean, default=False)
+    active: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
 
 
 class LoginSession(Base):

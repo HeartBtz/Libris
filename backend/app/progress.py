@@ -219,6 +219,8 @@ def project_progress(db, project: Project, stats: dict) -> dict:
         "state": job.status if job else project.status,
         "operation": job.operation if job else None,
         "job_id": job.id if job else None,
+        "next_attempt": job.next_attempt if job else 0,
+        "stop_reason": job.stop_reason if job else "",
         "model": model,
         "current": current,
         "stages": stages,

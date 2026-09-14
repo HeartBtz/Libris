@@ -96,7 +96,7 @@ def project_progress(db, project: Project, stats: dict) -> dict:
         select(Job.checkpoint)
         .where(
             Job.project_id == project.id,
-            Job.operation.in_(("translate", "resolve_validations")),
+            Job.operation.in_(("analyze", "translate", "resolve_validations")),
         )
         .order_by(Job.created_at.desc())
     )
@@ -157,18 +157,22 @@ def project_progress(db, project: Project, stats: dict) -> dict:
     ]
     step = checkpoint.get("step", "")
     if active_job and (
-        active_job.operation == "analyze" or step in {"chapter_analysis", "book_bible"}
-    ):
-        active = "analysis"
-    elif active_job and (
         step == "final_review"
         or active_job.operation in {"review", "consistency", "resolve_validations", "accept_critiques"}
     ):
         active = "review"
-    elif active_job and active_job.operation == "translate" and (
-        stats["translated"] < stats["total"] or stats["errors"] or stats["refused"]
+    elif active_job and (
+        step in {"translation", "automatic_recovery", "recovery_required"}
+        or (
+            active_job.operation == "translate"
+            and (stats["translated"] < stats["total"] or stats["errors"] or stats["refused"])
+        )
     ):
         active = "translation"
+    elif active_job and (
+        active_job.operation == "analyze" or step in {"chapter_analysis", "book_bible"}
+    ):
+        active = "analysis"
     elif not translation_started and analysis_done < analysis_total:
         active = "analysis"
     elif stats["translated"] < stats["total"] or stats["errors"] or stats["refused"]:

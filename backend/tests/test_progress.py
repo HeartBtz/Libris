@@ -93,6 +93,35 @@ def test_progress_does_not_regress_to_analysis_after_translation_started(seeded)
         assert progress["active_stage"] == "translation"
 
 
+def test_automatic_analysis_job_uses_its_current_pipeline_stage(seeded):
+    pid = seeded[0]
+    with SessionLocal() as db:
+        project = db.get(Project, pid)
+        job = enqueue(db, project, "analyze", {"continue_pipeline": True})
+        job.status = "translating"
+        job.checkpoint = {"step": "translation", "current": 2, "total": 4}
+        db.flush()
+
+        assert project_view(db, project)["progress"]["active_stage"] == "translation"
+
+        segments = list(db.scalars(select(Segment).where(Segment.project_id == pid)))
+        targets = [segment.id for segment in segments]
+        job.status = "reviewing"
+        job.checkpoint = {
+            "step": "final_review",
+            "current": 1,
+            "total": len(targets),
+            "final_review_targets": targets,
+            "final_review_done": targets[:1],
+        }
+        db.flush()
+
+        progress = project_view(db, project)["progress"]
+        assert progress["active_stage"] == "review"
+        assert progress["current"]["done"] == 1
+        assert progress["current"]["total"] == len(targets)
+
+
 def test_checkpoint_syncs_translation_job_status_to_final_review(seeded):
     pid = seeded[0]
     owner = "test-worker"

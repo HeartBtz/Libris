@@ -203,7 +203,7 @@ export function App() {
       {!user ? (
         <Login run={run} onLogin={setUser} />
       ) : route === "account" ? (
-        <Account user={user} run={run} onLogout={() => setUser(null)} />
+        <Account user={user} run={run} onUserChange={setUser} onLogout={() => setUser(null)} />
       ) : route === "settings" && user.admin ? (
         <Settings run={run} />
       ) : route === "statistics" && user.admin ? (
@@ -236,6 +236,7 @@ function Login({ run, onLogin }: { run: Run; onLogin: (user: User) => void }) {
         <h1>{t("login.title")}</h1>
         <p className="muted">{t("login.description")}</p>
         <form
+          autoComplete="off"
           onSubmit={(e) => {
             e.preventDefault();
             setBusy(true);
@@ -247,7 +248,7 @@ function Login({ run, onLogin }: { run: Run; onLogin: (user: User) => void }) {
           <label>
             {t("login.username")}
             <input
-              autoComplete="username"
+              autoComplete="off"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               required

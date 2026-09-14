@@ -2,6 +2,17 @@
 
 All notable changes are documented here. Libris follows [Semantic Versioning](https://semver.org/); while the project is below 1.0, minor versions may include breaking operational changes that are called out explicitly.
 
+## [0.2.2] - 2026-09-14
+
+### Added
+
+- Signed-in users can change their username while preserving active sessions.
+
+### Fixed
+
+- Username changes reject conflicts with an existing account.
+- The login username starts empty and browser autofill is disabled on the login form.
+
 ## [0.2.1] - 2026-09-14
 
 ### Security
@@ -58,3 +69,4 @@ All notable changes are documented here. Libris follows [Semantic Versioning](ht
 [0.1.0]: https://github.com/HeartBtz/Libris/releases/tag/v0.1.0
 [0.2.0]: https://github.com/HeartBtz/Libris/releases/tag/v0.2.0
 [0.2.1]: https://github.com/HeartBtz/Libris/releases/tag/v0.2.1
+[0.2.2]: https://github.com/HeartBtz/Libris/releases/tag/v0.2.2

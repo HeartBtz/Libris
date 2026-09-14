@@ -17,6 +17,10 @@ for (const width of [1440, 390]) {
       let body: unknown = {};
       if (request.method() === "PUT") {
         changes.push({ path, body: request.postDataJSON() });
+        if (path === "/api/auth/username") {
+          me.username = (request.postDataJSON() as { username: string }).username;
+          body = me;
+        }
       } else if (path === "/api/auth/me") body = me;
       else if (path === "/api/users") body = users;
       else if (path === "/api/auth/sessions") body = sessions;
@@ -27,6 +31,11 @@ for (const width of [1440, 390]) {
     });
     await page.goto(`${process.env.SHOWCASE_URL || "http://127.0.0.1:4173"}/#account`);
     await expect(page.getByRole("heading", { name: "My account" })).toBeVisible();
+    await page.getByLabel("Username", { exact: true }).fill("renamed-owner");
+    await page.getByRole("button", { name: "Change username" }).click();
+    await expect(page.getByRole("status")).toContainText("Username saved");
+    await expect(page.getByRole("link", { name: /My account · renamed-owner/ })).toBeVisible();
+    expect(changes.at(-1)).toEqual({ path: "/api/auth/username", body: { username: "renamed-owner" } });
     await page.getByRole("listitem").filter({ hasText: "Other session" }).getByRole("button", { name: "Revoke" }).click();
     await expect(page.getByRole("listitem")).toHaveCount(1);
     await page.getByLabel("Current password", { exact: true }).fill("current-password-123");
@@ -34,7 +43,7 @@ for (const width of [1440, 390]) {
     await page.getByLabel("Confirm password", { exact: true }).fill("different-password-123");
     await page.getByRole("button", { name: "Change password", exact: true }).click();
     await expect(page.getByRole("alert")).toContainText("Passwords do not match");
-    expect(changes).toHaveLength(0);
+    expect(changes).toHaveLength(1);
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
     await page.screenshot({ path: `/tmp/opencode/libris-account-${width}.png`, fullPage: true });
     await page.getByRole("link", { name: "Settings", exact: true }).click();
@@ -53,3 +62,11 @@ for (const width of [1440, 390]) {
     await page.screenshot({ path: `/tmp/opencode/libris-users-${width}.png`, fullPage: true });
   });
 }
+
+test("login starts without a username", async ({ page }) => {
+  await page.route("**/api/auth/me", route => route.fulfill({ status: 401, json: { detail: "Unauthorized" } }));
+  await page.goto(process.env.SHOWCASE_URL || "http://127.0.0.1:4173");
+  const username = page.getByLabel("Utilisateur", { exact: true });
+  await expect(username).toHaveValue("");
+  await expect(username).toHaveAttribute("autocomplete", "off");
+});

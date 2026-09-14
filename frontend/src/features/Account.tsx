@@ -5,6 +5,9 @@ import type { Run, User } from "../types";
 
 registerTranslations({
   "Mon compte": "My account",
+  "Nom d’utilisateur": "Username",
+  "Changer le nom d’utilisateur": "Change username",
+  "Nom d’utilisateur enregistré.": "Username saved.",
   "Mot de passe actuel": "Current password",
   "Nouveau mot de passe": "New password",
   "Confirmer le mot de passe": "Confirm password",
@@ -34,14 +37,18 @@ interface Session {
 export function Account({
   user,
   run,
+  onUserChange,
   onLogout,
 }: {
   user: User;
   run: Run;
+  onUserChange: (user: User) => void;
   onLogout: () => void;
 }) {
   const { t, locale } = useI18n();
   const [sessions, setSessions] = useState<Session[]>([]);
+  const [username, setUsername] = useState(user.username);
+  const [usernameSaved, setUsernameSaved] = useState(false);
   const [password, setPassword] = useState("");
   const [next, setNext] = useState("");
   const [confirmation, setConfirmation] = useState("");
@@ -59,6 +66,38 @@ export function Account({
         </div>
         <a href="#library">{t("← Bibliothèque")}</a>
       </div>
+      <section className="narrow">
+        <h2>{t("Changer le nom d’utilisateur")}</h2>
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            setBusy(true);
+            setUsernameSaved(false);
+            void run(async () => {
+              const updated = await send<User>("/auth/username", { username }, "PUT");
+              onUserChange(updated);
+              setUsernameSaved(true);
+            }).finally(() => setBusy(false));
+          }}
+        >
+          <label>
+            {t("Nom d’utilisateur")}
+            <input
+              autoComplete="username"
+              required
+              minLength={2}
+              maxLength={80}
+              pattern="[\w.@-]+"
+              value={username}
+              onChange={(event) => setUsername(event.target.value)}
+            />
+          </label>
+          <button disabled={busy || username === user.username}>
+            {t("Changer le nom d’utilisateur")}
+          </button>
+          {usernameSaved && <p role="status">{t("Nom d’utilisateur enregistré.")}</p>}
+        </form>
+      </section>
       <section className="narrow">
         <h2>{t("Changer le mot de passe")}</h2>
         <p>

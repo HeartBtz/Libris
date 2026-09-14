@@ -35,6 +35,23 @@ def test_password_change_revokes_all_sessions(seeded):
         assert login(second, password="replacement-password-123").status_code == 200
 
 
+def test_username_change_preserves_sessions_and_requires_unique_name(seeded):
+    with TestClient(app) as client, TestClient(app) as old_login, TestClient(app) as new_login:
+        assert login(client).status_code == 200
+        response = client.put("/api/auth/username", json={"username": "new-owner"})
+        assert response.status_code == 200
+        assert response.json()["username"] == "new-owner"
+        assert client.get("/api/auth/me").json()["username"] == "new-owner"
+        assert login(old_login).status_code == 401
+        assert login(new_login, "new-owner").status_code == 200
+
+        duplicate = client.post(
+            "/api/users", json={"username": "reader", "password": "reader-password-123"}
+        )
+        assert duplicate.status_code == 201
+        assert client.put("/api/auth/username", json={"username": "reader"}).status_code == 409
+
+
 def test_account_lifecycle_and_access_control(seeded):
     with TestClient(app) as admin, TestClient(app) as member:
         login(admin)

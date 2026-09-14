@@ -27,6 +27,10 @@ class PasswordReset(BaseModel):
     password: str = Field(min_length=12, max_length=200)
 
 
+class UsernameChange(BaseModel):
+    username: str = Field(min_length=2, max_length=80, pattern=r"^[\w.@-]+$")
+
+
 class AccountUpdate(BaseModel):
     admin: bool
     active: bool
@@ -93,6 +97,17 @@ def change_password(body: PasswordChange, response: Response, user: CurrentUser,
     db.commit()
     response.delete_cookie("epub_session", path="/")
     return {"ok": True}
+
+
+@router.put("/auth/username")
+def change_username(body: UsernameChange, user: CurrentUser, db: DB):
+    existing = db.scalar(select(User).where(User.username == body.username, User.id != user.id))
+    if existing:
+        raise HTTPException(409, "Ce nom d’utilisateur est déjà utilisé.")
+    user.username = body.username
+    db.commit()
+    db.refresh(user)
+    return row(user, ("password_hash",))
 
 
 @router.get("/auth/sessions")

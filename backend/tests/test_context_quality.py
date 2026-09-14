@@ -213,7 +213,7 @@ async def test_truncated_response_never_accepted(seeded, monkeypatch):
             messages=[{"role": "user", "content": "Analyze"}],
             response_model=BookBible,
         )
-    assert route.call_count == 5
+    assert route.call_count == 1
 
 
 @respx.mock

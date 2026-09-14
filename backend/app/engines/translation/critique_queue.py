@@ -4,6 +4,7 @@ from sqlalchemy import select
 
 from app.db import SessionLocal
 from app.engines.context.builder import build_context
+from app.engines.epub.text import restore_missing_codes
 from app.engines.quality.checks import validate_translation
 from app.engines.translation.versions import save_version
 from app.jobs.queue import checkpoint, emit
@@ -25,6 +26,14 @@ def validate_accepted_revision(source: list[dict], result: TranslationResult) ->
         text = re.sub(r"⟦[^⟧]+⟧", "", unit.text).strip()
         if re.match(r"^(?:traduire|remplacer|écrire|reformuler|corriger)\b", text, re.IGNORECASE):
             raise ValueError("La réponse contient une consigne éditoriale au lieu du texte corrigé.")
+
+
+def restore_accepted_revision(target: dict, result: TranslationResult) -> None:
+    if len(result.units) != 1 or result.units[0].id != target["id"]:
+        return
+    repaired = restore_missing_codes(target["text"], result.units[0].text)
+    if repaired is not None:
+        result.units[0].text = repaired
 
 
 async def accept_queued_critiques(job: Job, owner: str) -> None:
@@ -75,6 +84,10 @@ async def accept_queued_critiques(job: Job, owner: str) -> None:
                         "APPLICATION_SCOPE": "Apply this accepted editorial advice to this one unit. Return its complete corrected text with every immutable marker. Never insert the advice itself as prose.",
                     },
                 )
+                def validate(value: TranslationResult) -> None:
+                    restore_accepted_revision(target, value)
+                    validate_accepted_revision([source], value)
+
                 result = await llm.complete(
                     project_id=project.id,
                     provider_id=job.provider_id or project.provider_id,
@@ -83,7 +96,7 @@ async def accept_queued_critiques(job: Job, owner: str) -> None:
                     messages=built.messages,
                     context=built.inspector,
                     response_model=TranslationResult,
-                    validator=lambda value: validate_accepted_revision([source], value),
+                    validator=validate,
                     temperature=0.1,
                 )
                 units = [dict(unit) for unit in segment.translated_units]

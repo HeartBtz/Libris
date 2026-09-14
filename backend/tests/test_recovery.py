@@ -295,7 +295,7 @@ async def test_accept_advice_repairs_internal_markers(seeded, monkeypatch, valid
     await execute(*claim())
     with SessionLocal() as db:
         saved = db.get(Segment, sid)
-        expected = "Le ⟦t0⟧feu⟦/t0⟧ brille." if valid else "La ⟦t0⟧lumière⟦/t0⟧ brille."
+        expected = "Le ⟦t0⟧feu⟦/t0⟧ brille."
         assert saved.translation == expected
-        assert saved.human is valid
-        assert bool(saved.critique) is not valid
+        assert saved.human
+        assert not saved.critique

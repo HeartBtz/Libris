@@ -37,6 +37,14 @@ def test_reasoning_level_is_explicit_and_capability_gated():
 @respx.mock
 async def test_reasoning_without_final_content_has_specific_error(seeded, monkeypatch):
     pid, _, provider_id = seeded
+    with SessionLocal() as db:
+        provider = db.get(Provider, provider_id)
+        provider.capabilities = {
+            **provider.capabilities,
+            "supports_reasoning": True,
+            "reasoning_effort": "low",
+        }
+        db.commit()
     route = respx.post("https://llm.test/v1/chat/completions").respond(
         200,
         json={
@@ -62,7 +70,9 @@ async def test_reasoning_without_final_content_has_specific_error(seeded, monkey
             messages=[{"role": "system", "content": "Analyze"}],
             response_model=BookBible,
         )
-    assert route.call_count == 5
+    assert route.call_count == 2
+    assert json.loads(route.calls[0].request.content)["reasoning_effort"] == "low"
+    assert json.loads(route.calls[1].request.content)["reasoning_effort"] == "none"
     with SessionLocal() as db:
         logs = list(
             db.scalars(
@@ -72,7 +82,7 @@ async def test_reasoning_without_final_content_has_specific_error(seeded, monkey
                 )
             )
         )
-    assert len(logs) == 5
+    assert len(logs) == 2
     assert all("raisonnement sans contenu final" in log.error for log in logs)
 
 

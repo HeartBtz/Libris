@@ -1,5 +1,6 @@
 import hashlib
 import re
+from difflib import SequenceMatcher
 
 from lxml import etree
 
@@ -80,6 +81,77 @@ def validate_codes(source: str, translated: str) -> None:
         raise ValueError("Caractère XML invalide dans la traduction.")
     if any(0xD800 <= ord(c) <= 0xDFFF or ord(c) in (0xFFFE, 0xFFFF) for c in translated):
         raise ValueError("Caractère Unicode invalide dans la traduction.")
+
+
+def restore_missing_codes(current: str, candidate: str) -> str | None:
+    """Restore marker boundaries only when unchanged text gives an exact alignment."""
+    markers = list(MARKER.finditer(current))
+    if not markers:
+        return None
+    current_codes = [marker.group() for marker in markers]
+    candidate_codes = MARKER.findall(candidate)
+    if candidate_codes == current_codes:
+        return candidate
+    remaining_codes = iter(current_codes)
+    if any(not any(code == current for current in remaining_codes) for code in candidate_codes):
+        return None
+    candidate = MARKER.sub("", candidate)
+    if "⟦" in candidate or "⟧" in candidate:
+        return None
+    source = MARKER.sub("", current)
+    matcher = SequenceMatcher(None, source, candidate, autojunk=False)
+    opcodes = matcher.get_opcodes()
+    marker_positions = []
+    removed = 0
+    opened: dict[str, int] = {}
+    anchors: dict[int, int] = {}
+    for marker in markers:
+        old_position = marker.start() - removed
+        removed += len(marker.group())
+        marker_positions.append((old_position, marker.group()))
+        name = marker.group()[1:-1]
+        if name.startswith("t"):
+            opened[name] = old_position
+        elif name.startswith("/t"):
+            start = opened.get(name[1:])
+            marked_text = source[start:old_position] if start is not None else ""
+            if len(marked_text) >= 3:
+                candidates = [match.start() for match in re.finditer(re.escape(marked_text), candidate)]
+                projected = round(start * len(candidate) / max(1, len(source)))
+                ranked = sorted((abs(position - projected), position) for position in candidates)
+                if ranked and (len(ranked) == 1 or ranked[1][0] - ranked[0][0] >= len(marked_text)):
+                    anchors[start] = ranked[0][1]
+                    anchors[old_position] = ranked[0][1] + len(marked_text)
+
+    def boundary(position: int) -> int | None:
+        if position in anchors:
+            return anchors[position]
+        if position == 0:
+            return 0
+        if position == len(source):
+            return len(candidate)
+        for tag, old_start, old_end, new_start, new_end in opcodes:
+            if tag == "equal" and old_start <= position <= old_end:
+                return new_start + position - old_start
+            if position == old_start:
+                return new_start
+            if position == old_end:
+                return new_end
+        return None
+
+    positions = []
+    for old_position, marker in marker_positions:
+        new_position = boundary(old_position)
+        if new_position is None:
+            return None
+        positions.append((new_position, marker))
+    if positions != sorted(positions, key=lambda item: item[0]):
+        return None
+    repaired = candidate
+    for position, marker in reversed(positions):
+        repaired = repaired[:position] + marker + repaired[position:]
+    validate_codes(current, repaired)
+    return repaired
 
 
 def plain(value: str) -> str:

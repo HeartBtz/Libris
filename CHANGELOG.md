@@ -2,6 +2,19 @@
 
 All notable changes are documented here. Libris follows [Semantic Versioning](https://semver.org/); while the project is below 1.0, minor versions may include breaking operational changes that are called out explicitly.
 
+## [0.2.6] - 2026-09-14
+
+### Added
+
+- Safe marker restoration for targeted revisions when unchanged text boundaries provide an unambiguous alignment.
+- Adaptive reasoning fallback to `none` when reasoning consumes the response without producing usable final content.
+
+### Fixed
+
+- Marker and truncation failures now enter the bounded small-batch repair path without five identical retries.
+- Early failures report the actual number of attempts instead of a misleading `2/5` suffix.
+- Validation failures retain their actionable internal reason instead of a generic `ValueError` label.
+
 ## [0.2.5] - 2026-09-14
 
 ### Fixed
@@ -101,3 +114,4 @@ All notable changes are documented here. Libris follows [Semantic Versioning](ht
 [0.2.3]: https://github.com/HeartBtz/Libris/releases/tag/v0.2.3
 [0.2.4]: https://github.com/HeartBtz/Libris/releases/tag/v0.2.4
 [0.2.5]: https://github.com/HeartBtz/Libris/releases/tag/v0.2.5
+[0.2.6]: https://github.com/HeartBtz/Libris/releases/tag/v0.2.6

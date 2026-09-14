@@ -224,6 +224,8 @@ class OpenAIProvider:
             authentication_required = False
             content_refused = False
             marker_error = False
+            reasoning_failure = False
+            truncated = False
             retry_after = 0
             try:
                 async with (
@@ -271,12 +273,19 @@ class OpenAIProvider:
                 if refused:
                     raise ProviderContentRefused(refused)
                 if choice.get("finish_reason") not in ("stop", "eos_token"):
+                    truncated = True
+                    reasoning_failure = bool(
+                        message.get("reasoning") or message.get("reasoning_content")
+                    )
+                    transient = False
                     raise LLMError(
                         "Réponse tronquée ou arrêt inattendu : " + str(choice.get("finish_reason"))
                     )
                 if not message.get("content") and (
                     message.get("reasoning") or message.get("reasoning_content")
                 ):
+                    reasoning_failure = True
+                    transient = False
                     raise LLMError(
                         "Le provider a renvoyé du raisonnement sans contenu final (content=null). "
                         "Désactivez ou réduisez le niveau de raisonnement."
@@ -323,7 +332,7 @@ class OpenAIProvider:
                     "La réponse a modifié les marqueurs EPUB immuables. "
                     "Libris conserve la traduction existante."
                     if marker_error
-                    else f"Réponse invalide ({type(exc).__name__})."
+                    else f"Réponse invalide : {str(exc)[:1000] or type(exc).__name__}."
                 )
             except (httpx.RequestError, ValidationError, LLMError, KeyError, TypeError) as exc:
                 unavailable = isinstance(exc, httpx.RequestError)
@@ -392,6 +401,13 @@ class OpenAIProvider:
                 } and attempt < 2:
                     continue
                 raise ProviderContentRefused(error)
+            if (
+                reasoning_failure
+                and provider.capabilities.get("supports_reasoning")
+                and params.get("reasoning_effort") != "none"
+            ):
+                params["reasoning_effort"] = "none"
+                continue
             if marker_error:
                 if not marker_repair_requested:
                     marker_repair_requested = True
@@ -415,8 +431,15 @@ class OpenAIProvider:
             if not transient:
                 break
             await asyncio.sleep(min(2 ** (attempt - 1), 16) + random.random())
-        error_type = InvalidResponseExhausted if attempt == 5 else LLMError
-        raise error_type(f"{last_error} Tentative {attempt}/5. Voir la requête pour le diagnostic.")
+        error_type = (
+            InvalidResponseExhausted
+            if attempt == 5 or marker_error or reasoning_failure or truncated
+            else LLMError
+        )
+        raise error_type(
+            f"{last_error} Échec après {attempt} tentative{'s' if attempt > 1 else ''}. "
+            "Voir la requête pour le diagnostic."
+        )
 
     async def reserve(
         self,

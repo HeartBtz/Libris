@@ -5,7 +5,15 @@ import pytest
 
 from app.engines.epub import inspect_archive, parse_book, rebuild
 from app.engines.epub.archive import relative_resource, xml
-from app.engines.epub.text import apply_unit, extract_units, group_units, linearize, validate_codes
+from app.engines.epub.text import (
+    apply_unit,
+    extract_units,
+    group_units,
+    linearize,
+    plain,
+    restore_missing_codes,
+    validate_codes,
+)
 
 
 def identity_segments(parsed):
@@ -90,6 +98,33 @@ def test_ignore_nontranslatable(book_bytes):
 def test_bad_codes_rejected(target):
     with pytest.raises(ValueError):
         validate_codes("Hello ⟦t0⟧world⟦/t0⟧", target)
+
+
+def test_restore_missing_codes_uses_unchanged_text_boundaries():
+    assert restore_missing_codes(
+        "Ils ne se seraient ⟦t0⟧pas⟦/t0⟧ précipités.",
+        "Ils n’auraient pas dû se précipiter.",
+    ) == "Ils n’auraient ⟦t0⟧pas⟦/t0⟧ dû se précipiter."
+    assert restore_missing_codes(
+        "Ces citoyens ⟦t0⟧⟦/t0⟧ordinaires peuvent voir.",
+        "Ces citoyens ordinaires et moi pouvons voir.",
+    ) == "Ces citoyens ⟦t0⟧⟦/t0⟧ordinaires et moi pouvons voir."
+
+
+def test_restore_missing_codes_preserves_formatting_around_replacement():
+    assert restore_missing_codes(
+        "La ⟦t0⟧lumière⟦/t0⟧ brille.",
+        "Le feu brille.",
+    ) == "Le ⟦t0⟧feu⟦/t0⟧ brille."
+
+
+def test_restore_missing_codes_rebuilds_a_partial_marker_sequence():
+    current = "⟦t0⟧Ils comprennent⟦/t0⟧ ⟦t1⟧pas⟦/t1⟧⟦t2⟧ encore.⟦/t2⟧"
+    candidate = "⟦t0⟧Ils comprennent⟦/t0⟧ vraiment pas encore."
+    repaired = restore_missing_codes(current, candidate)
+    assert repaired is not None
+    validate_codes(current, repaired)
+    assert plain(repaired) == "Ils comprennent vraiment pas encore."
 
 
 def test_long_inline_paragraph_split_reversible():

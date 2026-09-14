@@ -6,7 +6,7 @@ COPY frontend/ ./
 RUN npm run build
 
 FROM python:3.13-slim-bookworm AS runtime
-ARG LIBRIS_VERSION=0.2.0
+ARG LIBRIS_VERSION=0.2.1
 ARG VCS_REF=unknown
 LABEL org.opencontainers.image.title="Libris" \
       org.opencontainers.image.version="${LIBRIS_VERSION}" \
@@ -22,8 +22,11 @@ RUN curl --fail --location --retry 5 "https://github.com/w3c/epubcheck/releases/
     && unzip -q /tmp/epubcheck.zip -d /opt && rm /tmp/epubcheck.zip
 ENV EPUBCHECK_JAR=/opt/epubcheck-${EPUBCHECK_VERSION}/epubcheck.jar
 WORKDIR /app/backend
+COPY scripts/harden_epubcheck.py /tmp/harden_epubcheck.py
+RUN python /tmp/harden_epubcheck.py /opt/epubcheck-5.3.0 && rm /tmp/harden_epubcheck.py
 COPY backend/requirements.lock ./requirements.lock
 RUN pip install --no-cache-dir -r requirements.lock
+RUN pip uninstall -y pip
 COPY backend/ ./
 COPY prompts/ /app/prompts/
 COPY --from=frontend /build/dist /app/frontend/dist

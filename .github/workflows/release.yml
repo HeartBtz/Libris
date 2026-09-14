@@ -58,6 +58,9 @@ jobs:
       - run: npx playwright install --with-deps chromium && npx playwright test e2e/accounts.spec.ts e2e/showcase.spec.ts
         working-directory: frontend
       - run: docker run --rm -v "$PWD:/repo" ghcr.io/gitleaks/gitleaks:v8.28.0 git /repo --redact --no-banner
+      - run: docker build --tag libris:audit .
+      - run: docker run --rm -v "$PWD/scripts/check_epubcheck.py:/tmp/check_epubcheck.py:ro" libris:audit python /tmp/check_epubcheck.py
+      - run: docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy@sha256:62b1e65e8869bc4b4c6aa4fa2b21595256c7c2f6018a9d9ad61caf87187c1969 image --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 libris:audit
 
   release:
     needs: test

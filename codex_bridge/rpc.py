@@ -104,7 +104,7 @@ class CodexSession:
             await self.call(
                 "initialize",
                 {
-                    "clientInfo": {"name": "libris", "version": "0.2.0"},
+                    "clientInfo": {"name": "libris", "version": "0.2.1"},
                     "capabilities": {"experimentalApi": True},
                 },
                 timeout=30,

@@ -2,6 +2,14 @@
 
 All notable changes are documented here. Libris follows [Semantic Versioning](https://semver.org/); while the project is below 1.0, minor versions may include breaking operational changes that are called out explicitly.
 
+## [0.2.1] - 2026-09-14
+
+### Security
+
+- Patch four bundled EPUBCheck dependency JARs with SHA-256-pinned Jackson 2.18.8 and HttpCore 5.4.3 artifacts. Upstream EPUBCheck 5.3.0 remains the latest release; launcher filenames are preserved, updated versions are recorded in JAR metadata.
+- Remove pip and its vendored build tooling from the runtime image after installation.
+- These changes address seven fixable HIGH findings discovered by the full container scan after the application dependency checks.
+
 ## [0.2.0] - 2026-09-14
 
 ### Added
@@ -49,3 +57,4 @@ All notable changes are documented here. Libris follows [Semantic Versioning](ht
 
 [0.1.0]: https://github.com/HeartBtz/Libris/releases/tag/v0.1.0
 [0.2.0]: https://github.com/HeartBtz/Libris/releases/tag/v0.2.0
+[0.2.1]: https://github.com/HeartBtz/Libris/releases/tag/v0.2.1

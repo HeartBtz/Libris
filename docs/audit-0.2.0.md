@@ -57,6 +57,17 @@ that every possible vulnerability has been excluded.
 
 ## Remaining operational considerations
 
+### Container follow-up: 0.2.1
+
+The full Trivy image scan subsequently found seven fixable HIGH findings absent
+from the application lockfile audits: Jackson/HttpCore bundled in EPUBCheck and
+Python build-tool vendoring. Version 0.2.1 replaces four JARs with SHA-256-pinned
+artifacts, removes pip from runtime, and passes a repeat image scan with **zero
+fixable HIGH/CRITICAL findings**. This does not claim zero unfixed or lower-severity
+findings. Synthetic valid and invalid EPUBs were both checked with the patched
+runtime; valid content was accepted and a missing resource was correctly rejected.
+GitHub CI and release jobs now gate image publication on this scan and EPUBCheck smoke test.
+
 - Login/password rate limiting is in-process and IP-scoped, so it resets on API restart and
   is not shared by multiple API replicas. A trusted reverse proxy should enforce edge limits.
 - CSP permits inline styles because current React components use dynamic styles; inline scripts

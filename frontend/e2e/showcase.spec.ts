@@ -141,6 +141,7 @@ test("capture public Libris showcase", async ({ page }) => {
     ],
   };
   const errors: string[] = [];
+  let exportedProjects: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await page.route("**/api/**", async (route) => {
     const url = new URL(route.request().url());
@@ -150,6 +151,11 @@ test("capture public Libris showcase", async ({ page }) => {
         contentType: "text/event-stream",
         body: ": demo\n\n",
       });
+      return;
+    }
+    if (path === "/api/exports/epub" && route.request().method() === "POST") {
+      exportedProjects = (route.request().postDataJSON() as { project_ids: string[] }).project_ids;
+      await route.fulfill({ contentType: "application/zip", body: "synthetic zip" });
       return;
     }
     let data: unknown = [];
@@ -210,6 +216,10 @@ test("capture public Libris showcase", async ({ page }) => {
   await firstBook.check();
   await expect(page.getByLabel("Memory source")).toBeVisible();
   await page.getByLabel("Memory source").selectOption("hybrid");
+  const bulkDownload = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Export EPUBs" }).click();
+  expect((await bulkDownload).suggestedFilename()).toBe("libris-epubs.zip");
+  expect(exportedProjects).toEqual(["demo"]);
   await firstBook.uncheck();
   await page.screenshot({ path: resolve(output, "library.png") });
   await page.getByRole("button", { name: /In progress/ }).click();

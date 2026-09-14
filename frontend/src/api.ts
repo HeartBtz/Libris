@@ -49,6 +49,29 @@ export function download(name: string, value: unknown) {
   anchor.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
+export async function downloadApi(path: string, name: string, body: unknown) {
+  const response = await fetch(`/api${path}`, {
+    method: "POST",
+    credentials: "same-origin",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) {
+    const data = (await response.json()) as { detail?: unknown };
+    throw new ApiError(
+      response.status,
+      typeof data.detail === "string"
+        ? data.detail
+        : JSON.stringify(data.detail ?? data),
+    );
+  }
+  const url = URL.createObjectURL(await response.blob());
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = name;
+  anchor.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
 export function date(timestamp: number) {
   return new Date(timestamp * 1000).toLocaleString(getLocale());
 }

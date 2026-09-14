@@ -83,6 +83,10 @@ class SeriesBatchInput(StrictModel):
     mode: Literal["preserve", "sequential", "clear"] = "sequential"
 
 
+class BatchExportInput(StrictModel):
+    project_ids: list[str] = Field(min_length=1, max_length=100)
+
+
 class GlossaryInput(StrictModel):
     source: str = Field(min_length=1, max_length=300)
     translation: str = Field(min_length=1, max_length=300)

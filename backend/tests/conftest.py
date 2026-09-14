@@ -23,6 +23,9 @@ from app.db import Base, SessionLocal, engine  # noqa: E402
 
 @pytest.fixture(autouse=True)
 def database():
+    from app.main import login_attempts
+
+    login_attempts.clear()
     Base.metadata.drop_all(engine)
     Base.metadata.create_all(engine)
     settings().prepare()

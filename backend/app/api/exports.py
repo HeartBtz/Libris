@@ -1,13 +1,18 @@
 import base64
 import io
 import json
+import os
+import re
+import tempfile
 import zipfile
 from pathlib import Path
 from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Response, UploadFile
+from fastapi.responses import FileResponse
 from lxml import etree
 from sqlalchemy import select
+from starlette.background import BackgroundTask
 
 from app.api.common import row
 from app.api.projects import import_book
@@ -29,7 +34,7 @@ from app.models import (
     Segment,
     TranslationVersion,
 )
-from app.schemas import BookBible, GlossaryInput, TranslationResult
+from app.schemas import BatchExportInput, BookBible, GlossaryInput, TranslationResult
 from app.security import DB, CurrentUser, access
 
 router = APIRouter(prefix="/api")
@@ -37,6 +42,68 @@ router = APIRouter(prefix="/api")
 
 def project_segments(db, pid: str) -> list[Segment]:
     return list(db.scalars(select(Segment).where(Segment.project_id == pid).order_by(Segment.position)))
+
+
+def translated_epub(project, segments: list[Segment]) -> bytes:
+    if any(not segment.translation or segment.retained_source for segment in segments):
+        raise HTTPException(409, "Export bloqué : des passages n’ont pas encore de traduction.")
+    content = rebuild(
+        Path(project.original_path).read_bytes(),
+        [row(segment) for segment in segments],
+        project.target_language,
+        project.title,
+        project.author,
+    )
+    validation = epubcheck(content)
+    if validation["available"] and not validation["valid"]:
+        raise HTTPException(422, {"message": "EPUBCheck signale un EPUB invalide.", "validation": validation})
+    return content
+
+
+def unique_epub_name(title: str, used: set[str]) -> str:
+    base = re.sub(r"[^\w .()#-]", "_", title, flags=re.UNICODE).strip(" .")[:180] or "livre"
+    name, number = f"{base}.epub", 2
+    while name.casefold() in used:
+        name = f"{base} ({number}).epub"
+        number += 1
+    used.add(name.casefold())
+    return name
+
+
+@router.post("/exports/epub")
+def export_epubs(body: BatchExportInput, user: CurrentUser, db: DB):
+    if len(set(body.project_ids)) != len(body.project_ids):
+        raise HTTPException(422, "La sélection contient des projets en double.")
+    selected = []
+    incomplete = []
+    for project_id in body.project_ids:
+        project = access(db, project_id, user)
+        segments = project_segments(db, project_id)
+        selected.append((project, segments))
+        if any(not segment.translation or segment.retained_source for segment in segments):
+            incomplete.append(project.title)
+    if incomplete:
+        raise HTTPException(
+            409,
+            "Export bloqué, traduction incomplète : " + ", ".join(incomplete),
+        )
+
+    descriptor, archive_path = tempfile.mkstemp(prefix="libris-epubs-", suffix=".zip")
+    os.close(descriptor)
+    try:
+        used: set[str] = set()
+        with zipfile.ZipFile(archive_path, "w", zipfile.ZIP_STORED) as archive:
+            for project, segments in selected:
+                archive.writestr(unique_epub_name(project.title, used), translated_epub(project, segments))
+        return FileResponse(
+            archive_path,
+            media_type="application/zip",
+            filename="libris-epubs.zip",
+            background=BackgroundTask(os.unlink, archive_path),
+        )
+    except Exception:
+        Path(archive_path).unlink(missing_ok=True)
+        raise
 
 
 @router.get("/projects/{pid}/export/{format}")
@@ -86,19 +153,19 @@ def export(
             output.writestr("project.json", json.dumps(payload, ensure_ascii=False))
         content, mime, filename = archive.getvalue(), "application/zip", "translation-project.zip"
     elif format == "epub":
-        if not allow_source and any(not s.translation or s.retained_source for s in segments):
-            raise HTTPException(409, "Export bloqué : des passages n’ont pas encore de traduction.")
-        export_rows = [row(s) for s in segments]
         if allow_source:
+            export_rows = [row(s) for s in segments]
             for value in export_rows:
                 if not value["translated_units"]:
                     value["translated_units"] = [{"id": u["id"], "text": u["text"]} for u in value["units"]]
-        content = rebuild(original, export_rows, project.target_language, project.title, project.author)
-        validation = epubcheck(content)
-        if validation["available"] and not validation["valid"]:
-            raise HTTPException(
-                422, {"message": "EPUBCheck signale un EPUB invalide.", "validation": validation}
-            )
+            content = rebuild(original, export_rows, project.target_language, project.title, project.author)
+            validation = epubcheck(content)
+            if validation["available"] and not validation["valid"]:
+                raise HTTPException(
+                    422, {"message": "EPUBCheck signale un EPUB invalide.", "validation": validation}
+                )
+        else:
+            content = translated_epub(project, segments)
         mime, filename = (
             "application/epub+zip",
             "translated-partial-with-originals.epub" if allow_source else "translated.epub",

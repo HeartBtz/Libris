@@ -246,7 +246,11 @@ def configure(project_id: str, body: ProjectConfig, user: CurrentUser, db: DB):
     for key, value in values.items():
         setattr(project, key, value)
     for job in db.scalars(select(Job).where(Job.project_id == project_id, Job.status.in_(HELD))):
-        if not job.options.get("provider_id"):
+        if "provider_id" in changed:
+            job.provider_id = body.provider_id
+            if job.options.get("provider_id"):
+                job.options = {**job.options, "provider_id": body.provider_id}
+        elif not job.options.get("provider_id"):
             job.provider_id = body.provider_id
     if provider_selected and not db.scalar(
         select(Job.id).where(Job.project_id == project_id, Job.status.in_(HELD))

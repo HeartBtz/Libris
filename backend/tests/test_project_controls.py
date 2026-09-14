@@ -200,11 +200,11 @@ def test_analyze_already_completed_is_idempotent_and_does_not_queue(seeded):
     assert claim() is None
 
 
-def test_paused_job_uses_new_project_provider_when_resumed(seeded):
-    pid = seeded[0]
+def test_paused_job_with_explicit_provider_uses_new_project_provider_when_resumed(seeded):
+    pid, _, original_provider_id = seeded
     with SessionLocal() as db:
         project = db.get(Project, pid)
-        job = enqueue(db, project, "analyze", {})
+        job = enqueue(db, project, "analyze", {"provider_id": original_provider_id})
         alternate = Provider(
             name="Alternate",
             base_url="https://alternate.test/v1",
@@ -238,4 +238,6 @@ def test_paused_job_uses_new_project_provider_when_resumed(seeded):
         assert resumed.status_code == 200 and resumed.json()["provider_id"] == alternate_id
 
     with SessionLocal() as db:
-        assert db.get(Job, jid).provider_id == alternate_id
+        saved = db.get(Job, jid)
+        assert saved.provider_id == alternate_id
+        assert saved.options["provider_id"] == alternate_id

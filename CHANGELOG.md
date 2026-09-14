@@ -2,6 +2,16 @@
 
 All notable changes are documented here. Libris follows [Semantic Versioning](https://semver.org/); while the project is below 1.0, minor versions may include breaking operational changes that are called out explicitly.
 
+## [0.2.4] - 2026-09-14
+
+### Added
+
+- Bulk ZIP download of complete translated EPUBs selected in the library.
+
+### Fixed
+
+- Changing a project provider while work is paused now updates both the suspended job and any explicit recovery-provider override.
+
 ## [0.2.3] - 2026-09-14
 
 ### Added
@@ -82,3 +92,4 @@ All notable changes are documented here. Libris follows [Semantic Versioning](ht
 [0.2.1]: https://github.com/HeartBtz/Libris/releases/tag/v0.2.1
 [0.2.2]: https://github.com/HeartBtz/Libris/releases/tag/v0.2.2
 [0.2.3]: https://github.com/HeartBtz/Libris/releases/tag/v0.2.3
+[0.2.4]: https://github.com/HeartBtz/Libris/releases/tag/v0.2.4

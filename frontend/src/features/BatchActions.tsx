@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, send } from "../api";
+import { api, downloadApi, send } from "../api";
 import { registerTranslations, useI18n } from "../i18n";
 import type { Job, Project, Provider, Run } from "../types";
 
@@ -12,6 +12,8 @@ const translations: Record<string, string> = {
   "supprimé.": "deleted.", "archivé.": "archived.", "en pause": "paused", "reprise planifiée": "resumption scheduled", "travail annulé": "work cancelled", "aucun travail concerné": "no relevant work", "configuré": "configured", "travail ajouté à la file": "work queued",
   "Actions sur plusieurs livres": "Actions for multiple books", "livre(s) sélectionné(s)": "selected book(s)", "Série commune": "Common series", "Premier volume": "First volume", "Appliquer sans renuméroter": "Apply without renumbering", "Numéroter par titre": "Number by title", "Retirer de la série": "Remove from series", "Provider commun": "Common provider", "Conserver les providers individuels": "Keep individual providers", "Source mémoire": "Memory source", "Conserver les sources individuelles": "Keep individual sources", "Mémoire interne": "Internal memory", "Langue cible": "Target language", "Qualité": "Quality", "Rapide": "Fast", "Haute qualité": "High quality", "Instructions communes": "Common instructions", "Conserver si vide": "Keep if empty", "Configurer la sélection": "Configure selection", "Analyser la sélection": "Analyze selection", "Traduire la sélection": "Translate selection", "Mettre la sélection en pause": "Pause selection", "Reprendre la sélection": "Resume selection", "Annuler les analyses": "Cancel analyses", "Annuler les traductions": "Cancel translations", "Archiver la sélection": "Archive selection", "Supprimer la sélection": "Delete selection",
   "Les livres avancent en parallèle selon les limites du worker et de chaque provider. Les passages d’un même livre gardent leur ordre narratif.": "Books progress in parallel according to worker and provider limits. Segments in the same book retain their narrative order.",
+  "Exporter les EPUB": "Export EPUBs",
+  "Archive de {count} EPUB téléchargée.": "Archive containing {count} EPUBs downloaded.",
 };
 registerTranslations(translations);
 
@@ -228,6 +230,22 @@ export function BatchActions({
     await run(refresh);
     setBusy(false);
   }
+  async function exportEpubs() {
+    setBusy(true);
+    setResults([]);
+    try {
+      await downloadApi("/exports/epub", "libris-epubs.zip", {
+        project_ids: books.map((book) => book.id),
+      });
+      setResults([
+        t("Archive de {count} EPUB téléchargée.").replace("{count}", String(books.length)),
+      ]);
+    } catch (error) {
+      setResults([error instanceof Error ? error.message : String(error)]);
+    } finally {
+      setBusy(false);
+    }
+  }
   return (
     <section className="notice" aria-label={t("Actions sur plusieurs livres")}>
       <h3>
@@ -332,6 +350,9 @@ export function BatchActions({
         </button>
       </div>
       <div className="actions">
+        <button disabled={busy} className="primary" onClick={() => void exportEpubs()}>
+          {t("Exporter les EPUB")}
+        </button>
         <button disabled={busy} onClick={() => void apply("analyze")}>
           {t("Analyser la sélection")}
         </button>

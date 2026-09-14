@@ -54,6 +54,33 @@ async def test_repair_checkpoints_successful_batches(seeded, monkeypatch):
         execution.reset(token)
 
 
+async def test_accepted_critique_waits_on_provider_outage(seeded, monkeypatch):
+    from app.api.segments import queue_critique
+
+    with SessionLocal() as db:
+        project = db.get(Project, seeded[0])
+        segment = db.scalar(select(Segment).where(Segment.project_id == project.id))
+        segment.translated_units = [{"id": u["id"], "text": "Bonjour"} for u in segment.units]
+        critique = {"unit_id": segment.units[0]["id"], "suggestion": "Improve style"}
+        segment.critique = [critique]
+        job = queue_critique(db, project, segment, critique, seeded[1])
+        jid, sid = job.id, segment.id
+        db.commit()
+
+    async def context(*args, **kwargs):
+        return SimpleNamespace(messages=[], inspector={})
+
+    async def unavailable(**kwargs):
+        raise ProviderUnavailable("Codex unavailable")
+
+    monkeypatch.setattr(critique_queue, "build_context", context)
+    monkeypatch.setattr(critique_queue.llm, "complete", unavailable)
+    await execute(*claim())
+    with SessionLocal() as db:
+        assert db.get(Job, jid).status == "waiting"
+        assert db.get(Segment, sid).critique[0]["queued"] is True
+
+
 def test_recovery_selection_and_completion(seeded):
     with SessionLocal() as db:
         db.get(Project, seeded[0]).bible = {"summary": "Synthetic analysis"}

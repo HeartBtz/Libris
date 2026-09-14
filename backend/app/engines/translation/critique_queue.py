@@ -8,7 +8,7 @@ from app.engines.quality.checks import validate_translation
 from app.engines.translation.versions import save_version
 from app.jobs.queue import checkpoint, emit
 from app.models import Issue, Job, Project, Segment
-from app.providers.llm import LLMError, llm
+from app.providers.llm import LLMError, ProviderAuthenticationRequired, ProviderUnavailable, llm
 from app.schemas import TranslationResult
 
 
@@ -103,11 +103,21 @@ async def accept_queued_critiques(job: Job, owner: str) -> None:
                 segment.critique = [
                     value for value in segment.critique if not matches_acceptance(value, item)
                 ]
+                if not segment.critique:
+                    for issue in db.scalars(select(Issue).where(
+                        Issue.segment_id == segment.id,
+                        Issue.code == "queued_critique_failed",
+                        Issue.resolved.is_(False),
+                    )):
+                        issue.resolved = True
+                    db.flush()
                 unresolved = db.scalar(
                     select(Issue.id).where(Issue.segment_id == segment.id, Issue.resolved.is_(False)).limit(1)
                 )
                 segment.status = "check" if segment.critique or unresolved else "ok"
                 emit(db, project.id, segment_id=segment.id, status="ai_suggestion_accepted")
+            except (ProviderUnavailable, ProviderAuthenticationRequired):
+                raise
             except (LLMError, ValueError) as exc:
                 segment.critique = [
                     {key: field for key, field in value.items() if key != "queued"}

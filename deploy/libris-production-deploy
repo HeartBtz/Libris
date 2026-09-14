@@ -18,9 +18,10 @@ health_url="${LIBRIS_PRODUCTION_HEALTH_URL:-http://192.168.1.116:8088/health}"
 app_image="libris-production:$commit"
 codex_image="libris-codex-production:$commit"
 [[ -r "$compose_file" && -r "$secret_env" ]] || { echo "Production configuration is not provisioned" >&2; exit 65; }
+deployed_version=""
+deployed_commit=""
 if [[ -r "$base/current-version" ]]; then
 	deployed_version="$(<"$base/current-version")"
-	deployed_commit=""
 	[[ ! -r "$base/current-commit" ]] || deployed_commit="$(<"$base/current-commit")"
 	if [[ "$version" == "$deployed_version" && -n "$deployed_commit" && "$commit" != "$deployed_commit" ]]; then
 		echo "Version $version is already associated with another commit" >&2
@@ -51,6 +52,33 @@ worker_container="$("${compose[@]}" ps -q worker)"
 codex_container="$("${compose[@]}" ps -q codex)"
 [[ -n "$api_container" ]] || { echo "Existing production API was not found" >&2; exit 65; }
 [[ -n "$worker_container" ]] || { echo "Existing production worker was not found" >&2; exit 65; }
+current_revision="$("${compose[@]}" exec -T database sh -lc 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Atc "SELECT version_num FROM alembic_version ORDER BY version_num;"')"
+target_revision="$(docker run --rm --entrypoint sh "$app_image" -lc "alembic heads | sed -n 's/ .*//p'")"
+[[ -n "$current_revision" && -n "$target_revision" ]] || { echo "Could not resolve database revisions" >&2; exit 65; }
+check_health() {
+	python3 - "$version" "$health_url" <<'PY'
+import json
+import sys
+import urllib.request
+
+with urllib.request.urlopen(sys.argv[2], timeout=5) as response:
+    health = json.load(response)
+if health != {"status": "ok", "version": sys.argv[1]}:
+    raise SystemExit(f"Unexpected health response: {health}")
+PY
+}
+if [[ "$version" == "$deployed_version" && "$commit" == "$deployed_commit" && -n "$codex_container" ]] \
+	&& [[ "$(docker inspect --format '{{.Image}}' "$api_container")" == "$expected_app_id" ]] \
+	&& [[ "$(docker inspect --format '{{.Image}}' "$worker_container")" == "$expected_app_id" ]] \
+	&& [[ "$(docker inspect --format '{{.Image}}' "$codex_container")" == "$expected_codex_id" ]] \
+	&& [[ "$(docker inspect --format '{{.State.Health.Status}}' "$api_container")" == healthy ]] \
+	&& [[ "$(docker inspect --format '{{.State.Status}}' "$worker_container")" == running ]] \
+	&& [[ "$(docker inspect --format '{{.State.Health.Status}}' "$codex_container")" == healthy ]] \
+	&& [[ "$current_revision" == "$target_revision" ]] \
+	&& check_health; then
+	echo "Libris $version ($commit) is already deployed and healthy"
+	exit 0
+fi
 previous_app_id="$(docker inspect --format '{{.Image}}' "$api_container")"
 previous_worker_id="$(docker inspect --format '{{.Image}}' "$worker_container")"
 previous_codex_id=""
@@ -61,16 +89,31 @@ docker image tag "$previous_worker_id" libris-production:previous-worker
 
 install -d -m 0700 "$base/backups"
 timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
-backup="$base/backups/pre-${timestamp}-${commit}.dump"
-current_revision="$("${compose[@]}" exec -T database sh -lc 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Atc "SELECT version_num FROM alembic_version ORDER BY version_num;"')"
-target_revision="$(docker run --rm --entrypoint sh "$app_image" -lc "alembic heads | sed -n 's/ .*//p'")"
-[[ -n "$current_revision" && -n "$target_revision" ]] || { echo "Could not resolve database revisions" >&2; exit 65; }
+backup="$(mktemp "$base/backups/pre-${timestamp}-${commit}.XXXXXX.dump")"
+chmod 0600 "$backup"
 schema_unchanged=true
+services_stopped=false
+migration_started=false
 
 rollback() {
 	status="${1:-$?}"
 	trap - ERR INT TERM
-	"${compose[@]}" stop api worker codex >/dev/null 2>&1 || true
+	if [[ "$services_stopped" == false ]]; then
+		rm -f "$backup"
+		echo "Deployment failed before service interruption; production remains online." >&2
+		exit "$status"
+	fi
+	stop_succeeded=true
+	"${compose[@]}" stop migrate api worker codex >/dev/null 2>&1 || stop_succeeded=false
+	if [[ "$migration_started" == true ]]; then
+		schema_unchanged=false
+		migrate_container="$("${compose[@]}" ps -q --all migrate 2>/dev/null || true)"
+		migrate_running="$(docker inspect --format '{{.State.Running}}' "$migrate_container" 2>/dev/null || true)"
+		if [[ "$stop_succeeded" == true && "$migrate_running" != true ]]; then
+			rollback_revision="$("${compose[@]}" exec -T database sh -lc 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Atc "SELECT version_num FROM alembic_version ORDER BY version_num;"' 2>/dev/null || true)"
+			[[ "$rollback_revision" != "$current_revision" ]] || schema_unchanged=true
+		fi
+	fi
 	if [[ "$schema_unchanged" == true ]]; then
 		export LIBRIS_IMAGE=libris-production:previous-api
 		services=(api)
@@ -103,15 +146,16 @@ rollback() {
 trap rollback ERR
 trap 'rollback 130' INT TERM
 
-"${compose[@]}" stop api worker codex
-(set -o noclobber; "${compose[@]}" exec -T database sh -lc 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc' > "$backup")
+"${compose[@]}" exec -T database sh -lc 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc' > "$backup"
 if [[ ! -s "$backup" ]]; then
 	echo "Pre-deployment database backup failed" >&2
 	rollback 1
 fi
+services_stopped=true
+"${compose[@]}" stop api worker codex
+schema_unchanged=false
+migration_started=true
 if ! "${compose[@]}" up --no-build --wait --force-recreate migrate; then
-	migrated_revision="$("${compose[@]}" exec -T database sh -lc 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Atc "SELECT version_num FROM alembic_version ORDER BY version_num;"' 2>/dev/null || true)"
-	[[ "$migrated_revision" == "$current_revision" ]] || schema_unchanged=false
 	rollback 1
 fi
 if ! migrated_revision="$("${compose[@]}" exec -T database sh -lc 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Atc "SELECT version_num FROM alembic_version ORDER BY version_num;"')"; then
@@ -119,19 +163,10 @@ if ! migrated_revision="$("${compose[@]}" exec -T database sh -lc 'psql -U "$POS
 	echo "Could not verify the database revision after migration" >&2
 	rollback 1
 fi
-[[ "$migrated_revision" == "$current_revision" ]] || schema_unchanged=false
+[[ "$migrated_revision" != "$current_revision" ]] || schema_unchanged=true
 [[ "$migrated_revision" == "$target_revision" ]] || { echo "Migration did not reach $target_revision" >&2; false; }
 "${compose[@]}" up -d --no-build --wait api codex
-python3 - "$version" "$health_url" <<'PY'
-import json
-import sys
-import urllib.request
-
-with urllib.request.urlopen(sys.argv[2], timeout=5) as response:
-    health = json.load(response)
-if health != {"status": "ok", "version": sys.argv[1]}:
-    raise SystemExit(f"Unexpected health response: {health}")
-PY
+check_health
 "${compose[@]}" up -d --no-build --wait worker
 
 trap - ERR INT TERM

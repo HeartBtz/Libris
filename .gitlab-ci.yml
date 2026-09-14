@@ -211,6 +211,7 @@ publish-dockerhub:
     - VERSION="${CI_COMMIT_TAG#v}"
     - MINOR="${VERSION%.*}"
     - for tag in "$VERSION" "$MINOR" latest; do docker tag "$APP_IMAGE_REFERENCE" "$DOCKERHUB_IMAGE:$tag"; docker push "$DOCKERHUB_IMAGE:$tag"; done
+    - python3 scripts/publish_dockerhub_overview.py
   rules:
     - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/ && $DOCKERHUB_USERNAME && $DOCKERHUB_TOKEN
 

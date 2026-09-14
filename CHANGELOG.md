@@ -2,6 +2,14 @@
 
 All notable changes are documented here. Libris follows [Semantic Versioning](https://semver.org/); while the project is below 1.0, minor versions may include breaking operational changes that are called out explicitly.
 
+## Unreleased
+
+### Fixed
+
+- Kept the current application available while the pre-deployment PostgreSQL dump runs, reducing the service interruption to the migration and image switch.
+- Made deployment retries for an already healthy commit idempotent and hardened migration cancellation and rollback checks.
+- Added and published a self-contained Docker Hub overview with beginner installation, verification, update and backup instructions.
+
 ## [0.3.1] - 2026-09-14
 
 ### Changed

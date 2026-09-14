@@ -2,17 +2,109 @@ import { useEffect, useState } from "react";
 import { api, date, download, labels, number, send } from "../api";
 import { registerTranslations, useI18n } from "../i18n";
 import type { Issue, LLMRequest, Project, Provider, Run, Term } from "../types";
-import { RequestDetails } from "./Editor";
+import { RequestDetails, useDialogFocus } from "./Editor";
 import { MemoryPanel } from "./MemoryPanel";
 import { duration, projectProgress } from "./progress";
 
 const translations: Record<string, string> = {
   "Stratégie du livre": "Book strategy",
   "Choix terminologiques": "Terminology choices",
-  "Observabilité": "Observability",
-  "mots · {sections} sections / documents · {images} images · {size} Mo": "words · {sections} sections / documents · {images} images · {size} MB", "Titre à l’export": "Export title", "Auteur": "Author", "Série": "Series", "Numéro du volume": "Volume number", "Langue source": "Source language", "Langue cible (code BCP 47)": "Target language (BCP 47 code)", "Choisir…": "Choose…", "Qualité": "Quality", "Rapide": "Fast", "Normal · vérification": "Normal · verification", "Haute qualité · critique & révision": "High quality · critique & revision", "Maximum · polishing": "Maximum · polishing", "Moteur de contexte": "Context engine", "Internal — recommandé": "Internal — recommended", "Instructions globales": "Global instructions", "Conserver les suffixes -san, -chan, -sama. Tutoyer entre Alice et Bob…": "Preserve -san, -chan, and -sama suffixes. Use informal address between Alice and Bob…", "Enregistrer": "Save", "Rapport de validation à l’import": "Import validation report", "Partager ce projet": "Share this project", "Accès accordé.": "Access granted.", "Utilisateur à inviter": "User to invite", "Utilisateur existant": "Existing user", "Rôle sur le projet": "Project role", "Lecteur": "Reader", "Éditeur": "Editor", "Partager": "Share", "Supprimer le projet local, ses traductions et arrêter ses travaux ? La mémoire OpenViking distante reste séparée. Exportez le projet pour conserver une copie.": "Delete the local project, its translations, and stop its work? Remote OpenViking memory remains separate. Export the project to retain a copy.", "Supprimer ce projet": "Delete this project",
-  "Terme enregistré. Les passages concernés sont marqués à réévaluer.": "Term saved. Affected segments are marked for reevaluation.", "{accepted} acceptés · {proposals} propositions · {locked} verrouillés": "{accepted} accepted · {proposals} proposals · {locked} locked", "Importer": "Import", "Rechercher dans le glossaire": "Search glossary", "Rechercher un terme…": "Search for a term…", "Source": "Source", "Traduction": "Translation", "Catégorie": "Category", "Verrouillé": "Locked", "Accepté": "Accepted", "Traduction de {term}": "Translation of {term}", "Catégorie de {term}": "Category of {term}", "Verrouiller {term}": "Lock {term}", "Accepter {term}": "Accept {term}", "Supprimer": "Delete", "Ajouter un choix humain": "Add a human choice", "Nouvelle expression source": "New source expression", "Expression source": "Source expression", "Nouvelle traduction": "New translation", "Ajouter et verrouiller": "Add and lock",
-  "Validée par un humain": "Validated by a human", "Analyse IA — à examiner": "AI analysis — review required", "Exporter JSON": "Export JSON", "Résumé éditorial": "Editorial summary", "Lancez l’analyse pour construire la mémoire du livre.": "Run analysis to build the book memory.", "Personnages": "Characters", "Validé": "Validated", "Fiche personnage (JSON)": "Character profile (JSON)", "Modifier / valider": "Edit / validate", "Éditer la Book Bible structurée": "Edit structured Book Bible", "Enregistrer et valider la Book Bible": "Save and validate Book Bible", "Relecture ciblée": "Targeted review", "Les signaux automatiques orientent la relecture ; ils ne mesurent pas seuls la qualité littéraire.": "Automated signals guide review; they do not alone measure literary quality.", "Contrôle global de cohérence": "Global consistency check", "Traité": "Resolved", "Passage {id}": "Segment {id}", "Marquer comme traité": "Mark as resolved", "Aucun problème enregistré par les contrôles exécutés.": "No issue recorded by completed checks.", "Estimations du travail actif": "Active work estimates", "temps restant estimé": "estimated remaining time", "coût tarifaire consommé": "consumed list-price cost", "coût restant estimé": "estimated remaining cost", "confiance de l’estimation": "estimate confidence", "Estimations fondées sur les requêtes réussies de l’étape active et les tarifs actuellement configurés. Elles sont indisponibles tant que l’échantillon est insuffisant.": "Estimates are based on successful requests from the active stage and currently configured rates. They are unavailable while the sample is insufficient.", "Opération": "Operation", "Modèle": "Model", "État": "Status", "Durée": "Duration", "Entrée / sortie": "Input / output", "Débit moyen*": "Average throughput*", "Essai": "Attempt", "Tokens de sortie / durée totale de requête, préremplissage inclus. Les comptes absents du provider sont enregistrés à zéro, pas inventés.": "Output tokens / total request duration, including prefill. Accounts absent from the provider are recorded as zero, not invented.", "Précédentes": "Previous", "Suivantes": "Next", "Détail de la requête": "Request details", "Fermer": "Close",
+  Observabilité: "Observability",
+  "mots · {sections} sections / documents · {images} images · {size} Mo":
+    "words · {sections} sections / documents · {images} images · {size} MB",
+  "Titre à l’export": "Export title",
+  Auteur: "Author",
+  Série: "Series",
+  "Numéro du volume": "Volume number",
+  "Langue source": "Source language",
+  "Langue cible (code BCP 47)": "Target language (BCP 47 code)",
+  "Choisir…": "Choose…",
+  Qualité: "Quality",
+  Rapide: "Fast",
+  "Normal · vérification": "Normal · verification",
+  "Haute qualité · critique & révision": "High quality · critique & revision",
+  "Maximum · polishing": "Maximum · polishing",
+  "Moteur de contexte": "Context engine",
+  "Internal — recommandé": "Internal — recommended",
+  "Instructions globales": "Global instructions",
+  "Conserver les suffixes -san, -chan, -sama. Tutoyer entre Alice et Bob…":
+    "Preserve -san, -chan, and -sama suffixes. Use informal address between Alice and Bob…",
+  Enregistrer: "Save",
+  "Rapport de validation à l’import": "Import validation report",
+  "Partager ce projet": "Share this project",
+  "Accès accordé.": "Access granted.",
+  "Utilisateur à inviter": "User to invite",
+  "Utilisateur existant": "Existing user",
+  "Rôle sur le projet": "Project role",
+  Lecteur: "Reader",
+  Éditeur: "Editor",
+  Partager: "Share",
+  "Supprimer le projet local, ses traductions et arrêter ses travaux ? La mémoire OpenViking distante reste séparée. Exportez le projet pour conserver une copie.":
+    "Delete the local project, its translations, and stop its work? Remote OpenViking memory remains separate. Export the project to retain a copy.",
+  "Supprimer ce projet": "Delete this project",
+  "Terme enregistré. Les passages concernés sont marqués à réévaluer.":
+    "Term saved. Affected segments are marked for reevaluation.",
+  "{accepted} acceptés · {proposals} propositions · {locked} verrouillés":
+    "{accepted} accepted · {proposals} proposals · {locked} locked",
+  Importer: "Import",
+  "Rechercher dans le glossaire": "Search glossary",
+  "Rechercher un terme…": "Search for a term…",
+  Source: "Source",
+  Traduction: "Translation",
+  Catégorie: "Category",
+  Verrouillé: "Locked",
+  Accepté: "Accepted",
+  "Traduction de {term}": "Translation of {term}",
+  "Catégorie de {term}": "Category of {term}",
+  "Verrouiller {term}": "Lock {term}",
+  "Accepter {term}": "Accept {term}",
+  Supprimer: "Delete",
+  "Ajouter un choix humain": "Add a human choice",
+  "Nouvelle expression source": "New source expression",
+  "Expression source": "Source expression",
+  "Nouvelle traduction": "New translation",
+  "Ajouter et verrouiller": "Add and lock",
+  "Validée par un humain": "Validated by a human",
+  "Analyse IA — à examiner": "AI analysis — review required",
+  "Exporter JSON": "Export JSON",
+  "Résumé éditorial": "Editorial summary",
+  "Lancez l’analyse pour construire la mémoire du livre.":
+    "Run analysis to build the book memory.",
+  Personnages: "Characters",
+  Validé: "Validated",
+  "Fiche personnage (JSON)": "Character profile (JSON)",
+  "Modifier / valider": "Edit / validate",
+  "Éditer la Book Bible structurée": "Edit structured Book Bible",
+  "Enregistrer et valider la Book Bible": "Save and validate Book Bible",
+  "Relecture ciblée": "Targeted review",
+  "Les signaux automatiques orientent la relecture ; ils ne mesurent pas seuls la qualité littéraire.":
+    "Automated signals guide review; they do not alone measure literary quality.",
+  "Contrôle global de cohérence": "Global consistency check",
+  Traité: "Resolved",
+  "Passage {id}": "Segment {id}",
+  "Marquer comme traité": "Mark as resolved",
+  "Aucun problème enregistré par les contrôles exécutés.":
+    "No issue recorded by completed checks.",
+  "Estimations du travail actif": "Active work estimates",
+  "temps restant estimé": "estimated remaining time",
+  "coût tarifaire consommé": "consumed list-price cost",
+  "coût restant estimé": "estimated remaining cost",
+  "confiance de l’estimation": "estimate confidence",
+  "Estimations fondées sur les requêtes réussies de l’étape active et les tarifs actuellement configurés. Elles sont indisponibles tant que l’échantillon est insuffisant.":
+    "Estimates are based on successful requests from the active stage and currently configured rates. They are unavailable while the sample is insufficient.",
+  Opération: "Operation",
+  Modèle: "Model",
+  État: "Status",
+  Durée: "Duration",
+  "Entrée / sortie": "Input / output",
+  "Débit moyen*": "Average throughput*",
+  Essai: "Attempt",
+  "Tokens de sortie / durée totale de requête, préremplissage inclus. Les comptes absents du provider sont enregistrés à zéro, pas inventés.":
+    "Output tokens / total request duration, including prefill. Accounts absent from the provider are recorded as zero, not invented.",
+  Précédentes: "Previous",
+  Suivantes: "Next",
+  "Détail de la requête": "Request details",
+  Fermer: "Close",
 };
 registerTranslations(translations);
 registerTranslations({
@@ -43,7 +135,13 @@ export function ProjectSettings({
     <section className="narrow">
       <h2>{t("Stratégie du livre")}</h2>
       <p className="muted">
-        {t("mots · {sections} sections / documents · {images} images · {size} Mo").replace("words", number(project.book_info.words)).replace("{sections}", String(project.stats.chapters)).replace("{images}", String(project.book_info.images)).replace("{size}", (project.book_info.size / 1024 ** 2).toFixed(1))}
+        {t(
+          "mots · {sections} sections / documents · {images} images · {size} Mo",
+        )
+          .replace("words", number(project.book_info.words))
+          .replace("{sections}", String(project.stats.chapters))
+          .replace("{images}", String(project.book_info.images))
+          .replace("{size}", (project.book_info.size / 1024 ** 2).toFixed(1))}
       </p>
       <form
         onSubmit={(e) => {
@@ -166,7 +264,9 @@ export function ProjectSettings({
             >
               <option value="fast">{t("Rapide")}</option>
               <option value="normal">{t("Normal · vérification")}</option>
-              <option value="high">{t("Haute qualité · critique & révision")}</option>
+              <option value="high">
+                {t("Haute qualité · critique & révision")}
+              </option>
               <option value="maximum">Maximum · polishing</option>
             </select>
           </label>
@@ -192,7 +292,9 @@ export function ProjectSettings({
             onChange={(e) =>
               setValue({ ...value, instructions: e.target.value })
             }
-            placeholder={t("Conserver les suffixes -san, -chan, -sama. Tutoyer entre Alice et Bob…")}
+            placeholder={t(
+              "Conserver les suffixes -san, -chan, -sama. Tutoyer entre Alice et Bob…",
+            )}
           />
         </label>
         <button className="primary">{t("Enregistrer")}</button>
@@ -298,10 +400,21 @@ export function Glossary({
         <div>
           <h2>{t("Choix terminologiques")}</h2>
           <p className="muted">
-            {t("{accepted} acceptés · {proposals} propositions · {locked} verrouillés")
-              .replace("{accepted}", String(terms.filter((t) => t.accepted).length))
-              .replace("{proposals}", String(terms.filter((t) => !t.accepted).length))
-              .replace("{locked}", String(terms.filter((t) => t.locked).length))}
+            {t(
+              "{accepted} acceptés · {proposals} propositions · {locked} verrouillés",
+            )
+              .replace(
+                "{accepted}",
+                String(terms.filter((t) => t.accepted).length),
+              )
+              .replace(
+                "{proposals}",
+                String(terms.filter((t) => !t.accepted).length),
+              )
+              .replace(
+                "{locked}",
+                String(terms.filter((t) => t.locked).length),
+              )}
           </p>
         </div>
         <div className="actions">
@@ -368,7 +481,10 @@ export function Glossary({
                 <td>{term.source}</td>
                 <td>
                   <input
-                    aria-label={t("Traduction de {term}").replace("{term}", term.source)}
+                    aria-label={t("Traduction de {term}").replace(
+                      "{term}",
+                      term.source,
+                    )}
                     value={term.translation}
                     onChange={(e) =>
                       setTerms(
@@ -383,7 +499,10 @@ export function Glossary({
                 </td>
                 <td>
                   <input
-                    aria-label={t("Catégorie de {term}").replace("{term}", term.source)}
+                    aria-label={t("Catégorie de {term}").replace(
+                      "{term}",
+                      term.source,
+                    )}
                     value={term.category}
                     onChange={(e) =>
                       setTerms(
@@ -397,36 +516,46 @@ export function Glossary({
                   />
                 </td>
                 <td>
-                  <input
-                    aria-label={t("Verrouiller {term}").replace("{term}", term.source)}
-                    type="checkbox"
-                    checked={term.locked}
-                    onChange={(e) =>
-                      setTerms(
-                        terms.map((v) =>
-                          v.id === term.id
-                            ? { ...v, locked: e.target.checked }
-                            : v,
-                        ),
-                      )
-                    }
-                  />
+                  <label className="checkbox-target">
+                    <input
+                      aria-label={t("Verrouiller {term}").replace(
+                        "{term}",
+                        term.source,
+                      )}
+                      type="checkbox"
+                      checked={term.locked}
+                      onChange={(e) =>
+                        setTerms(
+                          terms.map((v) =>
+                            v.id === term.id
+                              ? { ...v, locked: e.target.checked }
+                              : v,
+                          ),
+                        )
+                      }
+                    />
+                  </label>
                 </td>
                 <td>
-                  <input
-                    aria-label={t("Accepter {term}").replace("{term}", term.source)}
-                    type="checkbox"
-                    checked={term.accepted}
-                    onChange={(e) =>
-                      setTerms(
-                        terms.map((v) =>
-                          v.id === term.id
-                            ? { ...v, accepted: e.target.checked }
-                            : v,
-                        ),
-                      )
-                    }
-                  />
+                  <label className="checkbox-target">
+                    <input
+                      aria-label={t("Accepter {term}").replace(
+                        "{term}",
+                        term.source,
+                      )}
+                      type="checkbox"
+                      checked={term.accepted}
+                      onChange={(e) =>
+                        setTerms(
+                          terms.map((v) =>
+                            v.id === term.id
+                              ? { ...v, accepted: e.target.checked }
+                              : v,
+                          ),
+                        )
+                      }
+                    />
+                  </label>
                 </td>
                 <td>
                   <div className="actions">
@@ -685,7 +814,9 @@ export function Quality({
             </span>
             <strong>{i.code}</strong>
             <p>{i.message}</p>
-            <small>{t("Passage {id}").replace("{id}", String(i.segment_id))}</small>
+            <small>
+              {t("Passage {id}").replace("{id}", String(i.segment_id))}
+            </small>
             {!i.resolved && (
               <button
                 onClick={() =>
@@ -723,6 +854,9 @@ export function Observability({
   const [metrics, setMetrics] = useState<Record<string, number>>({});
   const [selected, setSelected] = useState<LLMRequest | null>(null);
   const [offset, setOffset] = useState(0);
+  const inspectorDialog = useDialogFocus<HTMLElement>(Boolean(selected), () =>
+    setSelected(null),
+  );
   const progress = projectProgress(project);
   useEffect(() => {
     void run(async () => {
@@ -737,7 +871,10 @@ export function Observability({
   return (
     <section>
       <h2>{t("Observabilité")}</h2>
-      <div className="metric-strip" aria-label={t("Estimations du travail actif")}>
+      <div
+        className="metric-strip"
+        aria-label={t("Estimations du travail actif")}
+      >
         <div>
           <strong>{duration(progress.estimate.remaining_seconds)}</strong>
           <small>{t("temps restant estimé")}</small>
@@ -760,7 +897,9 @@ export function Observability({
         </div>
       </div>
       <p className="muted">
-        {t("Estimations fondées sur les requêtes réussies de l’étape active et les tarifs actuellement configurés. Elles sont indisponibles tant que l’échantillon est insuffisant.")}
+        {t(
+          "Estimations fondées sur les requêtes réussies de l’étape active et les tarifs actuellement configurés. Elles sont indisponibles tant que l’échantillon est insuffisant.",
+        )}
       </p>
       <div className="metric-strip">
         {Object.entries(metrics).map(([k, v]) => (
@@ -843,8 +982,10 @@ export function Observability({
       </div>
       {selected && (
         <aside
+          ref={inspectorDialog}
           className="inspector"
           role="dialog"
+          aria-modal="true"
           aria-label={t("Détail de la requête")}
         >
           <header>

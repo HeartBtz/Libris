@@ -3,11 +3,64 @@ import { mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { projectProgress } from "../src/features/progress";
 import type { Project } from "../src/types";
+import type { Page } from "@playwright/test";
+
+async function contrast(page: Page, foreground: string, background: string) {
+  return page.evaluate(
+    ([fgName, bgName]) => {
+      const styles = getComputedStyle(document.documentElement);
+      const luminance = (value: string) => {
+        const hex = styles.getPropertyValue(value).trim().slice(1);
+        const channels = [0, 2, 4].map(
+          (offset) => Number.parseInt(hex.slice(offset, offset + 2), 16) / 255,
+        );
+        return channels
+          .map((channel) =>
+            channel <= 0.04045
+              ? channel / 12.92
+              : ((channel + 0.055) / 1.055) ** 2.4,
+          )
+          .reduce(
+            (total, channel, index) =>
+              total + channel * [0.2126, 0.7152, 0.0722][index],
+            0,
+          );
+      };
+      const [lighter, darker] = [luminance(fgName), luminance(bgName)].sort(
+        (a, b) => b - a,
+      );
+      return (lighter + 0.05) / (darker + 0.05);
+    },
+    [foreground, background],
+  );
+}
+
+async function expectNoOverflow(page: Page) {
+  for (const viewport of [
+    { width: 320, height: 720 },
+    { width: 360, height: 800 },
+    { width: 390, height: 844 },
+    { width: 430, height: 932 },
+    { width: 768, height: 1024 },
+    { width: 1024, height: 768 },
+    { width: 1440, height: 1040 },
+    { width: 1920, height: 1080 },
+    { width: 844, height: 390 },
+  ]) {
+    await page.setViewportSize(viewport);
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth + 2,
+      ),
+    ).toBe(true);
+  }
+}
 
 // Synthetic content written for documentation. Never connects to a real API.
 test("capture public Libris showcase", async ({ page }) => {
   await page.emulateMedia({ reducedMotion: "reduce" });
-  const output = resolve(process.cwd(), "../docs/screenshots");
+  const output =
+    process.env.SHOWCASE_SCREENSHOT_DIR || resolve("/tmp/libris/showcase");
   mkdirSync(output, { recursive: true });
   const base = process.env.SHOWCASE_URL || "http://127.0.0.1:4173";
   const stats = {
@@ -154,8 +207,13 @@ test("capture public Libris showcase", async ({ page }) => {
       return;
     }
     if (path === "/api/exports/epub" && route.request().method() === "POST") {
-      exportedProjects = (route.request().postDataJSON() as { project_ids: string[] }).project_ids;
-      await route.fulfill({ contentType: "application/zip", body: "synthetic zip" });
+      exportedProjects = (
+        route.request().postDataJSON() as { project_ids: string[] }
+      ).project_ids;
+      await route.fulfill({
+        contentType: "application/zip",
+        body: "synthetic zip",
+      });
       return;
     }
     let data: unknown = [];
@@ -191,6 +249,36 @@ test("capture public Libris showcase", async ({ page }) => {
   await expect(
     page.getByRole("heading", { name: "Library", exact: true }),
   ).toBeVisible();
+  for (const pair of [
+    ["--text", "--base"],
+    ["--muted", "--base"],
+    ["--accent", "--base"],
+    ["--on-accent", "--accent"],
+  ])
+    expect(await contrast(page, pair[0], pair[1])).toBeGreaterThanOrEqual(4.5);
+  expect(await contrast(page, "--line", "--input")).toBeGreaterThanOrEqual(3);
+  expect(await contrast(page, "--muted", "--input")).toBeGreaterThanOrEqual(
+    4.5,
+  );
+  await page.getByRole("button", { name: "Change theme", exact: true }).click();
+  for (const pair of [
+    ["--text", "--base"],
+    ["--muted", "--base"],
+    ["--accent", "--base"],
+    ["--on-accent", "--accent"],
+  ])
+    expect(await contrast(page, pair[0], pair[1])).toBeGreaterThanOrEqual(4.5);
+  expect(await contrast(page, "--line", "--input")).toBeGreaterThanOrEqual(3);
+  expect(await contrast(page, "--muted", "--input")).toBeGreaterThanOrEqual(
+    4.5,
+  );
+  await page.getByRole("button", { name: "Change theme", exact: true }).click();
+  const libraryUrl = page.url();
+  const skipLink = page.getByRole("link", { name: "Skip to content" });
+  await skipLink.focus();
+  await page.keyboard.press("Enter");
+  await expect(page.locator("#main-content")).toBeFocused();
+  expect(page.url()).toBe(libraryUrl);
   await expect(page.getByRole("progressbar")).toHaveCount(3);
   await expect(page.getByRole("button", { name: /Archives/ })).toContainText(
     "1",
@@ -283,6 +371,7 @@ test("capture public Libris showcase", async ({ page }) => {
     page.getByRole("button", { name: "+ Import EPUBs", exact: true }),
   ).toBeFocused();
   await page.getByLabel("Sort by", { exact: true }).selectOption("recent");
+  await expectNoOverflow(page);
   await page.setViewportSize({ width: 390, height: 844 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(
     390,
@@ -291,9 +380,28 @@ test("capture public Libris showcase", async ({ page }) => {
     path: resolve(output, "mobile.png"),
     fullPage: true,
   });
+  await expect(
+    page.getByRole("navigation", { name: "Primary navigation" }),
+  ).toBeHidden();
+  await page.getByRole("button", { name: "Menu", exact: true }).click();
+  await expect(
+    page.getByRole("navigation", { name: "Primary navigation" }),
+  ).toBeVisible();
+  const settingsLink = page.getByRole("link", {
+    name: "Settings",
+    exact: true,
+  });
+  await expect(settingsLink).toBeVisible();
+  await settingsLink.click();
+  await expect(page.locator("#main-content")).toBeFocused();
+  await expect(
+    page.getByRole("navigation", { name: "Primary navigation" }),
+  ).toBeHidden();
   await page.setViewportSize({ width: 1440, height: 1040 });
   await page.goto(`${base}/#project/demo`);
   await expect(page.getByText(source, { exact: true })).toBeVisible();
+  await expectNoOverflow(page);
+  await page.setViewportSize({ width: 1440, height: 1040 });
   await expect(page.getByRole("progressbar")).toHaveCount(1);
   for (const [button, detail] of [
     ["1 · Import", "EPUB imported and structure loaded."],
@@ -321,6 +429,15 @@ test("capture public Libris showcase", async ({ page }) => {
     fullPage: true,
   });
   await page.screenshot({ path: resolve(output, "editor.png") });
+  const inspectorTrigger = page
+    .getByRole("button", { name: "Context / history / Ask AI", exact: true })
+    .first();
+  await inspectorTrigger.click();
+  await expect(
+    page.getByRole("button", { name: "Close inspector", exact: true }),
+  ).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(inspectorTrigger).toBeFocused();
   await page
     .getByRole("button", { name: "Validations (1)", exact: true })
     .click();
@@ -332,6 +449,9 @@ test("capture public Libris showcase", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(
     390,
+  );
+  await expect(page.locator(".workspace-nav-select select")).toHaveValue(
+    "validations",
   );
   await page.screenshot({
     path: resolve(output, "validations-mobile.png"),

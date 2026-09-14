@@ -4,7 +4,7 @@ Libris uses Semantic Versioning. During the `0.x` phase, document any operationa
 
 ## Prepare
 
-1. Update versions in `backend/pyproject.toml`, `backend/app/__init__.py`, `frontend/package.json`, its lockfile, `codex_bridge/package.json`, its lockfile, `codex_bridge/rpc.py` and the `Dockerfile` build argument.
+1. Update versions in `backend/pyproject.toml`, `backend/app/__init__.py`, `frontend/package.json`, its lockfile, `codex_bridge/package.json`, its lockfile, `codex_bridge/rpc.py`, `.env.example`, `scripts/install-docker.sh` and both Dockerfile build arguments.
 2. Update `CHANGELOG.md` and documentation.
 3. Run `python3 scripts/check_version.py`.
 4. Run backend tests, Ruff, frontend build, migration tests, dependency audits, Gitleaks and the disposable installation check.
@@ -22,13 +22,19 @@ git push origin "v${VERSION}"
 
 Use an annotated unsigned tag only when commit signing is not configured, and disclose that limitation in release notes. Never move an existing release tag.
 
-## GitHub
+## Canonical GitLab release
 
-Pushing `v*` triggers `.github/workflows/release.yml`. It verifies the tag/version match, runs tests, builds the image, publishes versioned GHCR tags and creates release notes. Repository package permissions and Actions must be enabled.
+Push the release commit to the canonical GitLab repository and wait for its protected default-branch pipeline to publish the commit-SHA images. The subsequent tag pipeline verifies that the tag points into the default branch, reuses those images by digest, promotes them to GitLab Container Registry and Docker Hub tags, then creates the GitLab release. Docker Hub publication requires protected masked `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN` variables.
 
-## GitLab
+## GitHub mirror
 
-After the tag pipeline is green, create a release from the same immutable tag in **Deploy > Releases**, using the matching `CHANGELOG.md` section. A source-only release is valid; do not claim a container image unless a registry job actually published it.
+GitLab push-mirrors the same immutable tag to GitHub. The mirrored `v*` tag triggers `.github/workflows/release.yml`, which verifies the tag/version match, publishes versioned GHCR tags with provenance and SBOM metadata, and creates the GitHub release. Never push a divergent release commit directly to the mirror.
+
+Verify each destination independently. A green source pipeline does not prove that the mirror, registry or downstream workflow completed. See [CI/CD and public mirrors](ci-cd.md).
+
+## Production
+
+After all publication jobs pass, run the protected manual `deploy-production` job. It deploys only to the existing CT116-OpenCode production stack, creates a PostgreSQL backup, restarts the API and worker from the tested commit image and verifies `/health`. Confirm the reported version and worker checkpoint recovery directly on CT116 before announcing completion.
 
 ## Rollback
 

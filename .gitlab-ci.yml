@@ -1,77 +1,257 @@
-stages:
-  - test
-  - build
+stages: [test, build, verify, publish, release, deploy]
+
+workflow:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_TAG
+    - if: $CI_COMMIT_BRANCH && $CI_OPEN_MERGE_REQUESTS
+      when: never
+    - if: $CI_COMMIT_BRANCH
+
+default:
+  interruptible: true
+  timeout: 30 minutes
+
+variables:
+  DOCKER_BUILDKIT: "1"
+  DOCKERHUB_IMAGE: heartbtz/libris
+  PLAYWRIGHT_IMAGE: mcr.microsoft.com/playwright:v1.63.0-noble
+  TRIVY_IMAGE: aquasec/trivy@sha256:62b1e65e8869bc4b4c6aa4fa2b21595256c7c2f6018a9d9ad61caf87187c1969
 
 migration-postgres:
   stage: test
-  image: python:3.13
-  services:
-    - name: postgres:17-bookworm
-      alias: postgres
-  variables:
-    POSTGRES_DB: libris_test
-    POSTGRES_USER: libris
-    POSTGRES_PASSWORD: libris_test_password
-    DATABASE_URL: postgresql+psycopg://libris:libris_test_password@postgres:5432/libris_test
-    SECRET_KEY: ci-only-secret-key-with-more-than-32-characters
-    BOOTSTRAP_PASSWORD: ci-only-password-with-more-than-16-characters
-  before_script:
-    - pip install -r backend/requirements.lock
-    - pip install -e './backend[test]'
   script:
-    - cd backend
-    - alembic upgrade head
-    - alembic downgrade c93b8c242df1
-    - alembic upgrade head
-    - LIBRIS_TEST_DATABASE_URL="$DATABASE_URL" pytest -q
+    - DB_CONTAINER="libris-ci-postgres-$CI_JOB_ID"
+    - docker run --detach --name "$DB_CONTAINER" --env POSTGRES_DB=libris_test --env POSTGRES_USER=libris --env POSTGRES_PASSWORD=libris_test_password postgres:17-bookworm
+    - for attempt in $(seq 1 30); do docker exec "$DB_CONTAINER" pg_isready -U libris -d libris_test && break; test "$attempt" -lt 30; sleep 1; done
+    - >-
+      docker run --rm --network "container:$DB_CONTAINER"
+      --volume "$CI_PROJECT_DIR:/work" --workdir /work
+      --env DATABASE_URL=postgresql+psycopg://libris:libris_test_password@127.0.0.1:5432/libris_test
+      --env LIBRIS_TEST_DATABASE_URL=postgresql+psycopg://libris:libris_test_password@127.0.0.1:5432/libris_test
+      --env SECRET_KEY=ci-only-secret-key-with-more-than-32-characters
+      --env BOOTSTRAP_PASSWORD=ci-only-password-with-more-than-16-characters
+      python:3.13-bookworm sh -lc
+      "pip install -q -r backend/requirements.lock && pip install -q -e './backend[test]' && cd backend && alembic upgrade head && alembic downgrade c93b8c242df1 && alembic upgrade head && pytest -q"
+  after_script:
+    - docker rm --force "libris-ci-postgres-$CI_JOB_ID" >/dev/null 2>&1 || true
 
 backend:
   stage: test
-  image: python:3.13
-  before_script:
-    - pip install -r backend/requirements.lock
-    - pip install -e './backend[test]'
   script:
-    - python3 scripts/check_version.py
-    - cd backend
-    - pytest -q
-    - ruff check app tests
+    - >-
+      docker run --rm --volume "$CI_PROJECT_DIR:/work" --workdir /work
+      --env CI_COMMIT_TAG="${CI_COMMIT_TAG:-}"
+      python:3.13-bookworm sh -lc
+      "pip install -q -r backend/requirements.lock && pip install -q -e './backend[test]' && if [ -n \"\$CI_COMMIT_TAG\" ]; then python3 scripts/check_version.py \"\$CI_COMMIT_TAG\"; else python3 scripts/check_version.py; fi && cd backend && pytest -q && ruff check app tests"
 
 frontend:
   stage: test
-  image: node:22
-  cache:
-    key:
-      files:
-        - frontend/package-lock.json
-    paths:
-      - frontend/.npm/
-  before_script:
-    - cd frontend
-    - npm ci --cache .npm --prefer-offline
   script:
-    - npm run build
-    - npm audit --omit=dev --audit-level=high
-    - npx playwright install --with-deps chromium
-    - npx playwright test e2e/accounts.spec.ts e2e/showcase.spec.ts
+    - docker run --rm --volume "$CI_PROJECT_DIR:/work" --workdir /work/frontend node:22-bookworm sh -lc "npm ci --cache .npm --prefer-offline && npm run build && npm audit --omit=dev --audit-level=high"
+    - docker run --rm --ipc=host --volume "$CI_PROJECT_DIR:/work" --workdir /work/frontend --env CI=true "$PLAYWRIGHT_IMAGE" sh -lc "npm ci --cache .npm --prefer-offline && npx playwright test e2e/accounts.spec.ts e2e/showcase.spec.ts"
 
 security:
   stage: test
-  image: python:3.13
-  before_script:
-    - pip install pip-audit==2.9.0
   script:
-    - pip-audit -r backend/requirements.lock
+    - docker run --rm --volume "$CI_PROJECT_DIR:/work" --workdir /work python:3.13-bookworm sh -lc "pip install -q pip-audit==2.9.0 && pip-audit -r backend/requirements.lock"
+
+secret-scan:
+  stage: test
+  variables:
+    GIT_DEPTH: "0"
+  script:
+    - docker run --rm --volume "$CI_PROJECT_DIR:/repo" ghcr.io/gitleaks/gitleaks:v8.28.0 git /repo --redact --no-banner
+
+release-policy:
+  stage: test
+  variables:
+    GIT_DEPTH: "0"
+  script:
+    - git fetch --no-tags origin "$CI_DEFAULT_BRANCH:refs/remotes/origin/$CI_DEFAULT_BRANCH"
+    - git merge-base --is-ancestor "$CI_COMMIT_SHA" "origin/$CI_DEFAULT_BRANCH"
+    - docker run --rm --volume "$CI_PROJECT_DIR:/work" --workdir /work python:3.13-bookworm python3 scripts/check_version.py "$CI_COMMIT_TAG"
+  rules:
+    - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/
 
 container-build:
   stage: build
-  image: docker:27-cli
-  services:
-    - name: docker:27-dind
-      alias: docker
-  variables:
-    DOCKER_HOST: tcp://docker:2375
-    DOCKER_TLS_CERTDIR: ""
+  interruptible: false
+  before_script:
+    - export DOCKER_CONFIG="$CI_PROJECT_DIR/.docker-$CI_JOB_ID"
+    - mkdir -p "$DOCKER_CONFIG"
+    - echo "$CI_REGISTRY_PASSWORD" | docker login "$CI_REGISTRY" --username "$CI_REGISTRY_USER" --password-stdin
   script:
-    - docker build --tag libris:ci .
-    - docker build --file codex_bridge/Dockerfile --tag libris-codex:ci .
+    - if ! docker pull "$CI_REGISTRY_IMAGE:sha-$CI_COMMIT_SHA"; then docker build --pull --build-arg VCS_REF="$CI_COMMIT_SHA" --tag "$CI_REGISTRY_IMAGE:sha-$CI_COMMIT_SHA" . && docker push "$CI_REGISTRY_IMAGE:sha-$CI_COMMIT_SHA"; fi
+    - if ! docker pull "$CI_REGISTRY_IMAGE:codex-sha-$CI_COMMIT_SHA"; then docker build --pull --file codex_bridge/Dockerfile --build-arg VCS_REF="$CI_COMMIT_SHA" --tag "$CI_REGISTRY_IMAGE:codex-sha-$CI_COMMIT_SHA" . && docker push "$CI_REGISTRY_IMAGE:codex-sha-$CI_COMMIT_SHA"; fi
+    - APP_IMAGE_REFERENCE="$(docker image inspect --format '{{ index .RepoDigests 0 }}' "$CI_REGISTRY_IMAGE:sha-$CI_COMMIT_SHA")"
+    - CODEX_IMAGE_REFERENCE="$(docker image inspect --format '{{ index .RepoDigests 0 }}' "$CI_REGISTRY_IMAGE:codex-sha-$CI_COMMIT_SHA")"
+    - test -n "$APP_IMAGE_REFERENCE" && test -n "$CODEX_IMAGE_REFERENCE"
+    - printf 'APP_IMAGE_REFERENCE=%s\nCODEX_IMAGE_REFERENCE=%s\n' "$APP_IMAGE_REFERENCE" "$CODEX_IMAGE_REFERENCE" > image.env
+  after_script:
+    - rm -rf "$CI_PROJECT_DIR/.docker-$CI_JOB_ID"
+  artifacts:
+    reports:
+      dotenv: image.env
+    expire_in: 1 day
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+release-images:
+  stage: build
+  interruptible: false
+  before_script:
+    - export DOCKER_CONFIG="$CI_PROJECT_DIR/.docker-$CI_JOB_ID"
+    - mkdir -p "$DOCKER_CONFIG"
+    - echo "$CI_REGISTRY_PASSWORD" | docker login "$CI_REGISTRY" --username "$CI_REGISTRY_USER" --password-stdin
+  script:
+    - docker pull "$CI_REGISTRY_IMAGE:sha-$CI_COMMIT_SHA"
+    - docker pull "$CI_REGISTRY_IMAGE:codex-sha-$CI_COMMIT_SHA"
+    - APP_IMAGE_REFERENCE="$(docker image inspect --format '{{ index .RepoDigests 0 }}' "$CI_REGISTRY_IMAGE:sha-$CI_COMMIT_SHA")"
+    - CODEX_IMAGE_REFERENCE="$(docker image inspect --format '{{ index .RepoDigests 0 }}' "$CI_REGISTRY_IMAGE:codex-sha-$CI_COMMIT_SHA")"
+    - test -n "$APP_IMAGE_REFERENCE" && test -n "$CODEX_IMAGE_REFERENCE"
+    - printf 'APP_IMAGE_REFERENCE=%s\nCODEX_IMAGE_REFERENCE=%s\n' "$APP_IMAGE_REFERENCE" "$CODEX_IMAGE_REFERENCE" > image.env
+  after_script:
+    - rm -rf "$CI_PROJECT_DIR/.docker-$CI_JOB_ID"
+  artifacts:
+    reports:
+      dotenv: image.env
+    expire_in: 1 day
+  rules:
+    - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/
+
+container-runtime:
+  stage: verify
+  needs:
+    - job: container-build
+      optional: true
+    - job: release-images
+      optional: true
+  before_script:
+    - export DOCKER_CONFIG="$CI_PROJECT_DIR/.docker-$CI_JOB_ID"
+    - mkdir -p "$DOCKER_CONFIG"
+    - echo "$CI_REGISTRY_PASSWORD" | docker login "$CI_REGISTRY" --username "$CI_REGISTRY_USER" --password-stdin
+    - docker pull "$APP_IMAGE_REFERENCE"
+    - docker pull "$CODEX_IMAGE_REFERENCE"
+  script:
+    - APP_VERSION="$(docker run --rm --entrypoint python "$APP_IMAGE_REFERENCE" -c 'import app; print(app.__version__)')"
+    - LABEL_VERSION="$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.version" }}' "$APP_IMAGE_REFERENCE")"
+    - LABEL_REVISION="$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$APP_IMAGE_REFERENCE")"
+    - test "$APP_VERSION" = "$LABEL_VERSION"
+    - test "$LABEL_REVISION" = "$CI_COMMIT_SHA"
+    - test "$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$CODEX_IMAGE_REFERENCE")" = "$CI_COMMIT_SHA"
+    - test "$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.version" }}' "$CODEX_IMAGE_REFERENCE")" = "$APP_VERSION"
+    - docker run --rm --entrypoint codex "$CODEX_IMAGE_REFERENCE" --version
+    - docker run --rm --interactive --entrypoint python "$APP_IMAGE_REFERENCE" - < scripts/check_epubcheck.py
+  after_script:
+    - rm -rf "$CI_PROJECT_DIR/.docker-$CI_JOB_ID"
+  rules:
+    - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+container-scan:
+  stage: verify
+  needs:
+    - job: container-build
+      optional: true
+    - job: release-images
+      optional: true
+  before_script:
+    - export DOCKER_CONFIG="$CI_PROJECT_DIR/.docker-$CI_JOB_ID"
+    - export TRIVY_CACHE_VOLUME="libris-trivy-$CI_JOB_ID"
+    - mkdir -p "$DOCKER_CONFIG"
+    - echo "$CI_REGISTRY_PASSWORD" | docker login "$CI_REGISTRY" --username "$CI_REGISTRY_USER" --password-stdin
+    - docker pull "$APP_IMAGE_REFERENCE"
+    - docker volume create "$TRIVY_CACHE_VOLUME" >/dev/null
+  script:
+    - docker run --rm --env TMPDIR=/root/.cache/trivy --volume "$TRIVY_CACHE_VOLUME:/root/.cache/trivy" --volume /var/run/docker.sock:/var/run/docker.sock "$TRIVY_IMAGE" image --scanners vuln --format cyclonedx "$APP_IMAGE_REFERENCE" > libris.cdx.json
+    - docker run --rm --env TMPDIR=/root/.cache/trivy --volume "$TRIVY_CACHE_VOLUME:/root/.cache/trivy" --volume /var/run/docker.sock:/var/run/docker.sock "$TRIVY_IMAGE" image --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 "$APP_IMAGE_REFERENCE"
+    - docker run --rm --env TMPDIR=/root/.cache/trivy --volume "$TRIVY_CACHE_VOLUME:/root/.cache/trivy" --volume /var/run/docker.sock:/var/run/docker.sock "$TRIVY_IMAGE" image --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 "$CODEX_IMAGE_REFERENCE"
+  after_script:
+    - rm -rf "$CI_PROJECT_DIR/.docker-$CI_JOB_ID"
+    - docker volume rm --force "libris-trivy-$CI_JOB_ID" >/dev/null 2>&1 || true
+  artifacts:
+    when: always
+    paths: [libris.cdx.json]
+    expire_in: 30 days
+  rules:
+    - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+.publish-image:
+  stage: publish
+  interruptible: false
+  before_script:
+    - export DOCKER_CONFIG="$CI_PROJECT_DIR/.docker-$CI_JOB_ID"
+    - mkdir -p "$DOCKER_CONFIG"
+    - echo "$CI_REGISTRY_PASSWORD" | docker login "$CI_REGISTRY" --username "$CI_REGISTRY_USER" --password-stdin
+    - docker pull "$APP_IMAGE_REFERENCE"
+    - docker pull "$CODEX_IMAGE_REFERENCE"
+  after_script:
+    - rm -rf "$CI_PROJECT_DIR/.docker-$CI_JOB_ID"
+  rules:
+    - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/
+
+publish-gitlab:
+  extends: .publish-image
+  script:
+    - VERSION="${CI_COMMIT_TAG#v}"
+    - MINOR="${VERSION%.*}"
+    - for tag in "$VERSION" "$MINOR" latest; do docker tag "$APP_IMAGE_REFERENCE" "$CI_REGISTRY_IMAGE:$tag"; docker push "$CI_REGISTRY_IMAGE:$tag"; docker tag "$CODEX_IMAGE_REFERENCE" "$CI_REGISTRY_IMAGE:codex-$tag"; docker push "$CI_REGISTRY_IMAGE:codex-$tag"; done
+
+publish-dockerhub:
+  extends: .publish-image
+  before_script:
+    - export DOCKER_CONFIG="$CI_PROJECT_DIR/.docker-$CI_JOB_ID"
+    - mkdir -p "$DOCKER_CONFIG"
+    - echo "$CI_REGISTRY_PASSWORD" | docker login "$CI_REGISTRY" --username "$CI_REGISTRY_USER" --password-stdin
+    - docker pull "$APP_IMAGE_REFERENCE"
+    - echo "$DOCKERHUB_TOKEN" | docker login --username "$DOCKERHUB_USERNAME" --password-stdin
+  script:
+    - VERSION="${CI_COMMIT_TAG#v}"
+    - MINOR="${VERSION%.*}"
+    - for tag in "$VERSION" "$MINOR" latest; do docker tag "$APP_IMAGE_REFERENCE" "$DOCKERHUB_IMAGE:$tag"; docker push "$DOCKERHUB_IMAGE:$tag"; done
+  rules:
+    - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/ && $DOCKERHUB_USERNAME && $DOCKERHUB_TOKEN
+
+release-gitlab:
+  stage: release
+  interruptible: false
+  script:
+    - >-
+      curl --fail --silent --show-error --request POST
+      --header "JOB-TOKEN: $CI_JOB_TOKEN"
+      --data-urlencode "name=Libris $CI_COMMIT_TAG"
+      --data-urlencode "tag_name=$CI_COMMIT_TAG"
+      --data-urlencode description@CHANGELOG.md
+      "$CI_API_V4_URL/projects/$CI_PROJECT_ID/releases"
+  rules:
+    - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/
+
+deploy-production:
+  stage: deploy
+  tags: [libris-production-ct116]
+  interruptible: false
+  timeout: 25 minutes
+  resource_group: libris-production-ct116
+  before_script:
+    - export DOCKER_CONFIG="$CI_PROJECT_DIR/.docker-$CI_JOB_ID"
+    - mkdir -p "$DOCKER_CONFIG"
+    - echo "$CI_REGISTRY_PASSWORD" | docker login "$CI_REGISTRY" --username "$CI_REGISTRY_USER" --password-stdin
+    - docker pull "$APP_IMAGE_REFERENCE"
+    - docker pull "$CODEX_IMAGE_REFERENCE"
+  script:
+    - docker tag "$APP_IMAGE_REFERENCE" "libris-production:$CI_COMMIT_SHA"
+    - docker tag "$CODEX_IMAGE_REFERENCE" "libris-codex-production:$CI_COMMIT_SHA"
+    - APP_IMAGE_ID="$(docker image inspect --format '{{.Id}}' "libris-production:$CI_COMMIT_SHA")"
+    - CODEX_IMAGE_ID="$(docker image inspect --format '{{.Id}}' "libris-codex-production:$CI_COMMIT_SHA")"
+    - timeout --signal=TERM --kill-after=5m 15m sudo /usr/local/sbin/libris-production-deploy "$CI_COMMIT_SHA" "${CI_COMMIT_TAG#v}" "$APP_IMAGE_ID" "$CODEX_IMAGE_ID"
+  after_script:
+    - rm -rf "$CI_PROJECT_DIR/.docker-$CI_JOB_ID"
+  environment:
+    name: production
+    url: http://192.168.1.116:8088
+  rules:
+    - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/ && $CI_COMMIT_REF_PROTECTED == "true"
+      when: manual
+      allow_failure: false

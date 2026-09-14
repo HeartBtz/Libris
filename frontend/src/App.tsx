@@ -76,6 +76,10 @@ const translations: Record<string, string> = {
   "{count} projet{plural}": "{count} project{plural}",
   " · {count} archivé(s)": " · {count} archived",
   "passages traduits": "segments translated",
+  "Aller au contenu": "Skip to content",
+  "Navigation principale": "Primary navigation",
+  Menu: "Menu",
+  "Fermer le menu": "Close menu",
 };
 
 registerTranslations(translations);
@@ -87,6 +91,11 @@ export function App() {
   const [route, setRoute] = useState(location.hash.slice(1) || "library");
   const [error, setError] = useState("");
   const [theme, setTheme] = useState(localStorage.getItem("theme") || "dark");
+  const [menuOpen, setMenuOpen] = useState(false);
+  const focusContent = () =>
+    requestAnimationFrame(() =>
+      document.getElementById("main-content")?.focus(),
+    );
   const run: Run = useCallback(async (task) => {
     setError("");
     try {
@@ -102,12 +111,21 @@ export function App() {
       .finally(() => setChecking(false));
   }, []);
   useEffect(() => {
-    const change = () => setRoute(location.hash.slice(1) || "library");
+    const change = () => {
+      setRoute(location.hash.slice(1) || "library");
+      setMenuOpen(false);
+      focusContent();
+    };
     window.addEventListener("hashchange", change);
     return () => window.removeEventListener("hashchange", change);
   }, []);
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
+    document
+      .querySelectorAll<HTMLMetaElement>('meta[name="theme-color"]')
+      .forEach((meta) =>
+        meta.setAttribute("content", theme === "light" ? "#f5f4fb" : "#0b0e25"),
+      );
     localStorage.setItem("theme", theme);
   }, [theme]);
   useEffect(() => {
@@ -122,16 +140,40 @@ export function App() {
     );
   return (
     <>
+      <a
+        className="skip-link"
+        href="#main-content"
+        onClick={(event) => {
+          event.preventDefault();
+          document.getElementById("main-content")?.focus();
+        }}
+      >
+        {t("Aller au contenu")}
+      </a>
       <header className="app-header">
         <a className="brand" href="#library">
           <img src="/assets/libris-icon.png" alt="" />
           <span>Libris</span>
         </a>
-        <nav>
+        <button
+          className="nav-toggle"
+          type="button"
+          aria-controls="primary-navigation"
+          aria-expanded={menuOpen}
+          onClick={() => setMenuOpen((open) => !open)}
+        >
+          {menuOpen ? t("Fermer le menu") : t("Menu")}
+        </button>
+        <nav
+          id="primary-navigation"
+          className={menuOpen ? "open" : ""}
+          aria-label={t("Navigation principale")}
+        >
           {user && (
             <>
               <a
                 href="#library"
+                onClick={focusContent}
                 aria-current={route === "library" ? "page" : undefined}
               >
                 {t("app.library")}
@@ -139,6 +181,7 @@ export function App() {
               {user.admin && (
                 <a
                   href="#settings"
+                  onClick={focusContent}
                   aria-current={route === "settings" ? "page" : undefined}
                 >
                   {t("app.settings")}
@@ -147,12 +190,19 @@ export function App() {
               {user.admin && (
                 <a
                   href="#statistics"
+                  onClick={focusContent}
                   aria-current={route === "statistics" ? "page" : undefined}
                 >
                   {t("app.statistics")}
                 </a>
               )}
-              <a href="#account" aria-current={route === "account" ? "page" : undefined}>{t("Mon compte")} · {user.username}</a>
+              <a
+                href="#account"
+                onClick={focusContent}
+                aria-current={route === "account" ? "page" : undefined}
+              >
+                {t("Mon compte")} · {user.username}
+              </a>
             </>
           )}
           <button
@@ -200,19 +250,31 @@ export function App() {
           </button>
         </div>
       )}
-      {!user ? (
-        <Login run={run} onLogin={setUser} />
-      ) : route === "account" ? (
-        <Account user={user} run={run} onUserChange={setUser} onLogout={() => setUser(null)} />
-      ) : route === "settings" && user.admin ? (
-        <Settings run={run} />
-      ) : route === "statistics" && user.admin ? (
-        <Statistics run={run} />
-      ) : route.startsWith("project/") ? (
-        <Workspace key={route} id={route.split("/")[1]} user={user} run={run} />
-      ) : (
-        <Library run={run} user={user} />
-      )}
+      <div id="main-content" tabIndex={-1}>
+        {!user ? (
+          <Login run={run} onLogin={setUser} />
+        ) : route === "account" ? (
+          <Account
+            user={user}
+            run={run}
+            onUserChange={setUser}
+            onLogout={() => setUser(null)}
+          />
+        ) : route === "settings" && user.admin ? (
+          <Settings run={run} />
+        ) : route === "statistics" && user.admin ? (
+          <Statistics run={run} />
+        ) : route.startsWith("project/") ? (
+          <Workspace
+            key={route}
+            id={route.split("/")[1]}
+            user={user}
+            run={run}
+          />
+        ) : (
+          <Library run={run} user={user} />
+        )}
+      </div>
     </>
   );
 }
@@ -656,25 +718,27 @@ function Library({ run, user }: { run: Run; user: User }) {
             <thead>
               <tr>
                 <th>
-                  <input
-                    type="checkbox"
-                    aria-label={
-                      query || filter !== "all"
-                        ? t("Sélectionner les livres affichés")
-                        : t("Sélectionner tous les livres actifs")
-                    }
-                    checked={
-                      !!selectableBooks.length &&
-                      selectableBooks.every((p) => selected.has(p.id))
-                    }
-                    onChange={(e) =>
-                      setSelected(
-                        e.target.checked
-                          ? new Set(selectableBooks.map((p) => p.id))
-                          : new Set(),
-                      )
-                    }
-                  />
+                  <label className="checkbox-target">
+                    <input
+                      type="checkbox"
+                      aria-label={
+                        query || filter !== "all"
+                          ? t("Sélectionner les livres affichés")
+                          : t("Sélectionner tous les livres actifs")
+                      }
+                      checked={
+                        !!selectableBooks.length &&
+                        selectableBooks.every((p) => selected.has(p.id))
+                      }
+                      onChange={(e) =>
+                        setSelected(
+                          e.target.checked
+                            ? new Set(selectableBooks.map((p) => p.id))
+                            : new Set(),
+                        )
+                      }
+                    />
+                  </label>
                 </th>
                 <th>{t("Livre / auteur")}</th>
                 <th>{t("Langues")}</th>
@@ -688,7 +752,9 @@ function Library({ run, user }: { run: Run; user: User }) {
                     onClick={() => setSort("status")}
                   >
                     {t("Statut")}
-                    <span aria-hidden="true">{sort === "status" ? "↑" : "↕"}</span>
+                    <span aria-hidden="true">
+                      {sort === "status" ? "↑" : "↕"}
+                    </span>
                   </button>
                 </th>
                 <th>{t("Modèle")}</th>
@@ -703,23 +769,25 @@ function Library({ run, user }: { run: Run; user: User }) {
                   className={p.archived_at ? "archived-row" : undefined}
                 >
                   <td className="select-cell">
-                    <input
-                      type="checkbox"
-                      aria-label={t("Sélectionner {title}").replace(
-                        "{title}",
-                        p.title,
-                      )}
-                      disabled={!!p.archived_at}
-                      checked={selected.has(p.id)}
-                      onChange={(e) =>
-                        setSelected((previous) => {
-                          const next = new Set(previous);
-                          if (e.target.checked) next.add(p.id);
-                          else next.delete(p.id);
-                          return next;
-                        })
-                      }
-                    />
+                    <label className="checkbox-target">
+                      <input
+                        type="checkbox"
+                        aria-label={t("Sélectionner {title}").replace(
+                          "{title}",
+                          p.title,
+                        )}
+                        disabled={!!p.archived_at}
+                        checked={selected.has(p.id)}
+                        onChange={(e) =>
+                          setSelected((previous) => {
+                            const next = new Set(previous);
+                            if (e.target.checked) next.add(p.id);
+                            else next.delete(p.id);
+                            return next;
+                          })
+                        }
+                      />
+                    </label>
                   </td>
                   <td data-label={t("Livre")}>
                     <a className="book-title" href={`#project/${p.id}`}>

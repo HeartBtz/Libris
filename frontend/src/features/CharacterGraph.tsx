@@ -13,7 +13,59 @@ import { registerTranslations, useI18n } from "../i18n";
 import type { Run, Segment } from "../types";
 
 const translations: Record<string, string> = {
-  "enfant de": "child of", "parent de": "parent of", "enseigne à": "teaches", "élève de": "student of", "ami de": "friend of", "conjoint de": "spouse of", "frère / sœur de": "sibling of", "rival de": "rival of", "Aucun alias enregistré": "No alias recorded", "Confirmer que {source} et {target} sont une seule personne ? {target} restera la fiche canonique, avec les noms conservés comme alias.": "Confirm that {source} and {target} are the same person? {target} will remain the canonical profile, with names retained as aliases.", "Personnages & relations": "Characters & relationships", "identités · {count} liens regroupés. Trait plein : validé humainement. Pointillés : analyse ou proposition.": "identities · {count} grouped links. Solid line: human-validated. Dotted line: analysis or suggestion.", "Proposer les liens des fiches existantes": "Suggest links from existing profiles", "Rechercher un personnage ou un alias": "Search for a character or alias", "Graphe des personnages": "Character graph", "Les personnages apparaîtront progressivement pendant l’analyse.": "Characters will appear gradually during analysis.", "Créer une relation": "Create a relationship", "Personnage source": "Source character", "Personnage cible": "Target character", "Choisir…": "Choose…", "Type de lien": "Relationship type", "enfant de, maître de, ami de…": "child of, teacher of, friend of…", "Précisions": "Details", "Ajouter et valider le lien": "Add and validate relationship", "Identité confirmée": "Identity confirmed", "Identité issue de l’analyse": "Identity from analysis", "Alias": "Aliases", "Centrer sur ses relations": "Center on relationships", "Aucun": "None", "Variantes proposées, non confirmées :": "Proposed, unconfirmed variants:", "Ajouter des alias": "Add aliases", "Séparés par des virgules": "Separated by commas", "Enregistrer les alias": "Save aliases", "Regrouper deux identités": "Merge two identities", "Fiche canonique de destination": "Destination canonical profile", "Fusionner avec cette fiche": "Merge with this profile", "Description": "Description", "Provenance :": "Source:", "passage {position}": "segment {position}", "instruction globale": "global instruction", "Enregistrer et valider": "Save and validate", "Écarter ce lien": "Discard this link", "Voir le passage source": "View source segment", "Sélectionnez un personnage ou un lien. Les nœuds peuvent être déplacés et la vue zoomée.": "Select a character or link. Nodes can be moved and the view zoomed.", "Identités à rapprocher ?": "Identities to match?", "Confirmer la même personne": "Confirm same person", "Aucun rapprochement proposé.": "No suggested match.", "Historique des fusions": "Merge history",
+  "enfant de": "child of",
+  "parent de": "parent of",
+  "enseigne à": "teaches",
+  "élève de": "student of",
+  "ami de": "friend of",
+  "conjoint de": "spouse of",
+  "frère / sœur de": "sibling of",
+  "rival de": "rival of",
+  "Aucun alias enregistré": "No alias recorded",
+  "Confirmer que {source} et {target} sont une seule personne ? {target} restera la fiche canonique, avec les noms conservés comme alias.":
+    "Confirm that {source} and {target} are the same person? {target} will remain the canonical profile, with names retained as aliases.",
+  "Personnages & relations": "Characters & relationships",
+  "identités · {count} liens regroupés. Trait plein : validé humainement. Pointillés : analyse ou proposition.":
+    "identities · {count} grouped links. Solid line: human-validated. Dotted line: analysis or suggestion.",
+  "Proposer les liens des fiches existantes":
+    "Suggest links from existing profiles",
+  "Rechercher un personnage ou un alias": "Search for a character or alias",
+  "Graphe des personnages": "Character graph",
+  "Les personnages apparaîtront progressivement pendant l’analyse.":
+    "Characters will appear gradually during analysis.",
+  "Créer une relation": "Create a relationship",
+  "Personnage source": "Source character",
+  "Personnage cible": "Target character",
+  "Choisir…": "Choose…",
+  "Type de lien": "Relationship type",
+  "enfant de, maître de, ami de…": "child of, teacher of, friend of…",
+  Précisions: "Details",
+  "Ajouter et valider le lien": "Add and validate relationship",
+  "Identité confirmée": "Identity confirmed",
+  "Identité issue de l’analyse": "Identity from analysis",
+  Alias: "Aliases",
+  "Centrer sur ses relations": "Center on relationships",
+  Aucun: "None",
+  "Variantes proposées, non confirmées :": "Proposed, unconfirmed variants:",
+  "Ajouter des alias": "Add aliases",
+  "Séparés par des virgules": "Separated by commas",
+  "Enregistrer les alias": "Save aliases",
+  "Regrouper deux identités": "Merge two identities",
+  "Fiche canonique de destination": "Destination canonical profile",
+  "Fusionner avec cette fiche": "Merge with this profile",
+  Description: "Description",
+  "Provenance :": "Source:",
+  "passage {position}": "segment {position}",
+  "instruction globale": "global instruction",
+  "Enregistrer et valider": "Save and validate",
+  "Écarter ce lien": "Discard this link",
+  "Voir le passage source": "View source segment",
+  "Sélectionnez un personnage ou un lien. Les nœuds peuvent être déplacés et la vue zoomée.":
+    "Select a character or link. Nodes can be moved and the view zoomed.",
+  "Identités à rapprocher ?": "Identities to match?",
+  "Confirmer la même personne": "Confirm same person",
+  "Aucun rapprochement proposé.": "No suggested match.",
+  "Historique des fusions": "Merge history",
 };
 registerTranslations(translations);
 registerTranslations({
@@ -25,7 +77,14 @@ registerTranslations({
 const relationLabel = (value: string, t: (key: string) => string) =>
   (
     ({
-      child_of: t("enfant de"), parent_of: t("parent de"), teacher_of: t("enseigne à"), student_of: t("élève de"), friend_of: t("ami de"), spouse_of: t("conjoint de"), sibling_of: t("frère / sœur de"), rival_of: t("rival de"),
+      child_of: t("enfant de"),
+      parent_of: t("parent de"),
+      teacher_of: t("enseigne à"),
+      student_of: t("élève de"),
+      friend_of: t("ami de"),
+      spouse_of: t("conjoint de"),
+      sibling_of: t("frère / sœur de"),
+      rival_of: t("rival de"),
     }) as Record<string, string>
   )[value] || value;
 
@@ -115,7 +174,8 @@ export default function CharacterGraph({
             <>
               <strong>{p.name}</strong>
               <small>
-                {(p.data.aliases || []).join(" · ") || t("Aucun alias enregistré")}
+                {(p.data.aliases || []).join(" · ") ||
+                  t("Aucun alias enregistré")}
               </small>
             </>
           ),
@@ -145,9 +205,9 @@ export default function CharacterGraph({
           relationLabel(r.relation_type, t) +
           (group.length > 1 ? ` · ${group.length}` : ""),
         type: "smoothstep",
-        markerEnd: { type: MarkerType.ArrowClosed, color: "#7960ff" },
+        markerEnd: { type: MarkerType.ArrowClosed, color: "var(--accent)" },
         style: {
-          stroke: "#7960ff",
+          stroke: "var(--accent)",
           strokeDasharray: group.every((e) => e.validated) ? undefined : "6 4",
         },
         labelStyle: { fill: "var(--text)", fontSize: 11 },
@@ -165,7 +225,11 @@ export default function CharacterGraph({
   async function merge(source: string, target: string) {
     if (
       !confirm(
-        t("Confirmer que {source} et {target} sont une seule personne ? {target} restera la fiche canonique, avec les noms conservés comme alias.").replaceAll("{source}", name(source)).replaceAll("{target}", name(target)),
+        t(
+          "Confirmer que {source} et {target} sont une seule personne ? {target} restera la fiche canonique, avec les noms conservés comme alias.",
+        )
+          .replaceAll("{source}", name(source))
+          .replaceAll("{target}", name(target)),
       )
     )
       return;
@@ -183,7 +247,10 @@ export default function CharacterGraph({
         <div>
           <h2>{t("Personnages & relations")}</h2>
           <p className="muted">
-            {graph.nodes.length} {t("identités · {count} liens regroupés. Trait plein : validé humainement. Pointillés : analyse ou proposition.").replace("{count}", String(edges.length))}
+            {graph.nodes.length}{" "}
+            {t(
+              "identités · {count} liens regroupés. Trait plein : validé humainement. Pointillés : analyse ou proposition.",
+            ).replace("{count}", String(edges.length))}
           </p>
         </div>
         <button
@@ -228,7 +295,10 @@ export default function CharacterGraph({
               ))}
             </div>
           )}
-          <div className="character-canvas" aria-label={t("Graphe des personnages")}>
+          <div
+            className="character-canvas"
+            aria-label={t("Graphe des personnages")}
+          >
             {nodes.length ? (
               <ReactFlow
                 onInit={setFlow}
@@ -253,12 +323,14 @@ export default function CharacterGraph({
                   setExcerpt("");
                 }}
               >
-                <Background color="#2b3565" gap={24} />
+                <Background color="var(--line)" gap={24} />
                 <Controls showInteractive={false} />
               </ReactFlow>
             ) : (
               <div className="empty">
-                {t("Les personnages apparaîtront progressivement pendant l’analyse.")}
+                {t(
+                  "Les personnages apparaîtront progressivement pendant l’analyse.",
+                )}
               </div>
             )}
           </div>
@@ -280,7 +352,7 @@ export default function CharacterGraph({
           >
             <div className="form-grid">
               <label>
-                 {t("Personnage source")}
+                {t("Personnage source")}
                 <select
                   required
                   value={sourceId}
@@ -295,7 +367,7 @@ export default function CharacterGraph({
                 </select>
               </label>
               <label>
-                 {t("Personnage cible")}
+                {t("Personnage cible")}
                 <select
                   required
                   value={targetId}
@@ -312,23 +384,25 @@ export default function CharacterGraph({
                 </select>
               </label>
               <label>
-                 {t("Type de lien")}
+                {t("Type de lien")}
                 <input
                   required
                   value={kind}
                   onChange={(e) => setKind(e.target.value)}
-                   placeholder={t("enfant de, maître de, ami de…")}
+                  placeholder={t("enfant de, maître de, ami de…")}
                 />
               </label>
               <label>
-                 {t("Précisions")}
+                {t("Précisions")}
                 <input
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
                 />
               </label>
             </div>
-            <button className="primary">{t("Ajouter et valider le lien")}</button>
+            <button className="primary">
+              {t("Ajouter et valider le lien")}
+            </button>
           </form>
         </div>
         <aside className="character-detail">
@@ -421,7 +495,7 @@ export default function CharacterGraph({
                 disabled={!mergeTarget}
                 onClick={() => void run(() => merge(person.id, mergeTarget))}
               >
-                  {t("Fusionner avec cette fiche")}
+                {t("Fusionner avec cette fiche")}
               </button>
             </>
           ) : relation ? (
@@ -512,7 +586,11 @@ export default function CharacterGraph({
               {excerpt && <pre>{excerpt}</pre>}
             </>
           ) : (
-            <p className="muted">{t("Sélectionnez un personnage ou un lien. Les nœuds peuvent être déplacés et la vue zoomée.")}</p>
+            <p className="muted">
+              {t(
+                "Sélectionnez un personnage ou un lien. Les nœuds peuvent être déplacés et la vue zoomée.",
+              )}
+            </p>
           )}
           <h3>{t("Identités à rapprocher ?")}</h3>
           {graph.suggestions.slice(0, 12).map((s) => (

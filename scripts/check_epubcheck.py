@@ -6,7 +6,6 @@ from pathlib import Path
 
 from ebooklib import epub
 
-
 with tempfile.TemporaryDirectory() as directory:
     for broken in (False, True):
         book = epub.EpubBook()
@@ -15,9 +14,9 @@ with tempfile.TemporaryDirectory() as directory:
         book.set_language("en")
         chapter = epub.EpubHtml(title="Chapter", file_name="chapter.xhtml", lang="en")
         chapter.content = (
-            '<html><body><h1>Chapter</h1><p>Hello.</p>'
+            "<html><body><h1>Chapter</h1><p>Hello.</p>"
             + ('<a href="missing.xhtml">Missing</a>' if broken else "")
-            + '</body></html>'
+            + "</body></html>"
         )
         book.add_item(chapter)
         book.add_item(epub.EpubNav())
@@ -28,10 +27,15 @@ with tempfile.TemporaryDirectory() as directory:
         epub.write_epub(str(path), book)
         result = subprocess.run(
             ["java", "-jar", "/opt/epubcheck-5.3.0/epubcheck.jar", str(path)],
-            capture_output=True, text=True, timeout=60,
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=False,
         )
         output = result.stdout + result.stderr
-        if (not broken and result.returncode != 0) or (broken and "RSC-007" not in output):
+        if (not broken and result.returncode != 0) or (
+            broken and "RSC-007" not in output
+        ):
             raise RuntimeError(output)
         if "Exception" in output or "NoSuchMethodError" in output:
             raise RuntimeError(output)

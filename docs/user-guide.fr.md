@@ -4,18 +4,19 @@
 
 Atelier de traduction littéraire self-hosted : **EPUB → analyse → mémoire du livre → traduction contextuelle → relecture → EPUB**.
 
-React / TypeScript strict, FastAPI, PostgreSQL, worker Python persistant, Docker Compose. Le modèle de traduction utilise une API OpenAI-compatible. **OpenViking** est le moteur externe facultatif de mémoire ; les modes disponibles sont `internal`, `openviking` et `hybrid` (par défaut).
+React / TypeScript strict, FastAPI, PostgreSQL, worker Python persistant, Docker Compose. Le modèle de traduction utilise une API OpenAI-compatible. **OpenViking** est le moteur externe facultatif de mémoire ; les modes disponibles sont `internal`, `openviking` et `hybrid`.
 
 ## Démarrage
 
-Prérequis : Docker et Docker Compose, Python 3 pour générer les secrets.
+Prérequis : Linux AMD64, Git, Docker Engine et Docker Compose v2. Python n’est pas obligatoire.
 
 ```bash
-python3 scripts/setup.py
-docker compose up -d --build
+git clone https://github.com/HeartBtz/Libris.git
+cd Libris
+./scripts/install-docker.sh
 ```
 
-Le script crée `.env` avec permissions `0600` et refuse d’écraser une configuration existante. Ouvrir <http://127.0.0.1:8088>. Compte initial : `BOOTSTRAP_USERNAME`, mot de passe : `BOOTSTRAP_PASSWORD` dans `.env`.
+Le script crée `.env` avec permissions `0600`, télécharge l’image Docker publiée et refuse d’écraser une configuration existante. Ouvrir <http://127.0.0.1:8088>. Compte initial : `BOOTSTRAP_USERNAME`, mot de passe : `BOOTSTRAP_PASSWORD` dans `.env`. Le [guide Docker](docker.md) explique chaque étape, les sauvegardes et les mises à jour.
 
 Pour rendre l’application accessible sur le LAN, définir `BIND_ADDRESS` à l’IP du serveur et ajouter son origine complète à `ALLOWED_ORIGINS`. Derrière un reverse proxy HTTPS, ajouter son origine et activer `COOKIE_SECURE=true`.
 
@@ -143,15 +144,16 @@ npm run build
 Test complet Docker avec un provider **explicitement synthétique** :
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.test.yml --profile test up -d --build
-.venv/bin/python scripts/smoke.py
+docker compose -p libris-smoke -f docker-compose.yml -f docker-compose.test.yml --profile test up -d --build
+.venv/bin/python scripts/smoke.py --compose-project libris-smoke --confirm-disposable \
+  --compose-file docker-compose.yml --compose-file docker-compose.test.yml
 npm --prefix frontend exec playwright install chromium
 npm --prefix frontend run test:e2e
 ```
 
 Le smoke test crée un EPUB de test, analyse et traduit réellement via HTTP, vérifie la pause/reprise, tue le worker par SIGKILL, vérifie la reprise et exporte un EPUB contrôlé par EPUBCheck. Il utilise le compte local créé par `setup.py` sans afficher ses secrets. Il suppose que l’installation de test n’a pas de travail utilisateur actif.
 
-Les tests navigateur couvrent correction, historique, inspecteur, preview et mobile. Nettoyage des données SQL synthétiques : `python scripts/smoke.py --cleanup` avec l’environnement virtuel actif. La mémoire externe éventuelle reste disponible pour le diagnostic et ne fait pas l’objet d’une suppression globale automatique.
+Les tests navigateur couvrent correction, historique, inspecteur, preview et mobile. Le smoke test ne redémarre un worker externe que si son projet Compose est nommé explicitement. Nettoyage des données SQL synthétiques : relancer la même commande avec `--cleanup`. La mémoire externe éventuelle reste disponible pour le diagnostic et ne fait pas l’objet d’une suppression globale automatique.
 
 ## État de cette première version
 

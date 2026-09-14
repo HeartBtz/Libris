@@ -2,6 +2,36 @@
 
 All notable changes are documented here. Libris follows [Semantic Versioning](https://semver.org/); while the project is below 1.0, minor versions may include breaking operational changes that are called out explicitly.
 
+## [0.3.1] - 2026-09-14
+
+### Changed
+
+- Aligned both interface themes with the Libris logo using midnight indigo, violet, pale lavender and coral tokens while preserving accessible contrast.
+- Added a beginner-oriented Docker Hub deployment path and public Docker operations guide.
+- Made GitLab the canonical release pipeline: tested commit-addressed images are promoted to GitLab Container Registry and Docker Hub, while the GitHub push mirror creates the matching GHCR release.
+- Added a serialized, forced-command deployment from protected GitLab tags to the existing CT116 production stack, including a pre-deployment PostgreSQL backup and health verification.
+- Allowed the destructive worker-recovery smoke test to target an explicitly named disposable Compose project.
+
+## [0.3.0] - 2026-09-14
+
+### Added
+
+- Galley Proof visual system with tokenized typography, spacing, color, light/dark themes and reduced-motion behavior.
+- Responsive global navigation and native workspace/chapter selectors for phone layouts.
+- Keyboard focus trapping, Escape dismissal and trigger-focus restoration for inspectors and previews.
+- Skip navigation, current-page semantics and 44 px phone touch targets.
+
+### Changed
+
+- Consolidated the interface into one canonical stylesheet and replaced mobile library tables with readable records.
+- Refreshed public screenshots from an isolated API-backed installation containing only fictional EPUB fixtures.
+- Browser integration tests require a loopback `LIBRIS_E2E_URL`, explicit credentials and `LIBRIS_E2E_CONFIRM_DISPOSABLE=1`; workspace tests accept `LIBRIS_E2E_PROJECT_ID` or `LIBRIS_E2E_STATE` for their prepared fixture.
+
+### Fixed
+
+- Removed horizontal document overflow at tablet widths and restored access to every workspace section on narrow screens.
+- Made the multi-book browser test follow the required archive-before-delete workflow.
+
 ## [0.2.6] - 2026-09-14
 
 ### Added
@@ -115,3 +145,5 @@ All notable changes are documented here. Libris follows [Semantic Versioning](ht
 [0.2.4]: https://github.com/HeartBtz/Libris/releases/tag/v0.2.4
 [0.2.5]: https://github.com/HeartBtz/Libris/releases/tag/v0.2.5
 [0.2.6]: https://github.com/HeartBtz/Libris/releases/tag/v0.2.6
+[0.3.0]: https://github.com/HeartBtz/Libris/releases/tag/v0.3.0
+[0.3.1]: https://github.com/HeartBtz/Libris/releases/tag/v0.3.1

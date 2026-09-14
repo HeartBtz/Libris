@@ -12,8 +12,8 @@ Le provider est figé pendant une exécution afin de préserver les limites et l
 
 ## Les deux progressions
 
-- **Analyse, en bleu** : proportion des passages analysés et sections synthétisées dans la Book Bible parmi ces unités de travail. La synthèse compte dans la progression ; 100 % exige que les deux étapes soient terminées. Ce pourcentage représente la couverture, pas une estimation du temps restant.
-- **Traduction, en doré** : passages disposant d’une traduction, hors passages explicitement conservés en langue source.
+- **Analyse & mémoire** : proportion des passages analysés et sections synthétisées dans la Book Bible parmi ces unités de travail. La synthèse compte dans la progression ; 100 % exige que les deux étapes soient terminées. Ce pourcentage représente la couverture, pas une estimation du temps restant.
+- **Traduction** : passages disposant d’une traduction, hors passages explicitement conservés en langue source.
 
 Les détails sont disponibles au survol. Chaque livre possède aussi un bouton **Actualiser**, qui recharge statistiques, jobs et panneaux sans remplacer un brouillon de traduction en cours.
 

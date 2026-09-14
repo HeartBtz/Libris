@@ -1,5 +1,7 @@
 # Installing Libris
 
+For a first installation using the published Docker Hub image, start with the [beginner Docker guide](docker.md) or run `./scripts/install-docker.sh`. This page documents the configuration and operational details behind that installer.
+
 ## 1. Local configuration
 
 Run `python3 scripts/setup.py` in the repository root. It generates independent application, database, bootstrap and Codex bridge secrets. Do not commit `.env` or replace it during upgrades. For an existing installation the script intentionally fails instead of replacing keys.
@@ -20,10 +22,19 @@ Changing bootstrap credentials does not reset an existing account. Changing the 
 
 ## 2. Start and verify
 
+Published image:
+
 ```bash
-docker compose up -d --build --wait
+docker compose pull database migrate api worker
+docker compose up -d --no-build --wait database migrate api worker
 docker compose ps
 curl --fail http://127.0.0.1:8088/health
+```
+
+Source build for development:
+
+```bash
+LIBRIS_IMAGE=epub-translator:local docker compose up -d --build --wait
 ```
 
 The migration service exits successfully after upgrading the database. This is expected. API health does not prove that a model provider or OpenViking is available: test those separately in Settings.
@@ -65,7 +76,8 @@ No external memory service is required. Choose `internal` memory in the book con
 New setup files include a private bridge token. Existing installations can use `python3 scripts/enable_codex.py` as described in [Codex connection](codex.md).
 
 ```bash
-docker compose --profile codex up -d --build --wait
+docker compose --profile codex build codex
+docker compose --profile codex up -d --no-build --wait
 ```
 
 Complete the official login flow in the provider settings. Keep the bridge port private and include its state volume in backups if you want to preserve authentication. Account eligibility and service limits are determined by the provider.
@@ -76,10 +88,10 @@ Back up first. Pause jobs in the UI, then:
 
 ```bash
 git pull --ff-only
-docker compose up -d --build --wait
+./scripts/install-docker.sh
 ```
 
-Include `--profile codex` if you use Codex. Check health and resume jobs. Database migrations run before the API starts. Do not use `down -v`. To roll back a schema-changing update, restore the matching database/files/configuration backup as well as the old application revision.
+Run `./scripts/install-docker.sh --profile codex` instead if you use Codex. Check health and resume jobs. Database migrations run before the API starts. Do not use `down -v`. To roll back a schema-changing update, restore the matching database/files/configuration backup as well as the old application revision.
 
 The Compose project name remains `epub-translator` for compatibility with existing installations. Changing it or using a different `-p` name selects different volumes; do not rename a deployed project casually.
 
@@ -109,7 +121,7 @@ cp /secure/backup/config.env .env
 docker compose up -d --wait database
 docker compose exec -T database pg_restore -U translator -d translator --clean --if-exists < /secure/backup/database.dump
 docker compose run --rm --no-deps -T api tar -C /data -xzf - < /secure/backup/books.tar.gz
-docker compose up -d --build --wait
+docker compose up -d --no-build --wait
 docker compose exec -T api alembic check
 ```
 

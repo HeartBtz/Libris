@@ -1,0 +1,143 @@
+#!/usr/bin/env bash
+# shellcheck disable=SC2016
+set -euo pipefail
+
+[[ $# -eq 4 ]] || { echo "Usage: libris-production-deploy COMMIT VERSION APP_IMAGE_ID CODEX_IMAGE_ID" >&2; exit 64; }
+commit="$1"
+version="$2"
+expected_app_id="$3"
+expected_codex_id="$4"
+[[ "$commit" =~ ^[0-9a-f]{40}$ ]] || { echo "Invalid commit" >&2; exit 64; }
+[[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "Invalid version" >&2; exit 64; }
+
+base="${LIBRIS_PRODUCTION_BASE:-/opt/libris-production}"
+compose_file="${LIBRIS_PRODUCTION_COMPOSE_FILE:-$base/docker-compose.yml}"
+secret_env="${LIBRIS_PRODUCTION_SECRET_ENV:-/opt/epub-translator/.env}"
+project="${LIBRIS_PRODUCTION_PROJECT:-epub-translator}"
+health_url="${LIBRIS_PRODUCTION_HEALTH_URL:-http://192.168.1.116:8088/health}"
+app_image="libris-production:$commit"
+codex_image="libris-codex-production:$commit"
+[[ -r "$compose_file" && -r "$secret_env" ]] || { echo "Production configuration is not provisioned" >&2; exit 65; }
+if [[ -r "$base/current-version" ]]; then
+	deployed_version="$(<"$base/current-version")"
+	deployed_commit=""
+	[[ ! -r "$base/current-commit" ]] || deployed_commit="$(<"$base/current-commit")"
+	if [[ "$version" == "$deployed_version" && -n "$deployed_commit" && "$commit" != "$deployed_commit" ]]; then
+		echo "Version $version is already associated with another commit" >&2
+		exit 65
+	fi
+	if [[ "$version" != "$deployed_version" && "$(printf '%s\n%s\n' "$deployed_version" "$version" | sort -V | tail -n 1)" != "$version" ]]; then
+		echo "Refusing outdated deployment $version after $deployed_version" >&2
+		exit 65
+	fi
+fi
+[[ "$(docker image inspect --format '{{.Id}}' "$app_image")" == "$expected_app_id" ]] || { echo "Application image changed" >&2; exit 65; }
+[[ "$(docker image inspect --format '{{.Id}}' "$codex_image")" == "$expected_codex_id" ]] || { echo "Codex image changed" >&2; exit 65; }
+for image in "$app_image" "$codex_image"; do
+	[[ "$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$image")" == "$commit" ]] || { echo "Image revision mismatch" >&2; exit 65; }
+	[[ "$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.version" }}' "$image")" == "$version" ]] || { echo "Image version mismatch" >&2; exit 65; }
+done
+
+export LIBRIS_IMAGE="$app_image"
+export LIBRIS_CODEX_IMAGE="$codex_image"
+export LIBRIS_ENV_FILE="$secret_env"
+compose=(docker compose --project-name "$project" --env-file "$secret_env" --file "$compose_file")
+if [[ -n "${LIBRIS_PRODUCTION_COMPOSE_OVERRIDE:-}" ]]; then
+	compose+=(--file "$LIBRIS_PRODUCTION_COMPOSE_OVERRIDE")
+fi
+compose+=(--profile codex)
+api_container="$("${compose[@]}" ps -q api)"
+worker_container="$("${compose[@]}" ps -q worker)"
+codex_container="$("${compose[@]}" ps -q codex)"
+[[ -n "$api_container" ]] || { echo "Existing production API was not found" >&2; exit 65; }
+[[ -n "$worker_container" ]] || { echo "Existing production worker was not found" >&2; exit 65; }
+previous_app_id="$(docker inspect --format '{{.Image}}' "$api_container")"
+previous_worker_id="$(docker inspect --format '{{.Image}}' "$worker_container")"
+previous_codex_id=""
+[[ -z "$codex_container" ]] || previous_codex_id="$(docker inspect --format '{{.Image}}' "$codex_container")"
+docker image tag "$previous_app_id" libris-production:previous-api
+docker image tag "$previous_worker_id" libris-production:previous-worker
+[[ -z "$previous_codex_id" ]] || docker image tag "$previous_codex_id" libris-codex-production:previous
+
+install -d -m 0700 "$base/backups"
+timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
+backup="$base/backups/pre-${timestamp}-${commit}.dump"
+current_revision="$("${compose[@]}" exec -T database sh -lc 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Atc "SELECT version_num FROM alembic_version ORDER BY version_num;"')"
+target_revision="$(docker run --rm --entrypoint sh "$app_image" -lc "alembic heads | sed -n 's/ .*//p'")"
+[[ -n "$current_revision" && -n "$target_revision" ]] || { echo "Could not resolve database revisions" >&2; exit 65; }
+schema_unchanged=true
+
+rollback() {
+	status="${1:-$?}"
+	trap - ERR INT TERM
+	"${compose[@]}" stop api worker codex >/dev/null 2>&1 || true
+	if [[ "$schema_unchanged" == true ]]; then
+		export LIBRIS_IMAGE=libris-production:previous-api
+		services=(api)
+		restore_failed=false
+		if [[ -n "$previous_codex_id" ]]; then
+			export LIBRIS_CODEX_IMAGE=libris-codex-production:previous
+			services+=(codex)
+		fi
+		if ! "${compose[@]}" up -d --no-build --wait "${services[@]}"; then
+			restore_failed=true
+		else
+			export LIBRIS_IMAGE=libris-production:previous-worker
+			"${compose[@]}" up -d --no-build --no-deps --wait worker || restore_failed=true
+		fi
+		restored_app_id="$(docker inspect --format '{{.Image}}' "$("${compose[@]}" ps -q api)" 2>/dev/null || true)"
+		restored_worker_id="$(docker inspect --format '{{.Image}}' "$("${compose[@]}" ps -q worker)" 2>/dev/null || true)"
+		restored_codex_id=""
+		[[ -z "$previous_codex_id" ]] || restored_codex_id="$(docker inspect --format '{{.Image}}' "$("${compose[@]}" ps -q codex)" 2>/dev/null || true)"
+		if [[ "$restore_failed" == false && "$restored_app_id" == "$previous_app_id" && "$restored_worker_id" == "$previous_worker_id" && "$restored_codex_id" == "$previous_codex_id" ]]; then
+			echo "Deployment failed; previous images restored because the schema was unchanged." >&2
+		else
+			echo "Deployment and automatic image restoration both failed; inspect CT116 immediately." >&2
+			status=1
+		fi
+	else
+		echo "Deployment failed after a schema change; services remain stopped. Restore $backup before rollback." >&2
+	fi
+	exit "$status"
+}
+trap rollback ERR
+trap 'rollback 130' INT TERM
+
+"${compose[@]}" stop api worker codex
+(set -o noclobber; "${compose[@]}" exec -T database sh -lc 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc' > "$backup")
+if [[ ! -s "$backup" ]]; then
+	echo "Pre-deployment database backup failed" >&2
+	rollback 1
+fi
+if ! "${compose[@]}" up --no-build --wait --force-recreate migrate; then
+	migrated_revision="$("${compose[@]}" exec -T database sh -lc 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Atc "SELECT version_num FROM alembic_version ORDER BY version_num;"' 2>/dev/null || true)"
+	[[ "$migrated_revision" == "$current_revision" ]] || schema_unchanged=false
+	rollback 1
+fi
+if ! migrated_revision="$("${compose[@]}" exec -T database sh -lc 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Atc "SELECT version_num FROM alembic_version ORDER BY version_num;"')"; then
+	schema_unchanged=false
+	echo "Could not verify the database revision after migration" >&2
+	rollback 1
+fi
+[[ "$migrated_revision" == "$current_revision" ]] || schema_unchanged=false
+[[ "$migrated_revision" == "$target_revision" ]] || { echo "Migration did not reach $target_revision" >&2; false; }
+"${compose[@]}" up -d --no-build --wait api codex
+python3 - "$version" "$health_url" <<'PY'
+import json
+import sys
+import urllib.request
+
+with urllib.request.urlopen(sys.argv[2], timeout=5) as response:
+    health = json.load(response)
+if health != {"status": "ok", "version": sys.argv[1]}:
+    raise SystemExit(f"Unexpected health response: {health}")
+PY
+"${compose[@]}" up -d --no-build --wait worker
+
+trap - ERR INT TERM
+printf '%s\n' "$commit" > "$base/current-commit"
+printf '%s\n' "$version" > "$base/current-version"
+printf '%s\n' "$expected_app_id" > "$base/current-app-image-id"
+printf '%s\n' "$expected_codex_id" > "$base/current-codex-image-id"
+find "$base/backups" -maxdepth 1 -type f -name 'pre-*.dump' -printf '%T@ %p\n' | sort -nr | tail -n +6 | cut -d' ' -f2- | xargs -r rm -f
+echo "Libris $version ($commit) deployed to CT116 and healthy; worker restarted from persistent checkpoints"

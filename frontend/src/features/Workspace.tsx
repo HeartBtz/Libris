@@ -11,7 +11,7 @@ const CharacterGraph = lazy(() => import("./CharacterGraph"));
 const translations: Record<string, string> = {
   "Analyse des passages": "Segment analysis",
   "Synthèse de la Book Bible": "Book Bible synthesis",
-  "Traduction": "Translation",
+  Traduction: "Translation",
   "Seconde passe ciblée": "Targeted second pass",
   "Cohérence globale": "Global consistency",
   "Résolution finale des validations": "Final validation resolution",
@@ -23,57 +23,63 @@ const translations: Record<string, string> = {
   "Export refusé": "Export refused",
   "Actualiser les données du livre": "Refresh book data",
   "Actualisation…": "Refreshing…",
-  "Actualiser": "Refresh",
+  Actualiser: "Refresh",
   "Mis à jour à": "Updated at",
   "Bibliothèque /": "Library /",
-  "volume": "volume",
-  "lot": "batch",
+  volume: "volume",
+  lot: "batch",
   "Reprendre le travail annulé": "Resume cancelled work",
   "Reprendre après connexion": "Resume after signing in",
-  "Reprendre": "Resume",
-  "Pause": "Pause",
+  Reprendre: "Resume",
+  Pause: "Pause",
   "Réessayer maintenant": "Retry now",
-  "Annuler": "Cancel",
+  Annuler: "Cancel",
   "Analyse terminée": "Analysis complete",
   "Analyser le livre": "Analyze book",
-  "Relancer une analyse complète des résultats automatiques ? Les analyses et décisions humaines sont conservées. Cette opération rappellera le modèle.": "Rerun a full analysis of the automatic results? Analyses and human decisions will be preserved. This operation will call the model again.",
+  "Relancer une analyse complète des résultats automatiques ? Les analyses et décisions humaines sont conservées. Cette opération rappellera le modèle.":
+    "Rerun a full analysis of the automatic results? Analyses and human decisions will be preserved. This operation will call the model again.",
   "Réanalyse complète": "Full reanalysis",
-  "Traduire": "Translate",
-  "Récupérer": "Recover",
+  Traduire: "Translate",
+  Récupérer: "Recover",
   "passage(s)": "segment(s)",
   "Exporter ↓": "Export ↓",
   "EPUB traduit": "Translated EPUB",
-  "Texte": "Text",
+  Texte: "Text",
   "Projet complet": "Complete project",
   "EPUB partiel · originaux conservés": "Partial EPUB · originals retained",
   "Rapport de couverture": "Coverage report",
-  "Configurez le provider et les langues dans": "Configure the provider and languages in",
-  "Configuration": "Settings",
+  "Configurez le provider et les langues dans":
+    "Configure the provider and languages in",
+  Configuration: "Settings",
   "Gérer les providers →": "Manage providers →",
   "Voir les requêtes": "View requests",
-  "Le provider a refusé le traitement. Le texte source est conservé ; ce passage n’est pas compté comme analysé ou traduit automatiquement.": "The provider declined processing. The source text is retained; this segment is not counted as automatically analyzed or translated.",
+  "Le provider a refusé le traitement. Le texte source est conservé ; ce passage n’est pas compté comme analysé ou traduit automatiquement.":
+    "The provider declined processing. The source text is retained; this segment is not counted as automatically analyzed or translated.",
   "Ouvrir le passage à traiter": "Open the segment to process",
   "Compléter la Book Bible manuellement": "Complete the Book Bible manually",
   "Reprise automatique prévue :": "Automatic retry scheduled:",
-  "interruption(s) consécutive(s). Les étapes enregistrées sont conservées. Utilisez Pause pour suspendre les tentatives automatiques.": "consecutive interruption(s). Completed stages are retained. Use Pause to suspend automatic retries.",
-  "Pause volontaire — utilisez Reprendre pour continuer.": "Paused manually — use Resume to continue.",
-  "Ouvrir les paramètres de connexion du provider →": "Open provider connection settings →",
+  "interruption(s) consécutive(s). Les étapes enregistrées sont conservées. Utilisez Pause pour suspendre les tentatives automatiques.":
+    "consecutive interruption(s). Completed stages are retained. Use Pause to suspend automatic retries.",
+  "Pause volontaire — utilisez Reprendre pour continuer.":
+    "Paused manually — use Resume to continue.",
+  "Ouvrir les paramètres de connexion du provider →":
+    "Open provider connection settings →",
   "validés humainement": "human-validated",
   "à vérifier": "to review",
-  "erreurs": "errors",
-  "Mémoire": "Memory",
+  erreurs: "errors",
+  Mémoire: "Memory",
   "passage(s) conservé(s) en original": "segment(s) retained in the original",
   "Navigation du livre": "Book navigation",
-  "Validations": "Validations",
+  Validations: "Validations",
   "Bilan & récupération": "Summary & recovery",
-  "Qualité": "Quality",
+  Qualité: "Quality",
   "Mémoire du livre": "Book memory",
   "Personnages & liens": "Characters & relationships",
-  "Glossaire": "Glossary",
+  Glossaire: "Glossary",
   "Réglages & suivi": "Settings & tracking",
-  "Observabilité": "Observability",
+  Observabilité: "Observability",
   "Sections du livre": "Book sections",
-  "Analysé": "Analyzed",
+  Analysé: "Analyzed",
   "Chargement du graphe…": "Loading graph…",
 };
 
@@ -152,7 +158,8 @@ export function Workspace({
     };
   }, [id, t]);
   const refresh = () => setTick((t) => t + 1);
-  if (!project) return <main className="loading">{t("Ouverture du livre…")}</main>;
+  if (!project)
+    return <main className="loading">{t("Ouverture du livre…")}</main>;
   const runningJob = jobs.find((j) =>
     [
       "pending",
@@ -179,6 +186,35 @@ export function Workspace({
     refresh();
   }
   const canonicalProgress = projectProgress(project);
+  const navigationGroups = [
+    {
+      title: t("Traduire"),
+      items: [
+        ["editor", t("Traduction")],
+        [
+          "validations",
+          `${t("Validations")}${project.stats.flagged + project.stats.refused ? ` (${project.stats.flagged + project.stats.refused})` : ""}`,
+        ],
+        ["completion", t("Bilan & récupération")],
+        ["quality", t("Qualité")],
+      ],
+    },
+    {
+      title: t("Mémoire du livre"),
+      items: [
+        ["bible", "Book Bible"],
+        ["characters", t("Personnages & liens")],
+        ["glossary", t("Glossaire")],
+      ],
+    },
+    {
+      title: t("Réglages & suivi"),
+      items: [
+        ["config", t("Configuration")],
+        ["requests", t("Observabilité")],
+      ],
+    },
+  ];
   async function exportFile(format: string, allowSource = false) {
     if (exportState === "running") return;
     setExportState("running");
@@ -232,7 +268,8 @@ export function Workspace({
           {project.series_name && (
             <span className="series-meta">
               {project.series_name}
-              {project.volume_number && ` · ${t("volume")} ${project.volume_number}`}
+              {project.volume_number &&
+                ` · ${t("volume")} ${project.volume_number}`}
             </span>
           )}
         </div>
@@ -268,11 +305,11 @@ export function Workspace({
                   }
                 >
                   {job.status === "cancelled"
-                     ? t("Reprendre le travail annulé")
+                    ? t("Reprendre le travail annulé")
                     : job.status === "blocked" &&
                         job.stop_reason === "authentication_required"
-                       ? t("Reprendre après connexion")
-                       : t("Reprendre")}
+                      ? t("Reprendre après connexion")
+                      : t("Reprendre")}
                 </button>
               ) : (
                 <button
@@ -324,7 +361,9 @@ export function Workspace({
                   onClick={() => {
                     if (
                       confirm(
-                        t("Relancer une analyse complète des résultats automatiques ? Les analyses et décisions humaines sont conservées. Cette opération rappellera le modèle."),
+                        t(
+                          "Relancer une analyse complète des résultats automatiques ? Les analyses et décisions humaines sont conservées. Cette opération rappellera le modèle.",
+                        ),
                       )
                     )
                       void run(() => start("analyze", true));
@@ -340,15 +379,21 @@ export function Workspace({
                 }
                 onClick={() => void run(() => start("translate"))}
               >
-                  {t("Traduire")}
+                {t("Traduire")}
               </button>
               {!!(project.stats.errors || project.stats.refused) && (
                 <button
                   className="primary"
                   onClick={() => setTab("completion")}
                 >
-                  {t("Récupérer")} {project.stats.errors + project.stats.refused}{" "}
-                  {t("passage(s)").replace("segment(s)", project.stats.errors + project.stats.refused === 1 ? "segment" : "segments")}
+                  {t("Récupérer")}{" "}
+                  {project.stats.errors + project.stats.refused}{" "}
+                  {t("passage(s)").replace(
+                    "segment(s)",
+                    project.stats.errors + project.stats.refused === 1
+                      ? "segment"
+                      : "segments",
+                  )}
                 </button>
               )}
             </>
@@ -396,7 +441,7 @@ export function Workspace({
       </div>
       {!project.provider_id && (
         <div className="notice">
-          {t("Configurez le provider et les langues dans")} {" "}
+          {t("Configurez le provider et les langues dans")}{" "}
           <button className="link" onClick={() => setTab("config")}>
             {t("Configuration")}
           </button>
@@ -409,12 +454,16 @@ export function Workspace({
           role="alert"
         >
           {job.error}{" "}
-          <button onClick={() => setTab("requests")}>{t("Voir les requêtes")}</button>
+          <button onClick={() => setTab("requests")}>
+            {t("Voir les requêtes")}
+          </button>
         </div>
       )}
       {job?.stop_reason === "content_refusal" && (
         <div className="notice" role="status">
-          {t("Le provider a refusé le traitement. Le texte source est conservé ; ce passage n’est pas compté comme analysé ou traduit automatiquement.")}
+          {t(
+            "Le provider a refusé le traitement. Le texte source est conservé ; ce passage n’est pas compté comme analysé ou traduit automatiquement.",
+          )}
           {job.checkpoint.segment_id ? (
             <button
               onClick={() =>
@@ -440,7 +489,13 @@ export function Workspace({
       {job?.status === "waiting" && (
         <div className="notice" role="status">
           {t("Reprise automatique prévue :")} {date(job.next_attempt)} ·{" "}
-          {job.outage_count} {t("interruption(s) consécutive(s). Les étapes enregistrées sont conservées. Utilisez Pause pour suspendre les tentatives automatiques.").replace("interruption(s)", job.outage_count === 1 ? "interruption" : "interruptions")}
+          {job.outage_count}{" "}
+          {t(
+            "interruption(s) consécutive(s). Les étapes enregistrées sont conservées. Utilisez Pause pour suspendre les tentatives automatiques.",
+          ).replace(
+            "interruption(s)",
+            job.outage_count === 1 ? "interruption" : "interruptions",
+          )}
         </div>
       )}
       {job?.status === "paused" && (
@@ -471,43 +526,31 @@ export function Workspace({
             : ""}
         </span>
         <span>
-          {project.stats.validated} {t("validés humainement")} · {project.stats.flagged} {t("à vérifier")} · {project.stats.errors} {t("erreurs")} · {t("Mémoire")} {project.context_backend}
+          {project.stats.validated} {t("validés humainement")} ·{" "}
+          {project.stats.flagged} {t("à vérifier")} · {project.stats.errors}{" "}
+          {t("erreurs")} · {t("Mémoire")} {project.context_backend}
           {project.stats.retained_source > 0
             ? ` · ${project.stats.retained_source} ${t("passage(s) conservé(s) en original").replace("segment(s)", project.stats.retained_source === 1 ? "segment" : "segments")}`
             : ""}
         </span>
       </div>
       <div className="workspace-shell">
+        <label className="workspace-nav-select">
+          <span>{t("Navigation du livre")}</span>
+          <select value={tab} onChange={(event) => setTab(event.target.value)}>
+            {navigationGroups.map((group) => (
+              <optgroup key={group.title} label={group.title}>
+                {group.items.map(([key, label]) => (
+                  <option key={key} value={key}>
+                    {label}
+                  </option>
+                ))}
+              </optgroup>
+            ))}
+          </select>
+        </label>
         <nav className="workspace-nav" aria-label={t("Navigation du livre")}>
-          {[
-            {
-              title: t("Traduire"),
-              items: [
-                ["editor", t("Traduction")],
-                [
-                  "validations",
-                  `${t("Validations")}${project.stats.flagged + project.stats.refused ? ` (${project.stats.flagged + project.stats.refused})` : ""}`,
-                ],
-                ["completion", t("Bilan & récupération")],
-                ["quality", t("Qualité")],
-              ],
-            },
-            {
-              title: t("Mémoire du livre"),
-              items: [
-                ["bible", "Book Bible"],
-                ["characters", t("Personnages & liens")],
-                ["glossary", t("Glossaire")],
-              ],
-            },
-            {
-              title: t("Réglages & suivi"),
-              items: [
-                ["config", t("Configuration")],
-                ["requests", t("Observabilité")],
-              ],
-            },
-          ].map((group) => (
+          {navigationGroups.map((group) => (
             <div className="workspace-nav-group" key={group.title}>
               <h2>{group.title}</h2>
               {group.items.map(([key, label]) => (
@@ -526,6 +569,20 @@ export function Workspace({
         <div id="workspace-content" className="workspace-content">
           {tab === "editor" ? (
             <div className="workspace-body">
+              <label className="chapter-select">
+                <span>{t("Sections du livre")}</span>
+                <select
+                  value={chapter}
+                  onChange={(event) => setChapter(event.target.value)}
+                >
+                  {chapters.map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {String(item.position + 1).padStart(2, "0")} ·{" "}
+                      {item.title}
+                    </option>
+                  ))}
+                </select>
+              </label>
               <aside className="chapter-list">
                 <h3>
                   {t("Sections du livre")} <span>{chapters.length}</span>
@@ -538,7 +595,9 @@ export function Workspace({
                   >
                     <small>{String(c.position + 1).padStart(2, "0")}</small>
                     <span>{c.title}</span>
-                    {c.analyzed && <span className="dot" title={t("Analysé")} />}
+                    {c.analyzed && (
+                      <span className="dot" title={t("Analysé")} />
+                    )}
                   </button>
                 ))}
               </aside>

@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { api, date, labels, send } from "../api";
 import { registerTranslations, useI18n } from "../i18n";
 import type {
@@ -107,6 +107,62 @@ const translations: Record<string, string> = {
 
 registerTranslations(translations);
 
+export function useDialogFocus<T extends HTMLElement>(
+  active: boolean,
+  close: () => void,
+) {
+  const dialog = useRef<T>(null);
+  const closeRef = useRef(close);
+  closeRef.current = close;
+
+  useEffect(() => {
+    if (!active || !dialog.current) return;
+    const previous = document.activeElement as HTMLElement | null;
+    const element = dialog.current;
+    const selector =
+      'a[href], button:not(:disabled), iframe, input:not(:disabled), select:not(:disabled), summary, textarea:not(:disabled), [tabindex]:not([tabindex="-1"])';
+    const focusable = () =>
+      Array.from(element.querySelectorAll<HTMLElement>(selector));
+    focusable()[0]?.focus();
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeRef.current();
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const controls = focusable();
+      if (!controls.length) {
+        event.preventDefault();
+        return;
+      }
+      const first = controls[0];
+      const last = controls[controls.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    const onFocusIn = (event: FocusEvent) => {
+      if (!element.contains(event.target as Node)) focusable()[0]?.focus();
+    };
+
+    element.addEventListener("keydown", onKeyDown);
+    document.addEventListener("focusin", onFocusIn);
+    return () => {
+      element.removeEventListener("keydown", onKeyDown);
+      document.removeEventListener("focusin", onFocusIn);
+      previous?.focus();
+    };
+  }, [active]);
+
+  return dialog;
+}
+
 export function Editor({
   project,
   chapter,
@@ -128,6 +184,9 @@ export function Editor({
   const [offset, setOffset] = useState(0);
   const [selected, setSelected] = useState<Segment | null>(null);
   const [preview, setPreview] = useState("");
+  const previewDialog = useDialogFocus<HTMLElement>(Boolean(preview), () =>
+    setPreview(""),
+  );
   useEffect(() => {
     if (focusRefusal) {
       setFilter("refused");
@@ -276,6 +335,7 @@ export function Editor({
       {preview && (
         <div className="modal-backdrop">
           <section
+            ref={previewDialog}
             className="preview-modal"
             role="dialog"
             aria-modal="true"
@@ -292,8 +352,19 @@ export function Editor({
             </p>
             <iframe
               title={t("Rendu du chapitre")}
-              sandbox=""
+              sandbox="allow-same-origin"
               srcDoc={preview}
+              onLoad={(event) => {
+                event.currentTarget.contentDocument?.addEventListener(
+                  "keydown",
+                  (frameEvent) => {
+                    if (frameEvent.key === "Escape") {
+                      frameEvent.preventDefault();
+                      setPreview("");
+                    }
+                  },
+                );
+              }}
             />
           </section>
         </div>
@@ -607,6 +678,7 @@ export function Inspector({
   const [busy, setBusy] = useState(false);
   const [humanSummary, setHumanSummary] = useState("");
   const [analysisSaved, setAnalysisSaved] = useState(false);
+  const dialog = useDialogFocus<HTMLElement>(true, close);
   useEffect(() => {
     void run(async () => {
       const [r, v] = await Promise.all([
@@ -619,8 +691,10 @@ export function Inspector({
   }, [run, segment.id]);
   return (
     <aside
+      ref={dialog}
       className="inspector"
       role="dialog"
+      aria-modal="true"
       aria-label={t("Inspecteur du passage")}
     >
       <header>

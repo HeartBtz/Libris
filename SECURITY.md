@@ -2,10 +2,10 @@
 
 ## Supported versions
 
-| Version | Security updates |
-| --- | --- |
-| Latest `0.1.x` release | Supported |
-| Older commits and releases | Unsupported |
+| Version                    | Security updates |
+| -------------------------- | ---------------- |
+| Latest `0.x` release       | Supported        |
+| Older commits and releases | Unsupported      |
 
 Do not report vulnerabilities through a public issue with exploit details, credentials or private books. If this repository is hosted on GitHub and private vulnerability reporting is enabled, use **Security → Report a vulnerability**. Otherwise contact the repository owner privately through the hosting service before sharing sensitive details.
 

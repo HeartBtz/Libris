@@ -1,23 +1,15 @@
 import { test, expect } from "@playwright/test";
-import { readFileSync } from "node:fs";
-
-const config = Object.fromEntries(
-  readFileSync(new URL("../../.env", import.meta.url), "utf8")
-    .split("\n")
-    .filter((l) => l && !l.startsWith("#"))
-    .map((l) => [l.slice(0, l.indexOf("=")), l.slice(l.indexOf("=") + 1)]),
-);
-const base = `http://${config.BIND_ADDRESS}:${config.PORT}`;
+import { base, password, username } from "./integration-config";
 
 test("library shows active-stage progress and refresh reloads metrics", async ({
   page,
 }) => {
   const login = await page.request.post(`${base}/api/auth/login`, {
     data: {
-      username: config.BOOTSTRAP_USERNAME,
-      password: config.BOOTSTRAP_PASSWORD,
+      username,
+      password,
     },
-    headers: { Origin: config.ALLOWED_ORIGINS.split(",")[0] },
+    headers: { Origin: new URL(base).origin },
   });
   expect(login.ok()).toBeTruthy();
   await page.goto(base);
@@ -135,9 +127,7 @@ test("library shows active-stage progress and refresh reloads metrics", async ({
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(
     390,
   );
-  await page
-    .getByRole("button", { name: "Bilan & récupération", exact: true })
-    .click();
+  await page.locator(".workspace-nav-select select").selectOption("completion");
   await expect(
     page.getByRole("heading", { name: "Bilan & récupération", exact: true }),
   ).toBeVisible();

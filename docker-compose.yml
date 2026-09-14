@@ -6,7 +6,7 @@ x-logging: &logging
     max-file: "3"
 x-app: &app
   build: .
-  image: epub-translator:local
+  image: ${LIBRIS_IMAGE:-epub-translator:local}
   env_file: ${LIBRIS_ENV_FILE:-.env}
   environment:
     DATABASE_URL: postgresql+psycopg://translator:${POSTGRES_PASSWORD:?Run scripts/setup.py}@database:5432/translator
@@ -25,7 +25,7 @@ services:
     build:
       context: .
       dockerfile: codex_bridge/Dockerfile
-    image: epub-translator-codex:local
+    image: ${LIBRIS_CODEX_IMAGE:-epub-translator-codex:local}
     stop_grace_period: 30s
     healthcheck:
       test: [CMD, python, -c, "import urllib.request,os; r=urllib.request.Request('http://127.0.0.1:8092/health',headers={'Authorization':'Bearer '+os.environ['CODEX_BRIDGE_TOKEN']}); urllib.request.urlopen(r)"]

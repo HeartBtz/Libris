@@ -1,6 +1,6 @@
 # Public release checklist
 
-The source includes AGPL-3.0-only licensing, a neutral installation guide, GitHub Actions, GitLab CI and screenshots made from synthetic data. The release procedure is documented in [release.md](release.md).
+The source includes AGPL-3.0-only licensing, a beginner Docker guide, GitLab release automation, GitHub mirror automation and screenshots captured from a disposable API-backed installation containing fictional EPUB fixtures. The release procedure is documented in [release.md](release.md).
 
 Before making a GitHub repository public:
 
@@ -16,6 +16,6 @@ Before making a GitHub repository public:
 - Fresh Docker Compose installation with a generated configuration, empty PostgreSQL and separate book volumes.
 - Successful health endpoint and initial administrator login through a default allowed origin.
 - Alembic schema consistency on the fresh PostgreSQL instance.
-- Synthetic browser screenshots without production API calls.
+- API-backed browser screenshots generated only from fictional EPUB fixtures in a disposable Compose project.
 
-GitHub/GitLab publication state and CI results must be checked again for every release. Multi-architecture builds, a complete backup restoration drill and model-quality evaluation remain separate checks until explicitly recorded as successful.
+GitLab, Docker Hub, the GitHub mirror and both container registries must be checked again for every release. Multi-architecture builds, a complete backup restoration drill and model-quality evaluation remain separate checks until explicitly recorded as successful.

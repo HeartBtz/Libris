@@ -2,6 +2,7 @@
 
 [![Tests](https://github.com/HeartBtz/Libris/actions/workflows/tests.yml/badge.svg)](https://github.com/HeartBtz/Libris/actions/workflows/tests.yml)
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
+[![Docker Hub](https://img.shields.io/badge/Docker_Hub-heartbtz%2Flibris-2496ED?logo=docker&logoColor=white)](https://hub.docker.com/r/heartbtz/libris)
 
 <p align="center">
   <img src="frontend/public/assets/libris-logo.png" alt="Libris" width="360">
@@ -11,11 +12,16 @@
 
 Libris combines a persistent translation pipeline with a book bible, character memory, a glossary and a human review workspace. Bring your own local or hosted language model. Your books and translation history stay on your server; selected content is sent to the providers you configure.
 
-[Install](#quick-start) · [Deployment guide](docs/installation.md) · [Guide français](docs/user-guide.fr.md) · [Codex](docs/codex.md) · [Contributing](CONTRIBUTING.md)
+[Install](#quick-start) · [Docker guide](docs/docker.md) · [Deployment guide](docs/installation.md) · [Guide français](docs/user-guide.fr.md) · [Codex](docs/codex.md) · [Contributing](CONTRIBUTING.md)
 
 ## A workspace for long-form translation
 
 ![Libris library](docs/screenshots/library.png)
+
+The **Galley Proof** interface uses the visual language of printer's proofs: literary
+type, compact production metadata, hairline rules, logo-derived indigo surfaces and a
+single coral correction mark. It remains dense on wide editorial workstations while
+replacing side rails and tables with native selectors and readable records on phones.
 
 - **Multiple books:** import EPUBs together and follow analysis and translation separately.
 - **Consistent context:** book bible, character identities, relationships and a lockable glossary.
@@ -61,11 +67,18 @@ Libris combines a persistent translation pipeline with a book bible, character m
 
 </details>
 
-_Screenshots use fictional, synthetic demonstration data in the real UI. They do not represent translation quality benchmarks or expose a user's books._
+_Screenshots were captured from an isolated API-backed installation using fictional
+test EPUBs. They do not represent translation quality benchmarks or expose a user's
+books or credentials._
 
 ### Navigating Libris
 
-The library includes title/author search, activity filters and sorting. Each book shows one progress bar for its current stage instead of stacking unrelated metrics. Inside a book, navigation groups translation and recovery, book memory, and configuration. Desktop navigation stays accessible while reviewing; mobile navigation is horizontally scrollable.
+The library includes title/author search, activity filters and sorting. Each book shows one progress bar for its current stage instead of stacking unrelated metrics. Inside a book, navigation groups translation and recovery, book memory, and configuration. Desktop navigation stays accessible while reviewing; phones use labelled native selectors for the workspace and chapter.
+
+Keyboard users can skip directly to the main content, see the current navigation state
+and retain focus when opening or closing inspectors and previews. Phone controls provide
+at least 44 px touch targets, and non-essential motion follows the reduced-motion
+preference.
 
 <details>
 <summary>Light theme and mobile review</summary>
@@ -80,17 +93,23 @@ The library includes title/author search, activity filters and sorting. Each boo
 
 ### Requirements
 
-- Linux server or workstation with Docker Engine and Docker Compose v2.
-- Python 3 to generate local configuration; Git to obtain the source.
+- Linux AMD64 server or workstation with Docker Engine and Docker Compose v2.
+- Git to obtain the Compose file and maintenance scripts.
 - An accessible language-model provider. **No GPU is required on the Libris server** when inference runs elsewhere.
-- Internet access during the image build to download dependencies and EPUBCheck.
+- Internet access to pull the published application, PostgreSQL and optional setup image.
 
-Clone this repository using the HTTPS or SSH URL shown by your Git hosting service, then run from its root:
+Clone the public mirror and run the idempotent Docker installer:
 
 ```bash
-python3 scripts/setup.py
-docker compose up -d --build --wait
+git clone https://github.com/HeartBtz/Libris.git
+cd Libris
+./scripts/install-docker.sh
 ```
+
+It creates a secret `.env` when needed, pulls the pinned `heartbtz/libris:0.3.1`
+image and waits for the complete stack. It does not overwrite existing configuration or
+delete persistent volumes. Python is optional; when absent, setup runs in a temporary
+official Python container.
 
 For routine application updates, avoid interrupting long inference jobs:
 
@@ -104,7 +123,7 @@ scripts/deploy.sh --worker-when-idle
 
 `--force-worker` is reserved for resumable fixes that must be deployed immediately. Persistent checkpoints prevent completed segments from being repeated, but the interrupted in-flight request is audited and may be retried.
 
-Open **http://localhost:8088** on the Docker host. The initial username is `admin`; find the generated password in the local `.env` under `BOOTSTRAP_PASSWORD`. The setup script creates this file with restricted permissions and never overwrites an existing installation.
+Open **http://localhost:8088** on the Docker host. The initial username is `admin`; find the generated password in the local `.env` under `BOOTSTRAP_PASSWORD`.
 
 For a remote server, use an SSH tunnel first:
 
@@ -112,7 +131,7 @@ For a remote server, use an SSH tunnel first:
 ssh -L 8088:127.0.0.1:8088 your-user@your-server
 ```
 
-Then open http://localhost:8088 on your computer. For LAN or HTTPS access, follow the [deployment guide](docs/installation.md). The default binds only to loopback.
+Then open http://localhost:8088 on your computer. For LAN, HTTPS, updates, backups and troubleshooting, follow the [Docker guide](docs/docker.md). The default binds only to loopback.
 
 ### Translate your first book
 
@@ -133,7 +152,7 @@ See the [compatibility matrix](docs/compatibility.md) for the distinction betwee
 
 ## Deployment and maintenance
 
-See [installation and operations](docs/installation.md) for remote access, HTTPS, optional Codex, backups, updates and troubleshooting. PostgreSQL and the Codex bridge are internal services; only the web application has a published port.
+See the [Docker guide](docs/docker.md) for a beginner-oriented walkthrough and [installation and operations](docs/installation.md) for advanced configuration. PostgreSQL and the Codex bridge are internal services; only the web application has a published port.
 
 ```bash
 docker compose ps
@@ -174,7 +193,7 @@ npm --prefix frontend ci
 npm --prefix frontend run build
 ```
 
-GitHub Actions and GitLab CI run backend tests and build the frontend. Live integration tests must use a disposable installation; see [Contributing](CONTRIBUTING.md).
+GitLab is the canonical CI/release pipeline; the public GitHub mirror repeats release verification and publishes GHCR images. Live integration tests must use a disposable installation; see [Contributing](CONTRIBUTING.md).
 
 Useful commands:
 
@@ -187,6 +206,8 @@ docker compose logs --since=5m api worker
 ## Documentation
 
 - [Installation, configuration, updates, backup and removal](docs/installation.md)
+- [Docker deployment for beginners](docs/docker.md)
+- [GitLab CI/CD, Docker registries and GitHub mirror](docs/ci-cd.md)
 - [Architecture](docs/architecture.md)
 - [Compatibility matrix](docs/compatibility.md)
 - [Operations](docs/operations.md)

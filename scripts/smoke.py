@@ -3,6 +3,7 @@
 Run after starting docker-compose.test.yml's test profile. Credentials are read locally and never printed.
 Creates one clearly-labelled test project; --cleanup removes it after browser tests.
 """
+
 import argparse
 import io
 import json
@@ -27,10 +28,17 @@ def book(title: str = "The Silver Tower — synthetic test") -> bytes:
     b.add_author("Libris · Test fixture")
     chapters = []
     for i, name in enumerate(("One", "Two", "Three")):
-        c = epub.EpubHtml(title="Chapter " + name, file_name=f"chapter{i}.xhtml", lang="en")
-        c.content = f'<h1 id="chapter{i}">Chapter {name}</h1><p>Alice entered the <em>Silver Tower</em> and stopped.</p>' + (
-            '<p>The pendant shone in the moonlight. She remembered his promise. '
-            'Bob watched the doorway in silence. The wind carried a familiar melody.</p>' * 15)
+        c = epub.EpubHtml(
+            title="Chapter " + name, file_name=f"chapter{i}.xhtml", lang="en"
+        )
+        c.content = (
+            f'<h1 id="chapter{i}">Chapter {name}</h1><p>Alice entered the <em>Silver Tower</em> and stopped.</p>'
+            + (
+                "<p>The pendant shone in the moonlight. She remembered his promise. "
+                "Bob watched the doorway in silence. The wind carried a familiar melody.</p>"
+                * 15
+            )
+        )
         b.add_item(c)
         chapters.append(c)
     b.toc = tuple(chapters)
@@ -42,38 +50,90 @@ def book(title: str = "The Silver Tower — synthetic test") -> bytes:
     return result.getvalue()
 
 
-def main(cleanup=False):
-    config = dotenv_values(ROOT / ".env")
+def main(args):
+    config = dotenv_values(args.env_file)
     host = config.get("BIND_ADDRESS", "127.0.0.1")
     if host == "0.0.0.0":
         host = "127.0.0.1"
-    client = httpx.Client(base_url=f"http://{host}:{config.get('PORT', '8088')}", timeout=120)
+    base_url = args.base_url or f"http://{host}:{config.get('PORT', '8088')}"
+    if not args.cleanup and (not args.compose_project or not args.confirm_disposable):
+        raise RuntimeError(
+            "--compose-project and --confirm-disposable are required before creating data or restarting a worker"
+        )
+    compose = ["docker", "compose", "--env-file", str(args.env_file)]
+    if args.compose_project:
+        compose += ["--project-name", args.compose_project]
+    for compose_file in args.compose_file:
+        compose += ["--file", str(compose_file)]
+    client = httpx.Client(base_url=base_url, timeout=120)
+    state_path = args.state
+
     def request(method, path, **kwargs):
         r = client.request(method, "/api" + path, **kwargs)
         if r.status_code >= 400:
             raise RuntimeError(f"{method} {path}: {r.status_code}: {r.text[:1200]}")
         return r
-    request("POST", "/auth/login", json={"username": config["BOOTSTRAP_USERNAME"], "password": config["BOOTSTRAP_PASSWORD"]})
-    if cleanup:
-        state = json.loads(STATE.read_text())
+
+    request(
+        "POST",
+        "/auth/login",
+        json={
+            "username": config["BOOTSTRAP_USERNAME"],
+            "password": config["BOOTSTRAP_PASSWORD"],
+        },
+    )
+    if args.cleanup:
+        state = json.loads(state_path.read_text())
         jobs = request("GET", f"/projects/{state['project_id']}/jobs").json()
         for job in jobs:
             if job["status"] not in {"completed", "cancelled"}:
-                request("POST", f"/projects/{state['project_id']}/jobs/{job['id']}/cancel")
+                request(
+                    "POST", f"/projects/{state['project_id']}/jobs/{job['id']}/cancel"
+                )
         request("DELETE", f"/projects/{state['project_id']}")
         request("DELETE", f"/providers/{state['provider_id']}")
         print("Projet et provider synthétiques supprimés.")
         return
-    provider = request("POST", "/providers", json={"name": "Synthetic test only", "base_url": "http://mock-llm:8091/v1",
-        "model": "synthetic-literary-test", "context_window": 64000,
-        "capabilities": {"supports_json_schema": True}}).json()
+    provider = request(
+        "POST",
+        "/providers",
+        json={
+            "name": "Synthetic test only",
+            "base_url": "http://mock-llm:8091/v1",
+            "model": "synthetic-literary-test",
+            "context_window": 64000,
+            "capabilities": {"supports_json_schema": True},
+        },
+    ).json()
     test = request("POST", f"/providers/{provider['id']}/test").json()
     assert test["ok"], test["message"]
-    p = request("POST", "/projects", files={"file": ("fixture.epub", book(), "application/epub+zip")}).json()
+    p = request(
+        "POST",
+        "/projects",
+        files={"file": ("fixture.epub", book(), "application/epub+zip")},
+    ).json()
     pid = p["id"]
-    STATE.write_text(json.dumps({"project_id": pid, "provider_id": provider["id"]}))
-    fields = {key: p[key] for key in ("title", "author", "source_language", "target_language", "instructions", "context_backend")}
-    request("PUT", f"/projects/{pid}", json={**fields, "provider_id": provider["id"], "quality": "normal"})
+    state_path.parent.mkdir(parents=True, exist_ok=True)
+    state_path.write_text(
+        json.dumps({"project_id": pid, "provider_id": provider["id"]})
+    )
+    fields = {
+        key: p[key]
+        for key in (
+            "title",
+            "author",
+            "source_language",
+            "target_language",
+            "instructions",
+            "context_backend",
+        )
+    }
+    request(
+        "PUT",
+        f"/projects/{pid}",
+        json={**fields, "provider_id": provider["id"], "quality": "normal"},
+    )
+
     def wait_job(jid):
         for _ in range(120):
             jobs = request("GET", f"/projects/{pid}/jobs").json()
@@ -84,16 +144,21 @@ def main(cleanup=False):
                 return
             time.sleep(2)
         raise AssertionError("Worker did not finish in 240 seconds")
-    analyzed = request("POST", f"/projects/{pid}/jobs", json={"operation": "analyze"}).json()
+
+    analyzed = request(
+        "POST", f"/projects/{pid}/jobs", json={"operation": "analyze"}
+    ).json()
     wait_job(analyzed["id"])
     assert request("GET", f"/projects/{pid}").json()["bible"]
-    job = request("POST", f"/projects/{pid}/jobs", json={"operation": "translate"}).json()
+    job = request(
+        "POST", f"/projects/{pid}/jobs", json={"operation": "translate"}
+    ).json()
     for _ in range(60):
         segments = request("GET", f"/projects/{pid}/segments").json()
         saved = [s for s in segments if s["translation"]]
         if saved:
             break
-        time.sleep(.5)
+        time.sleep(0.5)
     assert saved, "No segment saved"
     request("POST", f"/projects/{pid}/jobs/{job['id']}/pause")
     assert request("GET", f"/projects/{pid}/jobs").json()[0]["status"] == "paused"
@@ -102,23 +167,55 @@ def main(cleanup=False):
     for _ in range(30):
         if request("GET", f"/projects/{pid}/jobs").json()[0]["status"] == "translating":
             break
-        time.sleep(.5)
-    subprocess.run(["docker", "compose", "kill", "-s", "SIGKILL", "worker"], cwd=ROOT, check=True,
-                   capture_output=True)
-    subprocess.run(["docker", "compose", "start", "worker"], cwd=ROOT, check=True, capture_output=True)
+        time.sleep(0.5)
+    subprocess.run(
+        compose + ["kill", "-s", "SIGKILL", "worker"],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        compose + ["start", "worker"], cwd=ROOT, check=True, capture_output=True
+    )
     wait_job(job["id"])
     after = request("GET", f"/projects/{pid}/segments").json()
     assert all(s["translation"] and s["stage"] == "done" for s in after)
     for old in saved:
-        assert next(s for s in after if s["id"] == old["id"])["translation"] == old["translation"]
+        assert (
+            next(s for s in after if s["id"] == old["id"])["translation"]
+            == old["translation"]
+        )
     request("GET", f"/projects/{pid}/segments?status=uncertain")
     output = request("GET", f"/projects/{pid}/export/epub")
-    (STATE.parent / "translated-smoke.epub").write_bytes(output.content)
-    print(json.dumps({"project_id": pid, "segments": len(after), "analysis": "passed", "translation": "passed",
-                      "pause_resume": "passed", "SIGKILL_recovery": "passed", "epubcheck_export": "passed"}))
+    (state_path.parent / "translated-smoke.epub").write_bytes(output.content)
+    print(
+        json.dumps(
+            {
+                "project_id": pid,
+                "segments": len(after),
+                "analysis": "passed",
+                "translation": "passed",
+                "pause_resume": "passed",
+                "SIGKILL_recovery": "passed",
+                "epubcheck_export": "passed",
+            }
+        )
+    )
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--cleanup", action="store_true")
-    main(parser.parse_args().cleanup)
+    parser.add_argument("--base-url", help="Explicit disposable API URL")
+    parser.add_argument("--env-file", type=Path, default=ROOT / ".env")
+    parser.add_argument("--state", type=Path, default=STATE)
+    parser.add_argument(
+        "--compose-project", help="Disposable Compose project containing the worker"
+    )
+    parser.add_argument("--compose-file", type=Path, action="append", default=[])
+    parser.add_argument(
+        "--confirm-disposable",
+        action="store_true",
+        help="Confirm that the target has no user jobs or data",
+    )
+    main(parser.parse_args())

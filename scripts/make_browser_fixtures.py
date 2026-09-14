@@ -2,7 +2,7 @@ from pathlib import Path
 
 from smoke import book
 
-for label in ("A", "B"):
+for label in ("A", "B", "C"):
     path = Path("/tmp/libris") / f"batch-{label.lower()}.epub"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(book("Batch fixture " + label))

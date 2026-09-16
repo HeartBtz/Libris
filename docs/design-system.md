@@ -27,8 +27,8 @@ The canonical implementation lives in `frontend/src/style.css`. The system uses:
 
 ## Responsive Rules
 
-- `320-720 px`: compact header menu, native section and chapter selectors, stacked
-  source and translation, and full-width actions.
+- `320-720 px`: compact header menu, a thumb-reachable project workflow bar,
+  native chapter selector, labeled source/translation cards, and full-width actions.
 - `721-896 px`: compact header menu, horizontal project navigation, and single-column
   forms where necessary.
 - `897-1120 px`: full global navigation with horizontal project navigation.

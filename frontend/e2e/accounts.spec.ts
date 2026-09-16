@@ -82,7 +82,10 @@ for (const width of [1440, 390]) {
       path: `/tmp/opencode/libris-account-${width}.png`,
       fullPage: true,
     });
-    await page.getByRole("link", { name: "Settings", exact: true }).click();
+    await page
+      .getByRole("navigation", { name: "Primary navigation" })
+      .getByRole("link", { name: "Settings", exact: true })
+      .click();
     await page
       .getByRole("button", { name: "Automatic recovery", exact: true })
       .click();

@@ -86,7 +86,7 @@ html {
 }
 
 body {
-  min-width: 20rem;
+  min-width: 0;
   min-height: 100svh;
   margin: 0;
   overflow-x: clip;
@@ -426,6 +426,10 @@ small {
 }
 
 .mobile-nav {
+  display: none;
+}
+
+.mobile-column-label {
   display: none;
 }
 
@@ -2199,7 +2203,9 @@ hr {
   }
 
   #main-content {
-    padding-bottom: calc(var(--touch-height) + var(--space-l));
+    padding-bottom: calc(
+      var(--touch-height) + var(--space-l) + env(safe-area-inset-bottom)
+    );
   }
 
   .mobile-nav {
@@ -2213,9 +2219,11 @@ hr {
     grid-auto-flow: column;
     border-top: var(--border);
     background: var(--base);
+    padding-bottom: env(safe-area-inset-bottom);
   }
 
-  .mobile-nav a {
+  .mobile-nav a,
+  .mobile-nav button {
     display: flex;
     min-width: 0;
     min-height: var(--touch-height);
@@ -2230,17 +2238,27 @@ hr {
     text-decoration: none;
   }
 
-  .mobile-nav a[aria-current="page"] {
+  .mobile-nav button {
+    border: 0;
+    border-bottom: var(--rule-active);
+    border-radius: 0;
+    background: transparent;
+  }
+
+  .mobile-nav a[aria-current="page"],
+  .mobile-nav button[aria-current="page"] {
     border-bottom-color: var(--accent);
     background: var(--accent-bg);
     color: var(--text);
   }
 
-  .mobile-nav a:not([aria-current="page"]) {
+  .mobile-nav a:not([aria-current="page"]),
+  .mobile-nav button:not([aria-current="page"]) {
     border-bottom-color: transparent;
   }
 
-  .mobile-nav a:active {
+  .mobile-nav a:active,
+  .mobile-nav button:active {
     background: var(--raised);
   }
 
@@ -2437,17 +2455,12 @@ hr {
     display: none;
   }
 
-  .workspace-nav-select,
   .chapter-select {
     display: flex;
     padding: var(--space-s);
     margin: 0;
     border-bottom: var(--border);
     background: var(--surface);
-  }
-
-  .workspace-nav-select {
-    grid-column: 1 / -1;
   }
 
   .workspace-body {
@@ -2460,6 +2473,27 @@ hr {
 
   .column-labels {
     display: none;
+  }
+
+  .editor-toolbar {
+    align-items: stretch;
+    padding: var(--space-s);
+  }
+
+  .editor-toolbar > strong,
+  .editor-toolbar > .actions,
+  .editor-toolbar select {
+    width: 100%;
+  }
+
+  .editor-toolbar > .actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-2xs);
+  }
+
+  .editor-toolbar > .actions select {
+    grid-column: 1 / -1;
   }
 
   .segment-row {
@@ -2476,9 +2510,52 @@ hr {
     padding: var(--space-s);
   }
 
+  .mobile-column-label {
+    display: block;
+    margin-bottom: var(--space-xs);
+    color: var(--accent);
+    font-family: var(--font-mono);
+    font-size: var(--step--2);
+    font-weight: 700;
+    text-transform: uppercase;
+  }
+
+  .segment-row {
+    margin-bottom: var(--space-s);
+    border: var(--border);
+    border-top: var(--rule-active);
+    background: var(--surface);
+  }
+
+  .segment-row.check,
+  .segment-row.error,
+  .segment-row.refused {
+    border-left: var(--border);
+    border-top-color: var(--accent);
+  }
+
+  .segment-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-2xs);
+  }
+
   .segment-actions button,
-  .segment-actions summary {
+  .segment-actions summary,
+  .segment-actions .retranslate {
+    width: 100%;
     min-height: var(--touch-height);
+  }
+
+  .segment-actions > button:last-child,
+  .segment-actions .retranslate {
+    grid-column: 1 / -1;
+  }
+
+  .segment-actions .retranslate > div {
+    position: static;
+    width: 100%;
+    margin-top: var(--space-2xs);
   }
 
   .workspace-panel {
@@ -2516,17 +2593,29 @@ hr {
   }
 
   .inspector {
-    top: 0;
-    width: 100vw;
-    padding: var(--space-s);
+    top: env(safe-area-inset-top);
+    width: 100%;
+    padding: var(--space-s) var(--space-s)
+      calc(var(--space-s) + env(safe-area-inset-bottom));
+  }
+
+  .inspector > .tabs {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+  }
+
+  .inspector > .tabs button {
+    min-height: var(--touch-height);
+    flex: 0 0 auto;
   }
 
   .modal-backdrop {
-    padding: var(--space-2xs);
+    padding: calc(var(--space-2xs) + env(safe-area-inset-top)) var(--space-2xs)
+      calc(var(--space-2xs) + env(safe-area-inset-bottom));
   }
 
   .preview-modal {
-    height: calc(100svh - var(--space-s));
+    height: 100%;
     padding: var(--space-s);
   }
 

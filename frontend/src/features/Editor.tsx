@@ -37,10 +37,16 @@ const translations: Record<string, string> = {
   "Les passages non traduits restent en langue source. CSS simplifiée, scripts et ressources externes désactivés.":
     "Untranslated passages remain in the source language. Simplified CSS, scripts, and external resources are disabled.",
   "Rendu du chapitre": "Chapter rendering",
-  "Correction enregistrée. Ajouter une expression au glossaire ?":
-    "Correction saved. Add an expression to the glossary?",
   "Expression source": "Source expression",
   "Traduction à conserver": "Translation to retain",
+  "Nouvelle expression source": "New source expression",
+  "Nouvelle traduction": "New translation",
+  "Ajouter et verrouiller": "Add and lock",
+  "Terme enregistré. Les passages concernés sont marqués à réévaluer.":
+    "Term saved. Affected segments are marked for reevaluation.",
+  Glossaire: "Glossary",
+  "Ajoutez une expression de ce passage au glossaire pour la conserver dans les traductions suivantes.":
+    "Add an expression from this passage to the glossary to keep it in future translations.",
   "Instruction pour cette retraduction": "Instruction for this retranslation",
   unité: "unit",
   s: "s",
@@ -327,6 +333,7 @@ export function Editor({
       {selected && (
         <Inspector
           segment={selected}
+          project={project}
           run={run}
           close={() => setSelected(null)}
           refresh={refresh}
@@ -419,24 +426,6 @@ export function SegmentRow({
       setBase(saved.revision);
       setDirty(false);
       refresh();
-      if (
-        validated &&
-        confirm(
-          t("Correction enregistrée. Ajouter une expression au glossaire ?"),
-        )
-      ) {
-        const source = prompt(t("Expression source"));
-        if (!source) return;
-        const translation = prompt(t("Traduction à conserver"));
-        if (!translation) return;
-        await send(`/projects/${project.id}/glossary`, {
-          source,
-          translation,
-          locked: true,
-          accepted: true,
-        });
-        refresh();
-      }
     });
     setBusy(false);
   }
@@ -664,11 +653,13 @@ export function RequestDetails({ request }: { request: LLMRequest }) {
 
 export function Inspector({
   segment,
+  project,
   run,
   close,
   refresh,
 }: {
   segment: Segment;
+  project: Project;
   run: Run;
   close: () => void;
   refresh: () => void;
@@ -684,6 +675,9 @@ export function Inspector({
   const [busy, setBusy] = useState(false);
   const [humanSummary, setHumanSummary] = useState("");
   const [analysisSaved, setAnalysisSaved] = useState(false);
+  const [glossarySource, setGlossarySource] = useState("");
+  const [glossaryTranslation, setGlossaryTranslation] = useState("");
+  const [glossarySaved, setGlossarySaved] = useState(false);
   const dialog = useDialogFocus<HTMLElement>(true, close);
   useEffect(() => {
     void run(async () => {
@@ -721,6 +715,7 @@ export function Inspector({
           ["review", t("Critique")],
           ["ask", "Ask AI"],
           ["analysis", t("Analyse humaine")],
+          ["glossary", t("Glossaire")],
         ].map(([id, name]) => (
           <button
             className={tab === id ? "active" : ""}
@@ -833,6 +828,63 @@ export function Inspector({
           {analysisSaved && (
             <p role="status">
               {t("Analyse enregistrée. Vous pouvez reprendre le travail.")}
+            </p>
+          )}
+        </>
+      ) : tab === "glossary" ? (
+        <>
+          <p className="muted">
+            {t(
+              "Ajoutez une expression de ce passage au glossaire pour la conserver dans les traductions suivantes.",
+            )}
+          </p>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              setBusy(true);
+              void run(async () => {
+                await send(`/projects/${project.id}/glossary`, {
+                  source: glossarySource,
+                  translation: glossaryTranslation,
+                  locked: true,
+                  accepted: true,
+                });
+                setGlossarySource("");
+                setGlossaryTranslation("");
+                setGlossarySaved(true);
+                refresh();
+              }).finally(() => setBusy(false));
+            }}
+          >
+            <label>
+              {t("Nouvelle expression source")}
+              <input
+                aria-label={t("Nouvelle expression source")}
+                placeholder={t("Expression source")}
+                value={glossarySource}
+                onChange={(e) => setGlossarySource(e.target.value)}
+                required
+              />
+            </label>
+            <label>
+              {t("Nouvelle traduction")}
+              <input
+                aria-label={t("Nouvelle traduction")}
+                placeholder={t("Traduction à conserver")}
+                value={glossaryTranslation}
+                onChange={(e) => setGlossaryTranslation(e.target.value)}
+                required
+              />
+            </label>
+            <button className="primary" disabled={busy}>
+              {t("Ajouter et verrouiller")}
+            </button>
+          </form>
+          {glossarySaved && (
+            <p role="status">
+              {t(
+                "Terme enregistré. Les passages concernés sont marqués à réévaluer.",
+              )}
             </p>
           )}
         </>

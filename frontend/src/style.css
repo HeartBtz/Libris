@@ -425,6 +425,10 @@ small {
   display: none;
 }
 
+.mobile-nav {
+  display: none;
+}
+
 .locale-select {
   margin: 0;
 }
@@ -2192,6 +2196,52 @@ hr {
   .app-header {
     position: relative;
     padding: var(--space-xs) var(--space-s);
+  }
+
+  #main-content {
+    padding-bottom: calc(var(--touch-height) + var(--space-l));
+  }
+
+  .mobile-nav {
+    position: fixed;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    z-index: var(--z-sticky);
+    display: grid;
+    grid-auto-columns: minmax(0, 1fr);
+    grid-auto-flow: column;
+    border-top: var(--border);
+    background: var(--base);
+  }
+
+  .mobile-nav a {
+    display: flex;
+    min-width: 0;
+    min-height: var(--touch-height);
+    align-items: center;
+    justify-content: center;
+    padding: var(--space-2xs) var(--space-3xs);
+    border-bottom: var(--rule-active);
+    color: var(--muted);
+    font-size: var(--step--2);
+    line-height: 1.2;
+    text-align: center;
+    text-decoration: none;
+  }
+
+  .mobile-nav a[aria-current="page"] {
+    border-bottom-color: var(--accent);
+    background: var(--accent-bg);
+    color: var(--text);
+  }
+
+  .mobile-nav a:not([aria-current="page"]) {
+    border-bottom-color: transparent;
+  }
+
+  .mobile-nav a:active {
+    background: var(--raised);
   }
 
   .brand {

@@ -383,14 +383,23 @@ test("capture public Libris showcase", async ({ page }) => {
   await expect(
     page.getByRole("navigation", { name: "Primary navigation" }),
   ).toBeHidden();
+  const phoneNavigation = page.getByRole("navigation", {
+    name: "Phone navigation",
+  });
+  await expect(phoneNavigation).toBeVisible();
+  await expect(
+    phoneNavigation.getByRole("link", { name: "Library" }),
+  ).toHaveAttribute("aria-current", "page");
+  await expect(
+    phoneNavigation.getByRole("link", { name: "Account" }),
+  ).toBeVisible();
   await page.getByRole("button", { name: "Menu", exact: true }).click();
   await expect(
     page.getByRole("navigation", { name: "Primary navigation" }),
   ).toBeVisible();
-  const settingsLink = page.getByRole("link", {
-    name: "Settings",
-    exact: true,
-  });
+  const settingsLink = page
+    .getByRole("navigation", { name: "Primary navigation" })
+    .getByRole("link", { name: "Settings", exact: true });
   await expect(settingsLink).toBeVisible();
   await settingsLink.click();
   await expect(page.locator("#main-content")).toBeFocused();

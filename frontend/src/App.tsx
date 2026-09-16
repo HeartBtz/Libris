@@ -78,6 +78,7 @@ const translations: Record<string, string> = {
   "passages traduits": "segments translated",
   "Aller au contenu": "Skip to content",
   "Navigation principale": "Primary navigation",
+  "Navigation téléphone": "Phone navigation",
   Menu: "Menu",
   "Fermer le menu": "Close menu",
 };
@@ -275,6 +276,38 @@ export function App() {
           <Library run={run} user={user} />
         )}
       </div>
+      {user && (
+        <nav className="mobile-nav" aria-label={t("Navigation téléphone")}>
+          <a
+            href="#library"
+            aria-current={route === "library" ? "page" : undefined}
+          >
+            {t("app.library")}
+          </a>
+          {user.admin && (
+            <a
+              href="#settings"
+              aria-current={route === "settings" ? "page" : undefined}
+            >
+              {t("app.settings")}
+            </a>
+          )}
+          {user.admin && (
+            <a
+              href="#statistics"
+              aria-current={route === "statistics" ? "page" : undefined}
+            >
+              {t("app.statistics")}
+            </a>
+          )}
+          <a
+            href="#account"
+            aria-current={route === "account" ? "page" : undefined}
+          >
+            {t("Mon compte")}
+          </a>
+        </nav>
+      )}
     </>
   );
 }

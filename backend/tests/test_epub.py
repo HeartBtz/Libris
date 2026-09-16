@@ -2,9 +2,11 @@ import io
 import zipfile
 
 import pytest
+from lxml import etree
 
 from app.engines.epub import inspect_archive, parse_book, rebuild
 from app.engines.epub.archive import relative_resource, xml
+from app.engines.epub.book import structure
 from app.engines.epub.text import (
     apply_unit,
     extract_units,
@@ -22,6 +24,17 @@ def identity_segments(parsed):
         for chapter in parsed["chapters"]
         for group in chapter["groups"]
     ]
+
+
+def replace_epub_entries(data, replacements):
+    entries = inspect_archive(data)
+    entries.update(replacements)
+    output = io.BytesIO()
+    with zipfile.ZipFile(output, "w") as archive:
+        archive.writestr("mimetype", entries.pop("mimetype"), compress_type=zipfile.ZIP_STORED)
+        for path, value in entries.items():
+            archive.writestr(path, value, compress_type=zipfile.ZIP_DEFLATED)
+    return output.getvalue()
 
 
 def test_roundtrip_preserves_resources_spine_links_and_structure(book_bytes):
@@ -46,6 +59,66 @@ def test_roundtrip_preserves_resources_spine_links_and_structure(book_bytes):
     with zipfile.ZipFile(io.BytesIO(output)) as archive:
         assert archive.infolist()[0].filename == "mimetype"
         assert archive.infolist()[0].compress_type == zipfile.ZIP_STORED
+
+
+def test_epub2_export_normalizes_epub3_markup_and_xml_ids(book_bytes):
+    entries = inspect_archive(book_bytes)
+    opf_path, package, _ = structure(entries)
+    package.set("version", "2.0")
+    spine = package.xpath("//*[local-name()='spine']")[0]
+    spine.set("page-progression-direction", "ltr")
+    chapter_paths = package.xpath(
+        "//*[local-name()='manifest']/*[local-name()='item' and @media-type='application/xhtml+xml']/@href"
+    )
+    chapter_path = relative_resource(
+        opf_path, next(path for path in chapter_paths if path.endswith("chapter1.xhtml"))
+    )
+    second_path = relative_resource(
+        opf_path, next(path for path in chapter_paths if path.endswith("chapter2.xhtml"))
+    )
+    chapter = xml(entries[chapter_path])
+    body = chapter.xpath("//*[local-name()='body']")[0]
+    section = etree.SubElement(body, "{http://www.w3.org/1999/xhtml}section")
+    section.set("id", "12:invalid")
+    section.set("{http://www.idpf.org/2007/ops}type", "chapter")
+    nav = etree.SubElement(section, "{http://www.w3.org/1999/xhtml}nav")
+    nav.set("id", "12:invalid")
+    nav.set("data-AmznRemoved", "mobi7")
+    nav.set("hidden", "hidden")
+    item = etree.SubElement(nav, "{http://www.w3.org/1999/xhtml}li")
+    item.set("value", "4")
+    item.text = "Navigation"
+    second = xml(entries[second_path])
+    link = etree.SubElement(second.xpath("//*[local-name()='body']")[0], "{http://www.w3.org/1999/xhtml}a")
+    link.set("href", "chapter1.xhtml#12:invalid")
+    link.text = "Back"
+    hybrid = replace_epub_entries(
+        book_bytes,
+        {
+            opf_path: etree.tostring(package.getroottree(), encoding="utf-8", xml_declaration=True),
+            chapter_path: etree.tostring(chapter.getroottree(), encoding="utf-8", xml_declaration=True),
+            second_path: etree.tostring(second.getroottree(), encoding="utf-8", xml_declaration=True),
+        },
+    )
+
+    parsed = parse_book(hybrid)
+    output = inspect_archive(rebuild(hybrid, identity_segments(parsed), "fr"))
+    normalized_package = xml(output[opf_path])
+    normalized_chapter = xml(output[chapter_path])
+    normalized_second = xml(output[second_path])
+
+    assert normalized_package.xpath("//*[local-name()='spine']/@page-progression-direction") == []
+    assert normalized_chapter.xpath("//*[local-name()='section' or local-name()='nav']") == []
+    assert normalized_chapter.xpath("//@*[local-name()='type' and namespace-uri()='http://www.idpf.org/2007/ops']") == []
+    assert normalized_chapter.xpath("//*[local-name()='li']/@value") == []
+    assert normalized_chapter.xpath("//@hidden | //@*[starts-with(local-name(), 'data-')]") == []
+    ids = normalized_chapter.xpath("//@id")
+    assert "id-12-invalid" in ids
+    assert "id-12-invalid-2" in ids
+    assert len(ids) == len(set(ids))
+    assert normalized_second.xpath("//*[local-name()='a'][text()='Back']/@href") == [
+        "chapter1.xhtml#id-12-invalid"
+    ]
 
 
 def test_inline_phrase_translated_as_whole():

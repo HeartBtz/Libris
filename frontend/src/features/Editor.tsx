@@ -460,6 +460,9 @@ export function SegmentRow({
       id={`segment-${segment.id}`}
     >
       <div className="source">
+        <span className="mobile-column-label">
+          {t("Source")} · {project.source_language}
+        </span>
         <div className="segment-meta">
           <span>§ {segment.position + 1}</span>
           <span>
@@ -474,6 +477,9 @@ export function SegmentRow({
         ))}
       </div>
       <div className="translation">
+        <span className="mobile-column-label">
+          {t("Traduction")} · {project.target_language}
+        </span>
         <div className="segment-meta">
           <span className={`badge ${segment.status}`}>
             {segment.validated

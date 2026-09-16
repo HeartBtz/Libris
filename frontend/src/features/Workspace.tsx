@@ -81,6 +81,10 @@ const translations: Record<string, string> = {
   "Sections du livre": "Book sections",
   Analysé: "Analyzed",
   "Chargement du graphe…": "Loading graph…",
+  "Navigation rapide du livre": "Book quick navigation",
+  Relire: "Review",
+  Finaliser: "Finish",
+  Régler: "Settings",
 };
 
 registerTranslations(translations);
@@ -215,6 +219,14 @@ export function Workspace({
       ],
     },
   ];
+  const openTab = (nextTab: string) => {
+    setTab(nextTab);
+    requestAnimationFrame(() => {
+      const content = document.getElementById("workspace-content");
+      content?.scrollIntoView({ block: "start" });
+      content?.focus({ preventScroll: true });
+    });
+  };
   async function exportFile(format: string, allowSource = false) {
     if (exportState === "running") return;
     setExportState("running");
@@ -558,7 +570,7 @@ export function Workspace({
                   key={key}
                   aria-current={tab === key ? "page" : undefined}
                   aria-controls="workspace-content"
-                  onClick={() => setTab(key)}
+                  onClick={() => openTab(key)}
                 >
                   {label}
                 </button>
@@ -566,7 +578,7 @@ export function Workspace({
             </div>
           ))}
         </nav>
-        <div id="workspace-content" className="workspace-content">
+        <div id="workspace-content" className="workspace-content" tabIndex={-1}>
           {tab === "editor" ? (
             <div className="workspace-body">
               <label className="chapter-select">
@@ -655,6 +667,26 @@ export function Workspace({
           )}
         </div>
       </div>
+      <nav
+        className="mobile-nav mobile-project-nav"
+        aria-label={t("Navigation rapide du livre")}
+      >
+        {[
+          ["editor", t("Traduction")],
+          ["validations", t("Relire")],
+          ["completion", t("Finaliser")],
+          ["config", t("Régler")],
+        ].map(([key, label]) => (
+          <button
+            key={key}
+            type="button"
+            aria-current={tab === key ? "page" : undefined}
+            onClick={() => openTab(key)}
+          >
+            {label}
+          </button>
+        ))}
+      </nav>
     </main>
   );
 }

@@ -195,10 +195,30 @@ test("capture public Libris showcase", async ({ page }) => {
   };
   const errors: string[] = [];
   let exportedProjects: string[] = [];
+  let savedTranslation = translation;
   page.on("pageerror", (error) => errors.push(error.message));
   await page.route("**/api/**", async (route) => {
     const url = new URL(route.request().url());
     const path = url.pathname;
+    if (
+      path === "/api/segments/segment" &&
+      route.request().method() === "PUT"
+    ) {
+      const body = route.request().postDataJSON() as {
+        units: { id: string; text: string }[];
+      };
+      savedTranslation = body.units[0].text;
+      await route.fulfill({
+        json: {
+          ...segment,
+          translated_units: body.units,
+          translation: savedTranslation,
+          human: true,
+          revision: 1,
+        },
+      });
+      return;
+    }
     if (path.endsWith("/events")) {
       await route.fulfill({
         contentType: "text/event-stream",
@@ -222,8 +242,19 @@ test("capture public Libris showcase", async ({ page }) => {
     else if (path === "/api/projects") data = books;
     else if (path === "/api/projects/demo") data = book;
     else if (path.endsWith("/chapters")) data = [chapter];
+    else if (path.includes("/preview/"))
+      data = { html: `<p>${savedTranslation}</p>` };
     else if (path.endsWith("/segments"))
-      data = url.searchParams.get("status") === "refused" ? [] : [segment];
+      data =
+        url.searchParams.get("status") === "refused"
+          ? []
+          : [
+              {
+                ...segment,
+                translation: savedTranslation,
+                translated_units: [{ id: "u1", text: savedTranslation }],
+              },
+            ];
     else if (path === "/api/providers") data = [];
     else if (path.endsWith("/final-review"))
       data = {
@@ -410,6 +441,60 @@ test("capture public Libris showcase", async ({ page }) => {
   await page.goto(`${base}/#project/demo`);
   await expect(page.getByText(source, { exact: true })).toBeVisible();
   await expectNoOverflow(page);
+  await page.setViewportSize({ width: 390, height: 844 });
+  const projectNavigation = page.getByRole("navigation", {
+    name: "Book quick navigation",
+  });
+  await expect(projectNavigation).toBeVisible();
+  await expect(
+    projectNavigation.getByRole("button", { name: "Translation" }),
+  ).toHaveAttribute("aria-current", "page");
+  await expect(
+    page.locator(".mobile-column-label", { hasText: "Source · en" }),
+  ).toBeVisible();
+  await expect(
+    page.locator(".mobile-column-label", { hasText: "Translation · fr" }),
+  ).toBeVisible();
+  const mobileTranslation = page.getByRole("textbox", {
+    name: "Translation passage 1 unit 1",
+  });
+  await mobileTranslation.fill(`${translation} Mobile review.`);
+  await mobileTranslation
+    .locator("xpath=ancestor::article")
+    .getByRole("button", { name: "Save", exact: true })
+    .click();
+  await expect(mobileTranslation).toHaveValue(`${translation} Mobile review.`);
+  const mobileSegment = mobileTranslation.locator("xpath=ancestor::article");
+  await mobileSegment.scrollIntoViewIfNeeded();
+  await page.screenshot({ path: resolve(output, "editor-mobile.png") });
+  await mobileSegment
+    .getByRole("button", { name: "Context / history / Ask AI" })
+    .click();
+  const mobileInspector = page.getByRole("dialog", {
+    name: "Passage inspector",
+  });
+  await expect(mobileInspector).toBeVisible();
+  expect((await mobileInspector.boundingBox())?.width).toBeLessThanOrEqual(390);
+  await page.getByRole("button", { name: "Close inspector" }).click();
+  await page.getByRole("button", { name: "Preview", exact: true }).click();
+  const mobilePreview = page.getByRole("dialog", {
+    name: "Chapter preview",
+  });
+  await expect(mobilePreview).toBeVisible();
+  expect((await mobilePreview.boundingBox())?.width).toBeLessThanOrEqual(390);
+  await mobilePreview.getByRole("button", { name: "Close" }).click();
+  for (const control of await projectNavigation.locator("button").all()) {
+    expect((await control.boundingBox())?.height).toBeGreaterThanOrEqual(44);
+  }
+  await projectNavigation.getByRole("button", { name: "Review" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Translation validations" }),
+  ).toBeVisible();
+  await projectNavigation.getByRole("button", { name: "Translation" }).click();
+  await expect(mobileTranslation).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(
+    390,
+  );
   await page.setViewportSize({ width: 1440, height: 1040 });
   await expect(page.getByRole("progressbar")).toHaveCount(1);
   for (const [button, detail] of [

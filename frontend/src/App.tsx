@@ -276,7 +276,7 @@ export function App() {
           <Library run={run} user={user} />
         )}
       </div>
-      {user && (
+      {user && !route.startsWith("project/") && (
         <nav className="mobile-nav" aria-label={t("Navigation téléphone")}>
           <a
             href="#library"

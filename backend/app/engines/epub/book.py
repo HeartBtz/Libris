@@ -1,6 +1,8 @@
 import io
+import re
 import zipfile
 from collections import defaultdict
+from urllib.parse import unquote, urlsplit, urlunsplit
 
 from ebooklib import epub
 from lxml import etree
@@ -13,6 +15,104 @@ NS = {
     "o": "http://www.idpf.org/2007/opf",
     "dc": "http://purl.org/dc/elements/1.1/",
 }
+EPUB_NS = "http://www.idpf.org/2007/ops"
+HTML5_SECTIONING = {
+    "article",
+    "aside",
+    "figcaption",
+    "figure",
+    "footer",
+    "header",
+    "main",
+    "nav",
+    "section",
+}
+
+
+def _safe_xml_id(value: str) -> str:
+    value = re.sub(r"[^A-Za-z0-9_.-]", "-", value)
+    return value if value and re.match(r"[A-Za-z_]", value[0]) else f"id-{value}"
+
+
+def _rewrite_fragments(
+    root: etree._Element, resource: str, identifiers: dict[tuple[str, str], str]
+) -> None:
+    for node in root.iter():
+        for attribute in ("href", "src"):
+            value = node.get(attribute)
+            if not value:
+                continue
+            parsed = urlsplit(value)
+            if not parsed.fragment or parsed.scheme or parsed.netloc:
+                continue
+            try:
+                target = resource if not parsed.path else relative_resource(resource, parsed.path)
+            except ValueError:
+                continue
+            replacement = identifiers.get((target, unquote(parsed.fragment)))
+            if replacement:
+                node.set(attribute, urlunsplit(parsed._replace(fragment=replacement)))
+
+
+def _normalize_epub2(entries: dict[str, bytes], opf_path: str, package: etree._Element) -> None:
+    if not package.get("version", "").startswith("2."):
+        return
+
+    for spine in package.xpath("//o:spine", namespaces=NS):
+        spine.attrib.pop("page-progression-direction", None)
+
+    content_paths = list(
+        dict.fromkeys(
+            relative_resource(opf_path, item.get("href", ""))
+            for item in package.xpath("//o:manifest/o:item", namespaces=NS)
+            if item.get("media-type") == "application/xhtml+xml"
+        )
+    )
+    roots: dict[str, etree._Element] = {}
+    identifiers: dict[tuple[str, str], str] = {}
+    for path in content_paths:
+        if path not in entries:
+            continue
+        root = xml(entries[path])
+        used: set[str] = set()
+        for node in root.xpath("//*[@id]"):
+            original = node.get("id", "")
+            base = _safe_xml_id(original)
+            candidate = base
+            suffix = 2
+            while candidate in used:
+                candidate = f"{base}-{suffix}"
+                suffix += 1
+            used.add(candidate)
+            node.set("id", candidate)
+            identifiers.setdefault((path, original), candidate)
+        for node in root.iter():
+            if not isinstance(node.tag, str):
+                continue
+            name = etree.QName(node).localname
+            if name in HTML5_SECTIONING:
+                namespace = etree.QName(node).namespace
+                node.tag = f"{{{namespace}}}div" if namespace else "div"
+            node.attrib.pop(f"{{{EPUB_NS}}}type", None)
+            node.attrib.pop("hidden", None)
+            for attribute in list(node.attrib):
+                if attribute.lower().startswith("data-"):
+                    del node.attrib[attribute]
+            if name == "li":
+                node.attrib.pop("value", None)
+        etree.cleanup_namespaces(root)
+        roots[path] = root
+
+    for path, root in roots.items():
+        _rewrite_fragments(root, path, identifiers)
+        entries[path] = etree.tostring(root.getroottree(), encoding="utf-8", xml_declaration=True)
+    for path, value in list(entries.items()):
+        if path in roots or not path.endswith(".ncx"):
+            continue
+        root = xml(value)
+        _rewrite_fragments(root, path, identifiers)
+        entries[path] = etree.tostring(root.getroottree(), encoding="utf-8", xml_declaration=True)
+    _rewrite_fragments(package, opf_path, identifiers)
 
 
 def structure(entries: dict[str, bytes]) -> tuple[str, etree._Element, list[str]]:
@@ -130,6 +230,7 @@ def rebuild(
             root.set("lang", language)
             root.set("{http://www.w3.org/XML/1998/namespace}lang", language)
         entries[path] = etree.tostring(root.getroottree(), encoding="utf-8", xml_declaration=True)
+    _normalize_epub2(entries, opf_path, package)
     for key, value in (("language", language), ("title", title), ("creator", author)):
         if value is not None:
             nodes = package.xpath(f"//dc:{key}", namespaces=NS)

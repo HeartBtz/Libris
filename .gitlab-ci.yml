@@ -151,6 +151,7 @@ container-runtime:
 
 container-scan:
   stage: verify
+  resource_group: libris-trivy-cache
   needs:
     - job: container-build
       optional: true
@@ -158,7 +159,7 @@ container-scan:
       optional: true
   before_script:
     - export DOCKER_CONFIG="$CI_PROJECT_DIR/.docker-$CI_JOB_ID"
-    - export TRIVY_CACHE_VOLUME="libris-trivy-$CI_JOB_ID"
+    - export TRIVY_CACHE_VOLUME=libris-trivy-cache
     - mkdir -p "$DOCKER_CONFIG"
     - echo "$CI_REGISTRY_PASSWORD" | docker login "$CI_REGISTRY" --username "$CI_REGISTRY_USER" --password-stdin
     - docker pull "$APP_IMAGE_REFERENCE"
@@ -169,7 +170,6 @@ container-scan:
     - docker run --rm --env TMPDIR=/root/.cache/trivy --volume "$TRIVY_CACHE_VOLUME:/root/.cache/trivy" --volume /var/run/docker.sock:/var/run/docker.sock "$TRIVY_IMAGE" image --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 "$CODEX_IMAGE_REFERENCE"
   after_script:
     - rm -rf "$CI_PROJECT_DIR/.docker-$CI_JOB_ID"
-    - docker volume rm --force "libris-trivy-$CI_JOB_ID" >/dev/null 2>&1 || true
   artifacts:
     when: always
     paths: [libris.cdx.json]

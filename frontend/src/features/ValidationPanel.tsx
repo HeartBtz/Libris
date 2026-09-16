@@ -595,6 +595,7 @@ export function ValidationPanel({
       {selected && (
         <Inspector
           segment={selected}
+          project={project}
           run={run}
           close={() => setSelected(null)}
           refresh={refreshAfterAction}

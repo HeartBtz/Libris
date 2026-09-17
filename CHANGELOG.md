@@ -12,6 +12,11 @@ All notable changes are documented here. Libris follows [Semantic Versioning](ht
   - the NCX `dtb:uid` is realigned with the package unique identifier (`NCX-001`), for EPUB 2 and EPUB 3;
   - empty XHTML `<title>` elements receive the book title (`RSC-005`).
 - **Readable export and API errors.** A refused EPUB export now tells you which book failed and lists the first EPUBCheck errors, in both single and bulk export; previously the interface showed only "Export refusé (HTTP 422)" or a raw JSON report. Form validation errors show the field and the reason without ever echoing the typed value back (the login screen could display the password just entered), and an HTML error page from a reverse proxy is reported as `HTTP 502/504` and no longer as a JSON parsing error (#5).
+- **Worker stability.** An unexpected error in a single job could stop the whole worker and interrupt every book being translated — for example pausing a book while the provider was refusing a passage, or a provider sending a malformed `Retry-After: inf` header. Each job is now isolated: the failure is recorded on that job only and the other books keep going (#6).
+
+### Changed
+
+- Unexpected API errors (HTTP 500) and failed jobs now log *where* they happened (`trace=` with file, line and function) next to the diagnostic reference shown in the interface. Exception messages are deliberately left out so that service logs still never contain book text (#6).
 
 ## [0.3.4] - 2026-09-17
 

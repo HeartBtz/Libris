@@ -1,6 +1,7 @@
 import asyncio
 import time
 
+import httpx
 import pytest
 import respx
 from sqlalchemy import select
@@ -9,7 +10,7 @@ from test_pipeline import mock_completion
 
 from app.db import SessionLocal
 from app.jobs.queue import claim, enqueue, suspend
-from app.jobs.worker import execute
+from app.jobs.worker import execute, provider_dispatcher
 from app.models import Job, Project, RequestLog, Segment
 
 
@@ -151,3 +152,57 @@ def test_default_retry_delay_remains_predictable_after_repeated_outages(seeded):
             base = expected_base_delays[count - 1]
             # Allow 0-10% jitter plus 20% margin
             assert base <= job.next_attempt - start < base * 1.3
+
+
+@respx.mock
+async def test_pause_during_content_refusal_does_not_escape_the_job(seeded):
+    with SessionLocal() as db:
+        jid = enqueue(db, db.get(Project, seeded[0]), "analyze", {}).id
+        db.commit()
+
+    def refuse_after_pause(_request):
+        with SessionLocal() as db:  # The user pauses while the request is in flight.
+            db.get(Job, jid).status = "paused"
+            db.commit()
+        return httpx.Response(
+            200, json={"choices": [{"finish_reason": "content_filter", "message": {"content": ""}}]}
+        )
+
+    respx.post("https://llm.test/v1/chat/completions").mock(side_effect=refuse_after_pause)
+    await execute(*claim())
+    with SessionLocal() as db:
+        assert db.get(Job, jid).status == "paused"
+
+
+@respx.mock
+async def test_non_finite_retry_after_is_ignored(seeded):
+    jid = prepare(seeded[0])
+    respx.post("https://llm.test/v1/chat/completions").respond(503, headers={"Retry-After": "inf"})
+    await execute(*claim())
+    with SessionLocal() as db:
+        job = db.get(Job, jid)
+        assert job.status == "waiting" and job.stop_reason == "provider_unavailable"
+        assert time.time() < job.next_attempt < time.time() + 3700
+
+
+async def test_dispatcher_survives_a_job_that_raises(seeded, monkeypatch, caplog):
+    first = prepare(seeded[0])
+    started = []
+
+    async def explode(job_id, _owner):
+        started.append(job_id)
+        raise RuntimeError("secret book sentence that must stay out of the logs")
+
+    monkeypatch.setattr("app.jobs.worker.execute", explode)
+    stopped = asyncio.Event()
+    dispatcher = asyncio.create_task(provider_dispatcher(stopped))
+    for _ in range(100):
+        if started:
+            break
+        await asyncio.sleep(0.05)
+    await asyncio.sleep(0.3)
+    assert started == [first] and not dispatcher.done()
+    stopped.set()
+    await asyncio.wait_for(dispatcher, timeout=5)
+    assert "status=task_failed" in caplog.text and "RuntimeError" in caplog.text
+    assert "secret book sentence" not in caplog.text

@@ -2,6 +2,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import math
 import random
 import time
 from typing import TypeVar
@@ -353,7 +354,9 @@ class OpenAIProvider:
                 except ValueError:
                     content_refused = False
                 try:
-                    retry_after = max(0, float(exc.response.headers.get("Retry-After", "0")))
+                    requested = float(exc.response.headers.get("Retry-After", "0"))
+                    # "inf"/"nan" parse as floats but cannot become a delay.
+                    retry_after = max(0, requested) if math.isfinite(requested) else 0
                 except ValueError:
                     pass
                 if provider.kind == "codex_chatgpt" and exc.response.status_code == 401:

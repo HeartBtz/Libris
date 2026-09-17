@@ -26,6 +26,7 @@ from app.api import (
 )
 from app.config import settings
 from app.db import SessionLocal
+from app.diagnostics import safe_trace
 from app.models import User
 from app.models.common import uid
 from app.providers.llm import LLMError
@@ -124,7 +125,10 @@ async def invalid_archive(_request: Request, exc: Exception):
 async def unexpected(_request: Request, exc: Exception):
     reference = uid()
     logging.getLogger("epub.api").error(
-        "operation=api status=failed reference=%s error_type=%s", reference, type(exc).__name__
+        "operation=api status=failed reference=%s error_type=%s trace=%s",
+        reference,
+        type(exc).__name__,
+        safe_trace(exc),
     )
     return JSONResponse(
         {

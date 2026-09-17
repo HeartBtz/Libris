@@ -241,3 +241,48 @@ def test_paused_job_with_explicit_provider_uses_new_project_provider_when_resume
         saved = db.get(Job, jid)
         assert saved.provider_id == alternate_id
         assert saved.options["provider_id"] == alternate_id
+
+
+def test_archived_projects_cannot_restart_model_work(seeded):
+    pid, _, provider_id = seeded
+    with TestClient(app) as client:
+        client.post("/api/auth/login", json={"username": "tester", "password": "test-password-123456789"})
+        job = client.post(f"/api/projects/{pid}/jobs", json={"operation": "analyze"}).json()
+        assert client.post(f"/api/projects/{pid}/jobs/{job['id']}/cancel").status_code == 200
+        assert client.post(f"/api/projects/{pid}/archive").status_code == 200
+        for action in ("resume", "retry"):
+            refused = client.post(f"/api/projects/{pid}/jobs/{job['id']}/{action}")
+            assert refused.status_code == 409 and "Restaurez" in refused.json()["detail"]
+        # Choosing a first provider on an archived book must not enqueue the automatic pipeline.
+        with SessionLocal() as db:
+            db.get(Project, pid).provider_id = None
+            db.commit()
+        config = client.get(f"/api/projects/{pid}").json()
+        body = {key: config[key] for key in ProjectConfig.model_fields if key in config}
+        assert client.put(f"/api/projects/{pid}", json={**body, "provider_id": provider_id}).status_code == 200
+        with SessionLocal() as db:
+            statuses = [job.status for job in db.scalars(select(Job).where(Job.project_id == pid))]
+        assert statuses == ["cancelled"]
+        # Once restored, the same job can be resumed.
+        assert client.post(f"/api/projects/{pid}/restore").status_code == 200
+        assert client.post(f"/api/projects/{pid}/jobs/{job['id']}/resume").json()["status"] == "pending"
+
+
+def test_failed_jobs_cannot_be_paused_and_job_conflicts_are_409(seeded):
+    pid = seeded[0]
+    with TestClient(app) as client:
+        client.post("/api/auth/login", json={"username": "tester", "password": "test-password-123456789"})
+        job = client.post(f"/api/projects/{pid}/jobs", json={"operation": "analyze"}).json()
+        conflict = client.post(f"/api/projects/{pid}/jobs", json={"operation": "analyze", "force": True})
+        assert conflict.status_code == 409 and "existe déjà" in conflict.json()["detail"]
+        with SessionLocal() as db:
+            db.get(Job, job["id"]).status = "failed"
+            db.commit()
+        paused = client.post(f"/api/projects/{pid}/jobs/{job['id']}/pause")
+        assert paused.status_code == 409
+        with SessionLocal() as db:
+            assert db.get(Job, job["id"]).status == "failed"
+        # A failed job never blocks the book: a new job can start, and cancelling it stays possible.
+        restarted = client.post(f"/api/projects/{pid}/jobs", json={"operation": "analyze", "force": True})
+        assert restarted.status_code == 202 and restarted.json()["id"] != job["id"]
+        assert client.post(f"/api/projects/{pid}/jobs/{job['id']}/cancel").status_code == 200

@@ -252,7 +252,8 @@ def configure(project_id: str, body: ProjectConfig, user: CurrentUser, db: DB):
                 job.options = {**job.options, "provider_id": body.provider_id}
         elif not job.options.get("provider_id"):
             job.provider_id = body.provider_id
-    if provider_selected and not db.scalar(
+    # An archived book is at rest: configuring it must not start paid model calls.
+    if provider_selected and project.archived_at is None and not db.scalar(
         select(Job.id).where(Job.project_id == project_id, Job.status.in_(HELD))
     ):
         enqueue(
@@ -399,7 +400,10 @@ def start_job(project_id: str, body: JobInput, user: CurrentUser, db: DB):
         segment = db.get(Segment, body.segment_id)
         if not segment or segment.project_id != project_id:
             raise HTTPException(404, "Passage introuvable.")
-    job = enqueue(db, project, body.operation, body.model_dump(exclude={"operation"}))
+    try:
+        job = enqueue(db, project, body.operation, body.model_dump(exclude={"operation"}))
+    except ValueError as exc:  # A job is already held for this book: a state conflict, not bad input.
+        raise HTTPException(409, str(exc)) from None
     if body.operation == "analyze" and body.force:
         previous = list(
             db.scalars(
@@ -456,8 +460,13 @@ def control(
         select(Job.id).where(Job.project_id == project_id, Job.id != job_id, Job.status.in_(HELD))
     ):
         raise HTTPException(409, "Un autre travail est déjà actif pour ce livre.")
-    if action in {"pause", "cancel"} and job.status not in (*HELD, "failed"):
+    if action in {"resume", "retry"} and project.archived_at is not None:
+        raise HTTPException(409, "Restaurez ce projet avant de reprendre un travail.")
+    if action == "cancel" and job.status not in (*HELD, "failed"):
         raise HTTPException(409, "Ce travail est déjà terminé.")
+    # Pausing a failed job would turn it back into a held job that blocks the book.
+    if action == "pause" and job.status not in HELD:
+        raise HTTPException(409, "Seul un travail actif ou bloqué peut être mis en pause.")
     job.status = {"pause": "paused", "resume": "pending", "retry": "pending", "cancel": "cancelled"}[action]
     if action in {"resume", "retry"} and not job.options.get("provider_id"):
         job.provider_id = project.provider_id

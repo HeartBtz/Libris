@@ -80,7 +80,12 @@ export interface ProjectProgress {
   };
 }
 export interface Provider {
-  kind: "openai" | "openai_responses" | "codex_chatgpt";
+  kind:
+    | "openai"
+    | "openai_responses"
+    | "codex_chatgpt"
+    | "anthropic"
+    | "openai_direct";
   created_at?: number;
   id: string;
   name: string;

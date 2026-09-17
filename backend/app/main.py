@@ -4,6 +4,7 @@ import zipfile
 from collections import defaultdict, deque
 from contextlib import asynccontextmanager
 
+import httpx
 from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -113,6 +114,18 @@ async def conflict(_request: Request, _exc: IntegrityError):
 @app.exception_handler(LLMError)
 async def llm_failure(_request: Request, exc: LLMError):
     return JSONResponse({"detail": str(exc)}, status_code=502)
+
+
+@app.exception_handler(httpx.RequestError)
+async def upstream_unreachable(_request: Request, exc: httpx.RequestError):
+    # Connection refused, DNS failure or timeout towards OpenViking, the Codex bridge, SearXNG or a provider.
+    return JSONResponse(
+        {
+            "detail": f"Un service externe requis par cette action est injoignable ({type(exc).__name__}). "
+            "Vérifiez son adresse et qu’il est démarré, puis réessayez."
+        },
+        status_code=502,
+    )
 
 
 @app.exception_handler(zipfile.BadZipFile)

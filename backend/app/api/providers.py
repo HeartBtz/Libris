@@ -2,10 +2,10 @@ from typing import Literal
 
 import httpx
 from fastapi import APIRouter, HTTPException
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from app.api.common import row
-from app.models import Provider
+from app.models import Job, Project, Provider, RequestLog
 from app.providers.codex import bridge_call
 from app.providers.llm import llm
 from app.providers.transports import NATIVE
@@ -80,6 +80,25 @@ def delete_provider(provider_id: str, _admin: Admin, db: DB):
     provider = db.get(Provider, provider_id)
     if not provider:
         raise HTTPException(404, "Provider introuvable.")
+    # Say what still points at the provider; the generic integrity message would not.
+    books = db.scalar(select(func.count()).select_from(Project).where(Project.provider_id == provider_id))
+    if books:
+        raise HTTPException(
+            409,
+            f"Ce provider est encore sélectionné par {books} livre(s). "
+            "Choisissez un autre provider pour ces livres avant de le supprimer.",
+        )
+    jobs = db.scalar(select(func.count()).select_from(Job).where(Job.provider_id == provider_id))
+    requests = db.scalar(
+        select(func.count()).select_from(RequestLog).where(RequestLog.provider_id == provider_id)
+    )
+    if jobs or requests:
+        raise HTTPException(
+            409,
+            f"Ce provider ne peut pas être supprimé : {jobs} travail(aux) et {requests} requête(s) de "
+            "l’historique s’y rapportent, et les statistiques de coût en dépendent. "
+            "Il n’est plus utilisé par aucun livre : vous pouvez le renommer ou retirer sa clé API.",
+        )
     db.delete(provider)
     db.commit()
     return {"ok": True}

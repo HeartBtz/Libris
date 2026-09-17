@@ -11,8 +11,9 @@ class Settings(BaseSettings):
     secret_key: str = ""
     bootstrap_password: str = ""
     bootstrap_username: str = "admin"
-    cookie_secure: bool = False
+    cookie_secure: bool = True
     allowed_origins: str = "http://localhost:8088,http://127.0.0.1:8088"
+    session_duration_hours: int = 24
     max_upload_mb: int = 60
     max_unpacked_mb: int = 300
     max_entries: int = 5000
@@ -26,6 +27,10 @@ class Settings(BaseSettings):
     codex_bridge_url: str = "http://codex:8092"
     codex_bridge_token: str = ""
     prompt_dir: Path = Path(__file__).resolve().parents[2] / "prompts"
+    worker_heartbeat_seconds: int = 2
+    memory_catalog_interval_seconds: int = 60
+    provider_recovery_base_seconds: int = 60
+    provider_recovery_max_seconds: int = 3600
 
     def prepare(self) -> None:
         for name in ("books", "projects", "exports"):

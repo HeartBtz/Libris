@@ -2,7 +2,9 @@
 
 All notable changes are documented here. Libris follows [Semantic Versioning](https://semver.org/); while the project is below 1.0, minor versions may include breaking operational changes that are called out explicitly.
 
-## [Unreleased]
+## [0.4.0] - 2026-09-18
+
+A maintenance release coming out of a full audit of the application and of its production instance. It fixes the EPUB 3 export failures, makes the worker and provider recovery robust, stops two disk-space leaks, and repairs a number of interface defects. It is a minor version because a few behaviours change on purpose: sessions now last the documented 24 hours by default (`SESSION_DURATION_HOURS`), the live event stream of a book no longer replays its history, starting a job on a busy book answers HTTP 409, and "Configure selection" no longer overrides languages and qualities you did not set. No database migration is included.
 
 ### Fixed
 
@@ -32,6 +34,12 @@ All notable changes are documented here. Libris follows [Semantic Versioning](ht
 ### Changed
 
 - Unexpected API errors (HTTP 500) and failed jobs now log *where* they happened (`trace=` with file, line and function) next to the diagnostic reference shown in the interface. Exception messages are deliberately left out so that service logs still never contain book text (#6).
+
+## [0.3.5] - 2026-09-17
+
+### Fixed
+
+- The retry delay configured in *Settings → Automatic recovery* is now the one actually used when a provider is unavailable; the first retry waits exactly that delay and the exponential backoff starts from the second retry.
 
 ## [0.3.4] - 2026-09-17
 

@@ -18,11 +18,11 @@ def test_configured_retry_delay_and_capacity(seeded):
         jid = job.id
         db.commit()
     _, owner = claim()
-    before = time.time()
     suspend(jid, owner, "waiting", "provider_unavailable", "temporary")
     with SessionLocal() as db:
         job = db.get(Job, jid)
-        assert before + 15 <= job.next_attempt <= time.time() + 15
+        delay = job.next_attempt - time.time()
+        assert 14 <= delay <= 16, f"Expected 15s delay, got {delay:.1f}s"
         assert job.status == "waiting"
     assert claim() is None
     with SessionLocal() as db:

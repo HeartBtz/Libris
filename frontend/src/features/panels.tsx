@@ -129,7 +129,7 @@ export function ProjectSettings({
   const [username, setUsername] = useState("");
   const [role, setRole] = useState("reader");
   useEffect(() => {
-    void run(async () => setProviders(await api("/providers")));
+    void run.background(async () => setProviders(await api("/providers")));
   }, [run]);
   return (
     <section className="narrow">
@@ -374,7 +374,7 @@ export function Glossary({
     setTerms(await api(`/projects/${project.id}/glossary`));
   }
   useEffect(() => {
-    void run(async () =>
+    void run.background(async () =>
       setTerms(await api(`/projects/${project.id}/glossary`)),
     );
   }, [project.id, tick, run]);
@@ -647,7 +647,7 @@ export function Bible({
     }[];
   } | null>(null);
   useEffect(() => {
-    void run(async () => {
+    void run.background(async () => {
       setData(await api(`/projects/${project.id}/bible`));
     });
     if (!dirty) setText(JSON.stringify(project.bible, null, 2));
@@ -779,7 +779,7 @@ export function Quality({
   const { t } = useI18n();
   const [issues, setIssues] = useState<Issue[]>([]);
   useEffect(() => {
-    void run(async () =>
+    void run.background(async () =>
       setIssues(await api(`/projects/${project.id}/issues`)),
     );
   }, [project.id, tick, run]);
@@ -859,7 +859,7 @@ export function Observability({
   );
   const progress = projectProgress(project);
   useEffect(() => {
-    void run(async () => {
+    void run.background(async () => {
       const [r, m] = await Promise.all([
         api<LLMRequest[]>(`/projects/${project.id}/requests?offset=${offset}`),
         api<Record<string, number>>(`/projects/${project.id}/metrics`),

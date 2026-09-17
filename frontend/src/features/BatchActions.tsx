@@ -48,7 +48,7 @@ export function BatchActions({
     .sort()
     .join(":");
   useEffect(() => {
-    void run(async () => setProviders(await api("/providers")));
+    void run.background(async () => setProviders(await api("/providers")));
   }, [run]);
   useEffect(() => {
     const commonSeries = books.every(

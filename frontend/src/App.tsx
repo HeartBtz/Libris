@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { api, date, labels, number, send } from "./api";
 import type { Project, Run, User } from "./types";
 import { Settings } from "./features/Settings";
@@ -97,13 +97,19 @@ export function App() {
     requestAnimationFrame(() =>
       document.getElementById("main-content")?.focus(),
     );
-  const run: Run = useCallback(async (task) => {
-    setError("");
-    try {
-      await task();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    }
+  const run: Run = useMemo(() => {
+    const execute =
+      (background: boolean) => async (task: () => Promise<void>) => {
+        if (!background) setError("");
+        try {
+          await task();
+        } catch (e) {
+          const text = e instanceof Error ? e.message : String(e);
+          // A periodic refresh must neither erase nor replace the error of a user action.
+          setError((shown) => (background && shown ? shown : text));
+        }
+      };
+    return Object.assign(execute(false), { background: execute(true) });
   }, []);
   useEffect(() => {
     api<User>("/auth/me")
@@ -477,9 +483,9 @@ function Library({ run, user }: { run: Run; user: User }) {
     [],
   );
   useEffect(() => {
-    void run(load);
+    void run.background(load);
     const timer = setInterval(() => {
-      void run(load);
+      void run.background(load);
     }, 5000);
     return () => clearInterval(timer);
   }, [run, load]);

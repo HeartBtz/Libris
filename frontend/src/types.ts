@@ -199,4 +199,8 @@ export interface Issue {
   resolved: boolean;
   created_at: number;
 }
-export type Run = (task: () => Promise<void>) => Promise<void>;
+type Task = () => Promise<void>;
+/** `run` reports a user action; `run.background` is for automatic loads and never hides a shown error. */
+export type Run = ((task: Task) => Promise<void>) & {
+  background: (task: Task) => Promise<void>;
+};

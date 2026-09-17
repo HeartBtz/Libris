@@ -144,7 +144,7 @@ export function Workspace({
     }
   }, [id]);
   useEffect(() => {
-    void run(load);
+    void run.background(load);
   }, [run, load, tick]);
   useEffect(() => {
     const stream = new EventSource(`/api/projects/${id}/events`);

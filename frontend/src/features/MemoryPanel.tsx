@@ -49,7 +49,7 @@ export function MemoryPanel({
     [pid],
   );
   useEffect(() => {
-    void run(load);
+    void run.background(load);
     const timer = setInterval(() => {
       void load().catch(() => {});
     }, 5000);

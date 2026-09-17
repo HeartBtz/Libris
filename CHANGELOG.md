@@ -13,6 +13,7 @@ All notable changes are documented here. Libris follows [Semantic Versioning](ht
   - empty XHTML `<title>` elements receive the book title (`RSC-005`).
 - **Readable export and API errors.** A refused EPUB export now tells you which book failed and lists the first EPUBCheck errors, in both single and bulk export; previously the interface showed only "Export refusé (HTTP 422)" or a raw JSON report. Form validation errors show the field and the reason without ever echoing the typed value back (the login screen could display the password just entered), and an HTML error page from a reverse proxy is reported as `HTTP 502/504` and no longer as a JSON parsing error (#5).
 - **Worker stability.** An unexpected error in a single job could stop the whole worker and interrupt every book being translated — for example pausing a book while the provider was refusing a passage, or a provider sending a malformed `Retry-After: inf` header. Each job is now isolated: the failure is recorded on that job only and the other books keep going (#6).
+- **Error messages stay on screen.** The red error banner used to vanish by itself — within five seconds in the library, within a second inside a book with a running job — because every automatic refresh cleared it. An export refusal or a save conflict could disappear before it was read. Automatic refreshes no longer erase or replace the error of an action; the banner stays until you dismiss it or start another action (#9).
 
 ### Changed
 

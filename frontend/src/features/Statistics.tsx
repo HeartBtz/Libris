@@ -30,7 +30,7 @@ export function Statistics({ run }: { run: Run }) {
   const [models, setModels] = useState<ModelStatistics[]>([]);
 
   useEffect(() => {
-    void run(async () => setModels(await api<ModelStatistics[]>("/statistics/models")));
+    void run.background(async () => setModels(await api<ModelStatistics[]>("/statistics/models")));
   }, [run]);
 
   return (

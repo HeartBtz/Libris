@@ -130,7 +130,7 @@ export function ValidationPanel({
 
   useEffect(() => {
     let active = true;
-    void run(async () => {
+    void run.background(async () => {
       async function segmentsWithStatus(status: string) {
         const found: Segment[] = [];
         let offset = 0;

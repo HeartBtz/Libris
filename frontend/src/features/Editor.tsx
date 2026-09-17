@@ -204,7 +204,7 @@ export function Editor({
     setSelected(null);
   }, [chapter.id]);
   useEffect(() => {
-    void run(async () =>
+    void run.background(async () =>
       setSegments(
         await api(
           `/projects/${project.id}/segments?chapter_id=${chapter.id}&status=${filter}&offset=${offset}&limit=50`,
@@ -680,7 +680,7 @@ export function Inspector({
   const [glossarySaved, setGlossarySaved] = useState(false);
   const dialog = useDialogFocus<HTMLElement>(true, close);
   useEffect(() => {
-    void run(async () => {
+    void run.background(async () => {
       const [r, v] = await Promise.all([
         api<LLMRequest[]>(`/segments/${segment.id}/requests`),
         api<Version[]>(`/segments/${segment.id}/versions`),

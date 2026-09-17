@@ -43,12 +43,13 @@ def login(body: Credentials, response: Response, db: DB):
     if not user or not matches or not user.active:
         raise HTTPException(401, "Identifiants incorrects.")
     token = secrets.token_urlsafe(40)
+    lifetime = settings().session_duration_hours * 3600
     db.execute(delete(LoginSession).where(LoginSession.expires_at < time.time()))
     db.add(
         LoginSession(
             token_hash=hashlib.sha256(token.encode()).hexdigest(),
             user_id=user.id,
-            expires_at=time.time() + 43200,
+            expires_at=time.time() + lifetime,
         )
     )
     db.commit()
@@ -58,7 +59,7 @@ def login(body: Credentials, response: Response, db: DB):
         httponly=True,
         samesite="strict",
         secure=settings().cookie_secure,
-        max_age=43200,
+        max_age=lifetime,
         path="/",
     )
     return row(user, ("password_hash",))

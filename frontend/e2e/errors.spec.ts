@@ -200,3 +200,48 @@ test("an action error survives the automatic refreshes", async ({ page }) => {
   await page.clock.fastForward(6000);
   await expect(alert).toContainText("Refresh failed.");
 });
+
+test("an expired session returns to the login screen and logout always works", async ({
+  page,
+}) => {
+  await page.addInitScript(() => localStorage.setItem("locale", "en"));
+  await page.clock.install();
+  const book = demoBook();
+  let expired = false;
+  await page.route("**/api/**", async (route) => {
+    const path = new URL(route.request().url()).pathname;
+    if (path.endsWith("/auth/me"))
+      await route.fulfill({
+        json: { id: "demo-user", username: "Demo", admin: true },
+      });
+    else if (expired || path === "/api/auth/logout")
+      await route.fulfill({
+        status: 401,
+        json: { detail: "Connexion nécessaire." },
+      });
+    else if (path === "/api/projects")
+      await route.fulfill({
+        json: [{ ...book, progress: projectProgress(book) }],
+      });
+    else await route.fulfill({ json: [] });
+  });
+  await page.goto(base);
+  await expect(
+    page.getByRole("heading", { name: "Library", exact: true }),
+  ).toBeVisible();
+  // The session is revoked server-side: the next automatic refresh must sign the user out.
+  expired = true;
+  await page.clock.fastForward(6000);
+  await expect(page.getByLabel("Password", { exact: true })).toBeVisible();
+  await expect(page.getByRole("alert")).toContainText("Your session expired");
+
+  // Logging out with an already dead session must not leave the page stuck.
+  expired = false;
+  await page.reload();
+  await expect(
+    page.getByRole("heading", { name: "Library", exact: true }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Sign out", exact: true }).click();
+  await expect(page.getByLabel("Password", { exact: true })).toBeVisible();
+  await expect(page.getByRole("alert")).toHaveCount(0);
+});

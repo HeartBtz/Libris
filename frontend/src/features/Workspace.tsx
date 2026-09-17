@@ -150,11 +150,16 @@ export function Workspace({
     const stream = new EventSource(`/api/projects/${id}/events`);
     let pending: ReturnType<typeof setTimeout> | undefined;
     stream.onopen = () => setStreamState(t("Suivi connecté"));
-    stream.onerror = () => setStreamState(t("Reconnexion du suivi…"));
-    stream.onmessage = () => {
+    const reload = () => {
       clearTimeout(pending);
       pending = setTimeout(() => setTick((v) => v + 1), 300);
     };
+    stream.onerror = () => {
+      setStreamState(t("Reconnexion du suivi…"));
+      // The stream cannot report why it failed; a reload reveals an expired session (401).
+      reload();
+    };
+    stream.onmessage = reload;
     return () => {
       clearTimeout(pending);
       stream.close();

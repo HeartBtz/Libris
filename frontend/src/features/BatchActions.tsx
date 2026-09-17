@@ -177,7 +177,7 @@ export function BatchActions({
               );
             if (action === "pause")
               relevant = relevant.filter(
-                (j) => !["paused", "cancelled"].includes(j.status),
+                (j) => !["paused", "cancelled", "failed"].includes(j.status),
               );
             if (action === "resume")
               relevant = relevant.filter((j) =>

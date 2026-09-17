@@ -10,7 +10,7 @@ const translations: Record<string, string> = {
   "Série {series} appliquée à {count} livre(s), numéros conservés.": "Series {series} applied to {count} book(s), numbers retained.",
   "{count} livre(s) numéroté(s) dans {series}.": "{count} book(s) numbered in {series}.",
   "supprimé.": "deleted.", "archivé.": "archived.", "en pause": "paused", "reprise planifiée": "resumption scheduled", "travail annulé": "work cancelled", "aucun travail concerné": "no relevant work", "configuré": "configured", "travail ajouté à la file": "work queued",
-  "Actions sur plusieurs livres": "Actions for multiple books", "livre(s) sélectionné(s)": "selected book(s)", "Série commune": "Common series", "Premier volume": "First volume", "Appliquer sans renuméroter": "Apply without renumbering", "Numéroter par titre": "Number by title", "Retirer de la série": "Remove from series", "Provider commun": "Common provider", "Conserver les providers individuels": "Keep individual providers", "Source mémoire": "Memory source", "Conserver les sources individuelles": "Keep individual sources", "Mémoire interne": "Internal memory", "Langue cible": "Target language", "Qualité": "Quality", "Rapide": "Fast", "Haute qualité": "High quality", "Instructions communes": "Common instructions", "Conserver si vide": "Keep if empty", "Configurer la sélection": "Configure selection", "Analyser la sélection": "Analyze selection", "Traduire la sélection": "Translate selection", "Mettre la sélection en pause": "Pause selection", "Reprendre la sélection": "Resume selection", "Annuler les analyses": "Cancel analyses", "Annuler les traductions": "Cancel translations", "Archiver la sélection": "Archive selection", "Supprimer la sélection": "Delete selection",
+  "Actions sur plusieurs livres": "Actions for multiple books", "livre(s) sélectionné(s)": "selected book(s)", "Série commune": "Common series", "Premier volume": "First volume", "Appliquer sans renuméroter": "Apply without renumbering", "Numéroter par titre": "Number by title", "Retirer de la série": "Remove from series", "Provider commun": "Common provider", "Conserver les providers individuels": "Keep individual providers", "Source mémoire": "Memory source", "Conserver les sources individuelles": "Keep individual sources", "Mémoire interne": "Internal memory", "Langue cible": "Target language", "Qualité": "Quality", "Conserver les qualités individuelles": "Keep individual qualities", "Rapide": "Fast", "Haute qualité": "High quality", "Instructions communes": "Common instructions", "Conserver si vide": "Keep if empty", "Configurer la sélection": "Configure selection", "Analyser la sélection": "Analyze selection", "Traduire la sélection": "Translate selection", "Mettre la sélection en pause": "Pause selection", "Reprendre la sélection": "Resume selection", "Annuler les analyses": "Cancel analyses", "Annuler les traductions": "Cancel translations", "Archiver la sélection": "Archive selection", "Supprimer la sélection": "Delete selection",
   "Les livres avancent en parallèle selon les limites du worker et de chaque provider. Les passages d’un même livre gardent leur ordre narratif.": "Books progress in parallel according to worker and provider limits. Segments in the same book retain their narrative order.",
   "Exporter les EPUB": "Export EPUBs",
   "Archive de {count} EPUB téléchargée.": "Archive containing {count} EPUBs downloaded.",
@@ -36,8 +36,9 @@ export function BatchActions({
   const [memoryBackend, setMemoryBackend] = useState<
     "" | Project["context_backend"]
   >("");
-  const [language, setLanguage] = useState("fr");
-  const [quality, setQuality] = useState("high");
+  // Empty means "keep each book's own value", like the provider, memory and instruction fields.
+  const [language, setLanguage] = useState("");
+  const [quality, setQuality] = useState<"" | Project["quality"]>("");
   const [seriesName, setSeriesName] = useState(books[0]?.series_name || "");
   const [firstVolume, setFirstVolume] = useState(1);
   const [commonInstructions, setCommonInstructions] = useState("");
@@ -204,9 +205,9 @@ export function BatchActions({
                 series_name: p.series_name,
                 volume_number: p.volume_number,
                 source_language: p.source_language,
-                target_language: language,
+                target_language: language.trim() || p.target_language,
                 provider_id: provider || p.provider_id,
-                quality,
+                quality: quality || p.quality,
                 context_backend: memoryBackend || p.context_backend,
                 instructions: commonInstructions || p.instructions,
               },
@@ -310,6 +311,7 @@ export function BatchActions({
           <input
             value={language}
             onChange={(e) => setLanguage(e.target.value)}
+            placeholder={t("Conserver si vide")}
           />
         </label>
         <label>
@@ -330,7 +332,13 @@ export function BatchActions({
         </label>
         <label>
           {t("Qualité")}
-          <select value={quality} onChange={(e) => setQuality(e.target.value)}>
+          <select
+            value={quality}
+            onChange={(e) =>
+              setQuality(e.target.value as "" | Project["quality"])
+            }
+          >
+            <option value="">{t("Conserver les qualités individuelles")}</option>
             <option value="fast">{t("Rapide")}</option>
             <option value="normal">Normal</option>
             <option value="high">{t("Haute qualité")}</option>

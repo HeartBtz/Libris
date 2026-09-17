@@ -22,7 +22,8 @@ migration-postgres:
   stage: test
   script:
     - DB_CONTAINER="libris-ci-postgres-$CI_JOB_ID"
-    - docker run --detach --name "$DB_CONTAINER" --env POSTGRES_DB=libris_test --env POSTGRES_USER=libris --env POSTGRES_PASSWORD=libris_test_password postgres:17-bookworm
+    # Throwaway database: keep its data in memory so that nothing can be left on the runner's disk.
+    - docker run --detach --name "$DB_CONTAINER" --tmpfs /var/lib/postgresql/data --env POSTGRES_DB=libris_test --env POSTGRES_USER=libris --env POSTGRES_PASSWORD=libris_test_password postgres:17-bookworm
     - for attempt in $(seq 1 30); do docker exec "$DB_CONTAINER" pg_isready -U libris -d libris_test && break; test "$attempt" -lt 30; sleep 1; done
     - >-
       docker run --rm --network "container:$DB_CONTAINER"
@@ -34,7 +35,7 @@ migration-postgres:
       python:3.13-bookworm sh -lc
       "pip install -q -r backend/requirements.lock && pip install -q -e './backend[test]' && cd backend && alembic upgrade head && alembic downgrade c93b8c242df1 && alembic upgrade head && pytest -q"
   after_script:
-    - docker rm --force "libris-ci-postgres-$CI_JOB_ID" >/dev/null 2>&1 || true
+    - docker rm --force --volumes "libris-ci-postgres-$CI_JOB_ID" >/dev/null 2>&1 || true
 
 backend:
   stage: test

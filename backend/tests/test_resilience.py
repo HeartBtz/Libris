@@ -12,6 +12,7 @@ from app.db import SessionLocal
 from app.jobs.queue import claim, enqueue, suspend
 from app.jobs.worker import execute, provider_dispatcher
 from app.models import Job, Project, RequestLog, Segment
+from app.providers.reliability import calculate_retry_delay
 
 
 def prepare(pid, force=False):
@@ -206,3 +207,62 @@ async def test_dispatcher_survives_a_job_that_raises(seeded, monkeypatch, caplog
     await asyncio.wait_for(dispatcher, timeout=5)
     assert "status=task_failed" in caplog.text and "RuntimeError" in caplog.text
     assert "secret book sentence" not in caplog.text
+
+
+def test_retry_delay_backoff_is_a_floor_and_the_cap_holds():
+    # A sub-second or tiny Retry-After must never produce an immediate retry or disable the backoff.
+    assert calculate_retry_delay(1, 60, 3600, 0.5) == 60
+    assert calculate_retry_delay(50, 60, 3600, 1) >= 3600
+    # A longer provider request is honoured, rounded up and bounded to 24 hours.
+    assert calculate_retry_delay(1, 60, 3600, 90.2) == 91
+    assert calculate_retry_delay(1, 60, 3600, 7200) == 7200
+    assert calculate_retry_delay(1, 60, 3600, 10**9) == 86400
+    assert calculate_retry_delay(3, 60, 3600, float("nan")) >= 240
+    # Jitter never exceeds the configured maximum; the first retry stays exact.
+    assert max(calculate_retry_delay(9, 60, 3600) for _ in range(2000)) == 3600
+    assert {calculate_retry_delay(1, 5, 3600) for _ in range(50)} == {5}
+    assert all(240 <= calculate_retry_delay(3, 60, 3600) <= 264 for _ in range(200))
+
+
+@pytest.mark.parametrize("status", [529, 520, 524, 425])
+@respx.mock
+async def test_overloaded_and_edge_proxy_statuses_wait_instead_of_failing(seeded, status):
+    jid = prepare(seeded[0])
+    respx.post("https://llm.test/v1/chat/completions").respond(status, headers={"Retry-After": "120"})
+    await execute(*claim())
+    with SessionLocal() as db:
+        job = db.get(Job, jid)
+        assert job.status == "waiting" and job.stop_reason == "provider_unavailable"
+        assert job.next_attempt >= time.time() + 115
+
+
+@respx.mock
+async def test_fractional_retry_after_cannot_create_a_hot_retry_loop(seeded):
+    prepare(seeded[0])
+    route = respx.post("https://llm.test/v1/chat/completions").respond(429, headers={"Retry-After": "0.5"})
+    await execute(*claim())
+    assert route.call_count == 1 and claim() is None
+
+
+@respx.mock
+async def test_outage_count_only_counts_consecutive_failures(seeded):
+    with SessionLocal() as db:
+        jid = enqueue(db, db.get(Project, seeded[0]), "analyze", {}).id
+        db.commit()
+    calls = {"count": 0}
+
+    def flaky(request):
+        calls["count"] += 1
+        return httpx.Response(503) if calls["count"] in (1, 4) else mock_completion(request)
+
+    respx.post("https://llm.test/v1/chat/completions").mock(side_effect=flaky)
+    for _ in range(2):
+        with SessionLocal() as db:
+            db.get(Job, jid).next_attempt = 0
+            db.commit()
+        await execute(*claim())
+        with SessionLocal() as db:
+            job = db.get(Job, jid)
+            # Successful calls happened between the two outages: each one is a first failure.
+            assert job.status == "waiting" and job.outage_count == 1
+            assert job.next_attempt <= time.time() + 61

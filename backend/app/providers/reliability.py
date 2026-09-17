@@ -1,6 +1,9 @@
 """Enhanced provider reliability with exponential backoff and circuit breaker."""
 
+import math
 import random
+
+RETRY_AFTER_CEILING = 86400
 
 
 def calculate_retry_delay(
@@ -22,27 +25,20 @@ def calculate_retry_delay(
         Delay in seconds before next retry
 
     Strategy:
-        - Respects provider Retry-After header first
-        - Uses exponential backoff: base * 2^min(outage_count, 6)
-        - Adds jitter (0-10%) to avoid thundering herd
-        - Caps at max_delay
+        - First retry uses base_delay exactly, then base * 2^min(outage_count - 1, 6)
+        - Jitter (0-10%) avoids a thundering herd and never exceeds max_delay
+        - A provider Retry-After can only lengthen the wait, never shorten the backoff:
+          it is rounded up, honoured beyond max_delay and bounded to 24 hours
     """
-    # Provider signal takes absolute priority
-    if retry_after > 0:
-        return min(int(retry_after), 86400)  # Cap at 24h
-
-    # First retry uses base_delay directly (no exponential), subsequent retries use backoff
-    if outage_count == 1:
-        return base_delay
-    
-    # Exponential backoff with cap at 6 doublings (60s -> 3840s)
-    backoff_delay = base_delay * (2 ** min(outage_count - 1, 6))
-    capped_delay = min(backoff_delay, max_delay)
-
-    # Add jitter to avoid thundering herd (0-10% of delay)
-    jitter = random.uniform(0, capped_delay * 0.1)
-
-    return int(capped_delay + jitter)
+    base_delay = max(1, base_delay)
+    max_delay = max(base_delay, max_delay)
+    if outage_count <= 1:
+        delay = base_delay
+    else:
+        backoff = min(base_delay * (2 ** min(outage_count - 1, 6)), max_delay)
+        delay = min(int(backoff + random.uniform(0, backoff * 0.1)), max_delay)
+    requested = math.ceil(retry_after) if math.isfinite(retry_after) and retry_after > 0 else 0
+    return max(delay, min(requested, RETRY_AFTER_CEILING))
 
 
 def should_circuit_break(outage_count: int, threshold: int = 10) -> bool:

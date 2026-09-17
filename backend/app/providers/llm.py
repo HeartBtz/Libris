@@ -15,7 +15,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from app.config import settings
 from app.db import SessionLocal
 from app.jobs.execution import execution
-from app.models import Prompt, Provider, RequestLog
+from app.models import Job, Prompt, Provider, RequestLog
 from app.providers.codex import bridge_call
 from app.providers.refusals import refusal_http, refusal_reason
 from app.providers.transports import generation_parameters, normalize_response, wire_payload
@@ -343,7 +343,8 @@ class OpenAIProvider:
                 error = (
                     f"Provider HTTP {exc.response.status_code}. Vérifier URL, authentification et capacités."
                 )
-                transient = exc.response.status_code in (408, 429, 500, 502, 503, 504)
+                # 529 (overloaded) and 52x (edge proxy) are as transient as the classic 5xx.
+                transient = exc.response.status_code in (408, 425, 429) or exc.response.status_code >= 500
                 unavailable = transient
                 authentication_required = exc.response.status_code in (401, 403)
                 try:
@@ -414,6 +415,11 @@ class OpenAIProvider:
                 log.completion_tokens = usage.get("completion_tokens", 0)
                 if not error:
                     log.parsed = parsed.model_dump()
+                    if log.job_id:
+                        # Outages are consecutive failures: any successful call of the job ends the streak.
+                        db.execute(
+                            update(Job).where(Job.id == log.job_id, Job.outage_count > 0).values(outage_count=0)
+                        )
                 db.commit()
             logger.info(
                 json.dumps(

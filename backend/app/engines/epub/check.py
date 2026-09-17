@@ -17,12 +17,15 @@ def epubcheck(data: bytes) -> dict:
     with tempfile.TemporaryDirectory() as directory:
         book, report = Path(directory) / "book.epub", Path(directory) / "report.json"
         book.write_bytes(data)
-        result = subprocess.run(
-            ["java", "-jar", jar, str(book), "--json", str(report)],
-            capture_output=True,
-            timeout=90,
-            check=False,
-        )
+        try:
+            result = subprocess.run(
+                ["java", "-jar", jar, str(book), "--json", str(report)],
+                capture_output=True,
+                timeout=90,
+                check=False,
+            )
+        except subprocess.TimeoutExpired:
+            raise ValueError("EPUBCheck n’a pas terminé en 90 secondes ; réessayez plus tard.") from None
         if not report.exists():
             raise ValueError("EPUBCheck n’a pas produit de rapport exploitable.")
         return {"available": True, "valid": result.returncode == 0, "report": json.loads(report.read_text())}

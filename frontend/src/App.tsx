@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { api, date, labels, number, send } from "./api";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { api, ApiError, date, labels, number, send } from "./api";
 import type { Project, Run, User } from "./types";
 import { Settings } from "./features/Settings";
 import { Account } from "./features/Account";
@@ -7,7 +7,7 @@ import { Workspace } from "./features/Workspace";
 import { BatchActions } from "./features/BatchActions";
 import { BookProgress } from "./features/BookProgress";
 import { Statistics } from "./features/Statistics";
-import { locales, registerTranslations, useI18n } from "./i18n";
+import { locales, message, registerTranslations, useI18n } from "./i18n";
 
 const translations: Record<string, string> = {
   "En attente": "Pending",
@@ -97,6 +97,10 @@ export function App() {
     requestAnimationFrame(() =>
       document.getElementById("main-content")?.focus(),
     );
+  const signedIn = useRef(false);
+  useEffect(() => {
+    signedIn.current = !!user;
+  }, [user]);
   const run: Run = useMemo(() => {
     const execute =
       (background: boolean) => async (task: () => Promise<void>) => {
@@ -104,6 +108,12 @@ export function App() {
         try {
           await task();
         } catch (e) {
+          if (e instanceof ApiError && e.status === 401 && signedIn.current) {
+            // Expired or revoked session: back to the login screen, not a stuck page.
+            setUser(null);
+            setError(message("app.sessionExpired"));
+            return;
+          }
           const text = e instanceof Error ? e.message : String(e);
           // A periodic refresh must neither erase nor replace the error of a user action.
           setError((shown) => (background && shown ? shown : text));
@@ -239,8 +249,15 @@ export function App() {
               className="quiet"
               onClick={() =>
                 void run(async () => {
-                  await send("/auth/logout");
-                  setUser(null);
+                  // Logging out must always work, even once the session is gone server-side.
+                  signedIn.current = false;
+                  try {
+                    await send("/auth/logout");
+                  } catch (e) {
+                    if (!(e instanceof ApiError && e.status === 401)) throw e;
+                  } finally {
+                    setUser(null);
+                  }
                 })
               }
             >

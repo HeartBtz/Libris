@@ -106,3 +106,19 @@ def test_https_session_cookie_is_secure_and_reissued(seeded, monkeypatch):
         assert response.status_code == 200
         assert "Secure" in response.headers["set-cookie"]
         assert "HttpOnly" in response.headers["set-cookie"]
+
+
+def test_session_lifetime_follows_the_configured_duration(seeded, monkeypatch):
+    import time
+
+    from app.config import settings
+    from app.db import SessionLocal
+    from app.models import LoginSession
+
+    monkeypatch.setattr(settings(), "session_duration_hours", 2)
+    with TestClient(app) as client:
+        response = login(client)
+    assert "Max-Age=7200" in response.headers["set-cookie"]
+    with SessionLocal() as db:
+        session = db.query(LoginSession).one()
+        assert 7100 < session.expires_at - time.time() <= 7200

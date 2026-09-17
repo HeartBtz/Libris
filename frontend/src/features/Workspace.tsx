@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useState } from "react";
-import { api, date, labels, send } from "../api";
+import { api, date, labels, responseError, send } from "../api";
 import { registerTranslations, useI18n } from "../i18n";
 import type { Chapter, Job, Project, Run, Segment, User } from "../types";
 import { Editor } from "./Editor";
@@ -20,7 +20,6 @@ const translations: Record<string, string> = {
   "Suivi connecté": "Progress tracking connected",
   "Reconnexion du suivi…": "Reconnecting progress tracking…",
   "Ouverture du livre…": "Opening book…",
-  "Export refusé": "Export refused",
   "Actualiser les données du livre": "Refresh book data",
   "Actualisation…": "Refreshing…",
   Actualiser: "Refresh",
@@ -234,14 +233,7 @@ export function Workspace({
       const response = await fetch(
         `/api/projects/${id}/export/${format}${allowSource ? "?allow_source=true" : ""}`,
       );
-      if (!response.ok) {
-        const error = await response.json().catch(() => ({}));
-        throw new Error(
-          typeof error.detail === "string"
-            ? error.detail
-            : `${t("Export refusé")} (HTTP ${response.status}).`,
-        );
-      }
+      if (!response.ok) throw await responseError(response);
       const url = URL.createObjectURL(await response.blob());
       const link = document.createElement("a");
       link.href = url;

@@ -395,7 +395,7 @@ export function BatchActions({
       {!!results.length && (
         <ul role="status">
           {results.map((r, i) => (
-            <li key={i}>{r}</li>
+            <li key={i} className="error-text">{r}</li>
           ))}
         </ul>
       )}

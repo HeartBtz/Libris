@@ -44,6 +44,33 @@ def project_segments(db, pid: str) -> list[Segment]:
     return list(db.scalars(select(Segment).where(Segment.project_id == pid).order_by(Segment.position)))
 
 
+def validated_epub(content: bytes, title: str) -> bytes:
+    validation = epubcheck(content)
+    if validation["available"] and not validation["valid"]:
+        failures = [
+            m
+            for m in validation["report"].get("messages", [])
+            if m.get("severity") in {"ERROR", "FATAL"}
+        ]
+        errors = [
+            f"{m.get('ID', '')} — {str(m.get('message', ''))[:300]}"
+            + "".join(f" ({place['path']})" for place in m.get("locations", [])[:1] if place.get("path"))
+            for m in failures[:5]
+        ]
+        if len(failures) > 5:
+            errors.append(f"… et {len(failures) - 5} autre(s) erreur(s).")
+        raise HTTPException(
+            422,
+            {
+                "message": f"EPUBCheck signale un EPUB invalide : « {title} ».",
+                "book": title,
+                "errors": errors,
+                "validation": validation,
+            },
+        )
+    return content
+
+
 def translated_epub(project, segments: list[Segment]) -> bytes:
     if any(not segment.translation or segment.retained_source for segment in segments):
         raise HTTPException(409, "Export bloqué : des passages n’ont pas encore de traduction.")
@@ -54,10 +81,7 @@ def translated_epub(project, segments: list[Segment]) -> bytes:
         project.title,
         project.author,
     )
-    validation = epubcheck(content)
-    if validation["available"] and not validation["valid"]:
-        raise HTTPException(422, {"message": "EPUBCheck signale un EPUB invalide.", "validation": validation})
-    return content
+    return validated_epub(content, project.title)
 
 
 def unique_epub_name(title: str, used: set[str]) -> str:
@@ -158,12 +182,10 @@ def export(
             for value in export_rows:
                 if not value["translated_units"]:
                     value["translated_units"] = [{"id": u["id"], "text": u["text"]} for u in value["units"]]
-            content = rebuild(original, export_rows, project.target_language, project.title, project.author)
-            validation = epubcheck(content)
-            if validation["available"] and not validation["valid"]:
-                raise HTTPException(
-                    422, {"message": "EPUBCheck signale un EPUB invalide.", "validation": validation}
-                )
+            content = validated_epub(
+                rebuild(original, export_rows, project.target_language, project.title, project.author),
+                project.title,
+            )
         else:
             content = translated_epub(project, segments)
         mime, filename = (

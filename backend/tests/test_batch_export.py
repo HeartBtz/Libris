@@ -69,3 +69,36 @@ def test_batch_epub_export_rejects_duplicate_project_ids(seeded):
         )
     assert response.status_code == 422
     assert "double" in response.json()["detail"]
+
+
+def test_rejected_export_names_the_book_and_summarizes_epubcheck_errors(seeded, monkeypatch):
+    project_id, _, _ = seeded
+    messages = [
+        {
+            "ID": f"RSC-{number:03}",
+            "severity": "ERROR",
+            "message": f"Broken resource {number}",
+            "locations": [{"path": "EPUB/chapter1.xhtml", "line": 3, "column": 1}],
+        }
+        for number in range(7)
+    ]
+    messages.insert(0, {"ID": "HTM-025", "severity": "WARNING", "message": "Ignored", "locations": []})
+    monkeypatch.setattr(
+        "app.api.exports.epubcheck",
+        lambda _content: {"available": True, "valid": False, "report": {"messages": messages}},
+    )
+    with TestClient(app) as client:
+        login(client)
+        complete_translation(client, project_id)
+        single = client.get(f"/api/projects/{project_id}/export/epub")
+        partial = client.get(f"/api/projects/{project_id}/export/epub?allow_source=true")
+        batch = client.post("/api/exports/epub", json={"project_ids": [project_id]})
+    for response in (single, partial, batch):
+        assert response.status_code == 422
+        detail = response.json()["detail"]
+        assert detail["book"] == "The Silver Tower"
+        assert "The Silver Tower" in detail["message"]
+        assert detail["errors"][0] == "RSC-000 — Broken resource 0 (EPUB/chapter1.xhtml)"
+        assert len(detail["errors"]) == 6 and "2 autre(s)" in detail["errors"][-1]
+        assert not any("HTM-025" in line for line in detail["errors"])
+        assert detail["validation"]["valid"] is False

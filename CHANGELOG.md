@@ -11,6 +11,7 @@ All notable changes are documented here. Libris follows [Semantic Versioning](ht
   - the manifest `scripted` property is reconciled with what each content document really contains (`OPF-014`/`OPF-015`);
   - the NCX `dtb:uid` is realigned with the package unique identifier (`NCX-001`), for EPUB 2 and EPUB 3;
   - empty XHTML `<title>` elements receive the book title (`RSC-005`).
+- **Readable export and API errors.** A refused EPUB export now tells you which book failed and lists the first EPUBCheck errors, in both single and bulk export; previously the interface showed only "Export refusé (HTTP 422)" or a raw JSON report. Form validation errors show the field and the reason without ever echoing the typed value back (the login screen could display the password just entered), and an HTML error page from a reverse proxy is reported as `HTTP 502/504` and no longer as a JSON parsing error (#5).
 
 ## [0.3.4] - 2026-09-17
 

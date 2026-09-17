@@ -168,9 +168,12 @@ def suspend(
             return
         if status == "waiting":
             job.outage_count += 1
-            saved = db.get(AppSetting, "provider_recovery")
-            configured = saved.value.get("retry_seconds", 60) if saved else 60
-            delay = max(max(5, min(int(configured), 3600)), min(retry_after, 86400))
+            from app.config import settings
+            from app.providers.reliability import calculate_retry_delay
+
+            base_delay = settings().provider_recovery_base_seconds
+            max_delay = settings().provider_recovery_max_seconds
+            delay = calculate_retry_delay(job.outage_count, base_delay, max_delay, retry_after)
             job.next_attempt = time.time() + delay
         else:
             job.next_attempt = 0

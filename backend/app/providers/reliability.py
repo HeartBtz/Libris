@@ -32,8 +32,12 @@ def calculate_retry_delay(
     if retry_after > 0:
         return min(int(retry_after), 86400)  # Cap at 24h
 
+    # First retry uses base_delay directly (no exponential), subsequent retries use backoff
+    if outage_count == 1:
+        return base_delay
+    
     # Exponential backoff with cap at 6 doublings (60s -> 3840s)
-    backoff_delay = base_delay * (2 ** min(outage_count, 6))
+    backoff_delay = base_delay * (2 ** min(outage_count - 1, 6))
     capped_delay = min(backoff_delay, max_delay)
 
     # Add jitter to avoid thundering herd (0-10% of delay)

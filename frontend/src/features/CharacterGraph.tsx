@@ -158,7 +158,7 @@ export default function CharacterGraph({
     [pid],
   );
   useEffect(() => {
-    void run(load);
+    void run.background(load);
   }, [load, run, tick]);
   useEffect(() => {
     const width = Math.max(1, Math.ceil(Math.sqrt(graph.nodes.length)));

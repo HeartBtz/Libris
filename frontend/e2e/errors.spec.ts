@@ -4,6 +4,45 @@ import type { Project } from "../src/types";
 
 const base = process.env.SHOWCASE_URL || "http://127.0.0.1:4173";
 
+function demoBook(): Project {
+  const stats = {
+    total: 24,
+    translated: 24,
+    validated: 24,
+    reviewed_segments: 24,
+    review_total: 24,
+    flagged: 0,
+    errors: 0,
+    refused: 0,
+    retained_source: 0,
+    analyzed_segments: 24,
+    synthesized_chapters: 4,
+    chapters: 4,
+    glossary: 8,
+  };
+  const book: Project = {
+    id: "demo",
+    owner_id: "demo-user",
+    title: "Tide Lighthouse",
+    author: "Demo collection",
+    series_name: "Tide Chronicles",
+    volume_number: 1,
+    archived_at: null,
+    source_language: "en",
+    target_language: "fr",
+    provider_id: "local",
+    quality: "high",
+    context_backend: "internal",
+    instructions: "",
+    status: "completed",
+    stats,
+    updated_at: 1789254000,
+    book_info: { words: 18500, images: 2, size: 240000 },
+    bible: {},
+  };
+  return book;
+}
+
 test("validation errors never echo the typed password", async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem("locale", "en"));
   await page.route("**/api/auth/me", (route) =>
@@ -72,41 +111,7 @@ test("a rejected bulk export names the book and lists EPUBCheck errors", async (
   page,
 }) => {
   await page.addInitScript(() => localStorage.setItem("locale", "en"));
-  const stats = {
-    total: 24,
-    translated: 24,
-    validated: 24,
-    reviewed_segments: 24,
-    review_total: 24,
-    flagged: 0,
-    errors: 0,
-    refused: 0,
-    retained_source: 0,
-    analyzed_segments: 24,
-    synthesized_chapters: 4,
-    chapters: 4,
-    glossary: 8,
-  };
-  const book: Project = {
-    id: "demo",
-    owner_id: "demo-user",
-    title: "Tide Lighthouse",
-    author: "Demo collection",
-    series_name: "Tide Chronicles",
-    volume_number: 1,
-    archived_at: null,
-    source_language: "en",
-    target_language: "fr",
-    provider_id: "local",
-    quality: "high",
-    context_backend: "internal",
-    instructions: "",
-    status: "completed",
-    stats,
-    updated_at: 1789254000,
-    book_info: { words: 18500, images: 2, size: 240000 },
-    bible: {},
-  };
+  const book = demoBook();
   const books = [{ ...book, progress: projectProgress(book) }];
   await page.route("**/api/**", async (route) => {
     const path = new URL(route.request().url()).pathname;
@@ -145,4 +150,53 @@ test("a rejected bulk export names the book and lists EPUBCheck errors", async (
   await expect(status).toContainText("RSC-007 — Referenced resource");
   await expect(status).not.toContainText('"validation"');
   await expect(status).not.toContainText("{");
+});
+
+test("an action error survives the automatic refreshes", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("locale", "en"));
+  await page.clock.install();
+  const book = demoBook();
+  let polls = 0;
+  let failPolls = false;
+  await page.route("**/api/**", async (route) => {
+    const request = route.request();
+    const path = new URL(request.url()).pathname;
+    if (path === "/api/projects/demo/archive")
+      await route.fulfill({
+        status: 409,
+        json: { detail: "Pause or cancel the running job before archiving." },
+      });
+    else if (path === "/api/projects") {
+      polls += 1;
+      if (failPolls)
+        await route.fulfill({
+          status: 500,
+          json: { detail: "Refresh failed." },
+        });
+      else
+        await route.fulfill({
+          json: [{ ...book, progress: projectProgress(book) }],
+        });
+    } else if (path.endsWith("/auth/me"))
+      await route.fulfill({
+        json: { id: "demo-user", username: "Demo", admin: true },
+      });
+    else await route.fulfill({ json: [] });
+  });
+  await page.goto(base);
+  await page.getByRole("button", { name: "Archive", exact: true }).click();
+  const alert = page.getByRole("alert");
+  await expect(alert).toContainText("Pause or cancel the running job");
+  const before = polls;
+  await page.clock.fastForward(11000);
+  await expect.poll(() => polls).toBeGreaterThan(before);
+  await expect(alert).toContainText("Pause or cancel the running job");
+  // A failing refresh does not replace the action error either…
+  failPolls = true;
+  await page.clock.fastForward(6000);
+  await expect(alert).toContainText("Pause or cancel the running job");
+  // …but it is reported once nothing else is displayed.
+  await page.getByRole("button", { name: "Dismiss error" }).click();
+  await page.clock.fastForward(6000);
+  await expect(alert).toContainText("Refresh failed.");
 });

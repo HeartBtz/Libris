@@ -133,7 +133,7 @@ function SearchSettings({ run }: { run: Run }) {
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState("");
   useEffect(() => {
-    void run(async () => {
+    void run.background(async () => {
       setValue(await api("/settings/searxng"));
       setReady(true);
     });
@@ -229,7 +229,7 @@ function ProviderSettings({ run }: { run: Run }) {
   const [models, setModels] = useState<string[]>([]);
   const native = value.kind === "anthropic" || value.kind === "openai_direct";
   useEffect(() => {
-    void run(async () => setProviders(await api("/providers")));
+    void run.background(async () => setProviders(await api("/providers")));
   }, [run]);
   function field<K extends keyof Provider>(name: K, next: Provider[K]) {
     setValue({ ...value, [name]: next });
@@ -577,7 +577,7 @@ function MemorySettings({ run }: { run: Run }) {
   const [key, setKey] = useState("");
   const [result, setResult] = useState<unknown>(null);
   useEffect(() => {
-    void run(async () => setValue(await api("/settings/memory")));
+    void run.background(async () => setValue(await api("/settings/memory")));
   }, [run]);
   if (!value) return <p>{t("Chargement…")}</p>;
   return (
@@ -738,7 +738,7 @@ function Prompts({ run }: { run: Run }) {
   const [selected, setSelected] = useState(0);
   const [saved, setSaved] = useState("");
   useEffect(() => {
-    void run(async () => setValues(await api("/prompts")));
+    void run.background(async () => setValues(await api("/prompts")));
   }, [run]);
   const current = values[selected];
   return (
@@ -808,7 +808,7 @@ function Users({ run }: { run: Run }) {
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
   useEffect(() => {
-    void run(async () => setUsers(await api("/users")));
+    void run.background(async () => setUsers(await api("/users")));
   }, [run]);
   return (
     <section className="narrow">

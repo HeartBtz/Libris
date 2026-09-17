@@ -55,7 +55,7 @@ export function Account({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   useEffect(() => {
-    void run(async () => setSessions(await api("/auth/sessions")));
+    void run.background(async () => setSessions(await api("/auth/sessions")));
   }, [run]);
   return (
     <main className="settings account-page">
@@ -209,7 +209,7 @@ export function RecoverySettings({ run }: { run: Run }) {
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState(false);
   useEffect(() => {
-    void run(async () => {
+    void run.background(async () => {
       const value = await api<{ retry_seconds: number }>("/settings/recovery");
       setDelay(value.retry_seconds);
       setReady(true);

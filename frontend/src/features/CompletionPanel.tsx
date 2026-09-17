@@ -91,7 +91,7 @@ export function CompletionPanel({
   const [message, setMessage] = useState("");
   useEffect(() => {
     let active = true;
-    void run(async () => {
+    void run.background(async () => {
       const [data, list] = await Promise.all([
         api<Report>(`/projects/${project.id}/completion`),
         api<Provider[]>("/providers"),

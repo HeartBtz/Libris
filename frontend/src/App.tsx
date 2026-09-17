@@ -583,7 +583,9 @@ function Library({ run, user }: { run: Run; user: User }) {
               hidden
               disabled={busy}
               onChange={(e) => {
-                if (e.target.files?.[0]) void upload([e.target.files[0]], true);
+                const files = Array.from(e.target.files || []);
+                e.target.value = ""; // Let the same file be chosen again after a failed import.
+                if (files[0]) void upload([files[0]], true);
               }}
             />
           </label>
@@ -607,8 +609,9 @@ function Library({ run, user }: { run: Run; user: User }) {
               hidden
               disabled={busy}
               onChange={(e) => {
-                if (e.target.files?.length)
-                  void upload(Array.from(e.target.files));
+                const files = Array.from(e.target.files || []);
+                e.target.value = ""; // Let the same files be chosen again after a failed import.
+                if (files.length) void upload(files);
               }}
             />
           </label>

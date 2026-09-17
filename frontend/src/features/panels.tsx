@@ -10,8 +10,8 @@ const translations: Record<string, string> = {
   "Stratégie du livre": "Book strategy",
   "Choix terminologiques": "Terminology choices",
   Observabilité: "Observability",
-  "mots · {sections} sections / documents · {images} images · {size} Mo":
-    "words · {sections} sections / documents · {images} images · {size} MB",
+  "{words} mots · {sections} sections / documents · {images} images · {size} Mo":
+    "{words} words · {sections} sections / documents · {images} images · {size} MB",
   "Titre à l’export": "Export title",
   Auteur: "Author",
   Série: "Series",
@@ -136,9 +136,9 @@ export function ProjectSettings({
       <h2>{t("Stratégie du livre")}</h2>
       <p className="muted">
         {t(
-          "mots · {sections} sections / documents · {images} images · {size} Mo",
+          "{words} mots · {sections} sections / documents · {images} images · {size} Mo",
         )
-          .replace("words", number(project.book_info.words))
+          .replace("{words}", number(project.book_info.words))
           .replace("{sections}", String(project.stats.chapters))
           .replace("{images}", String(project.book_info.images))
           .replace("{size}", (project.book_info.size / 1024 ** 2).toFixed(1))}
@@ -338,7 +338,9 @@ export function ProjectSettings({
         onClick={() => {
           if (
             confirm(
-              "Supprimer le projet local, ses traductions et arrêter ses travaux ? La mémoire OpenViking distante reste séparée. Exportez le projet pour conserver une copie.",
+              t(
+                "Supprimer le projet local, ses traductions et arrêter ses travaux ? La mémoire OpenViking distante reste séparée. Exportez le projet pour conserver une copie.",
+              ),
             )
           )
             void run(async () => {
@@ -349,7 +351,7 @@ export function ProjectSettings({
             });
         }}
       >
-        Supprimer ce projet
+        {t("Supprimer ce projet")}
       </button>
     </section>
   );
@@ -438,6 +440,7 @@ export function Glossary({
               accept=".json,.csv"
               onChange={(e) => {
                 const file = e.target.files?.[0];
+                e.target.value = ""; // Let the same file be chosen again after a failed import.
                 if (file)
                   void run(async () => {
                     const data = new FormData();

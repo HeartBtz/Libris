@@ -32,7 +32,7 @@ async def analyze(job: Job, owner: str) -> None:
             if done:
                 continue
             project = db.get(Project, job.project_id)
-        built = await build_context(project.id, sid, "chapter_analysis")
+        built = await build_context(project.id, sid, "chapter_analysis", provider_id=job.provider_id)
         result = await llm.complete(
             project_id=project.id,
             provider_id=job.provider_id,

@@ -123,6 +123,7 @@ async def resolve_validations(job: Job, owner: str) -> None:
                     "TECHNICAL_CHECKS": technical,
                     "WEB_EVIDENCE_UNTRUSTED": evidence,
                 },
+                provider_id=job.provider_id,
             )
 
             def validate(result):

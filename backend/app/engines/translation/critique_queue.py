@@ -83,6 +83,7 @@ async def accept_queued_critiques(job: Job, owner: str) -> None:
                         "REVIEW": [critique],
                         "APPLICATION_SCOPE": "Apply this accepted editorial advice to this one unit. Return its complete corrected text with every immutable marker. Never insert the advice itself as prose.",
                     },
+                    provider_id=job.provider_id or project.provider_id,
                 )
                 def validate(value: TranslationResult) -> None:
                     restore_accepted_revision(target, value)

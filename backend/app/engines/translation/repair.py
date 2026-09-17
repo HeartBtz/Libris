@@ -53,7 +53,9 @@ async def repair_translation(project, segment, operation, job, extra, terms):
             batch_extra["REPAIR_SCOPE"] = (
                 "Return only the TARGET_TEXT units. Keep all IDs and inline markers unchanged."
             )
-            built = await build_context(project.id, segment.id, operation, extra=batch_extra)
+            built = await build_context(
+                project.id, segment.id, operation, extra=batch_extra, provider_id=job.provider_id
+            )
             result = await llm.complete(
                 project_id=project.id,
                 provider_id=job.provider_id,

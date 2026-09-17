@@ -51,6 +51,7 @@ async def translation_call(
         instruction=job.options.get("instruction", ""),
         extra=extra,
         needs=needs,
+        provider_id=job.provider_id,
     )
     with SessionLocal() as db:
         glossary = list(
@@ -171,7 +172,7 @@ async def translate(job: Job, owner: str) -> None:
                 continue
         needs = None
         if job.options.get("deep"):
-            built = await build_context(project.id, sid, "context_planner")
+            built = await build_context(project.id, sid, "context_planner", provider_id=job.provider_id)
             plan = await llm.complete(
                 project_id=project.id,
                 provider_id=job.provider_id,
@@ -203,6 +204,7 @@ async def translate(job: Job, owner: str) -> None:
                         sid,
                         "translation_review",
                         extra={"CURRENT_TRANSLATION": segment.translated_units},
+                        provider_id=job.provider_id,
                     )
                     review = await llm.complete(
                         project_id=project.id,

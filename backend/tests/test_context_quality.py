@@ -243,3 +243,55 @@ async def test_reasoning_outside_json_rejected(seeded, monkeypatch):
             messages=[{"role": "user", "content": "Analyze"}],
             response_model=BookBible,
         )
+
+
+async def test_context_budget_follows_the_job_provider(seeded):
+    from app.engines.context.builder import build_context as build
+    from app.models import Project, Provider
+
+    pid, _, project_provider = seeded
+    with SessionLocal() as db:
+        small = Provider(
+            name="Recovery", base_url="https://small.test/v1", model="small", context_window=16000,
+            max_output_tokens=2048,
+        )
+        db.add(small)
+        db.commit()
+        small_id = small.id
+        sid = db.scalar(select(Segment.id).where(Segment.project_id == pid).order_by(Segment.position))
+    assert (await build(pid, sid)).inspector["context_window"] == 64000
+    assert (await build(pid, sid, provider_id=small_id)).inspector["context_window"] == 16000
+    # A job may bring its own provider even when the project has none configured.
+    with SessionLocal() as db:
+        db.get(Project, pid).provider_id = None
+        db.commit()
+    assert (await build(pid, sid, provider_id=small_id)).inspector["output_reservation"] == 2048
+    assert project_provider != small_id
+
+
+@respx.mock
+async def test_recovery_job_sizes_prompts_for_its_own_provider(seeded):
+    from test_pipeline import mock_completion
+
+    from app.jobs.queue import claim, enqueue
+    from app.jobs.worker import execute
+    from app.models import Job, Project, Provider, RequestLog
+
+    pid = seeded[0]
+    with SessionLocal() as db:
+        small = Provider(
+            name="Recovery", base_url="https://small.test/v1", model="small", context_window=16000,
+            max_output_tokens=2048, capabilities={"supports_json_schema": True},
+        )
+        db.add(small)
+        db.flush()
+        project = db.get(Project, pid)
+        project.bible = {"summary": "Known book context"}
+        jid = enqueue(db, project, "translate", {"provider_id": small.id}).id
+        db.commit()
+    respx.post("https://small.test/v1/chat/completions").mock(side_effect=mock_completion)
+    await execute(*claim())
+    with SessionLocal() as db:
+        assert db.get(Job, jid).status == "completed"
+        windows = {log.context.get("context_window") for log in db.scalars(select(RequestLog)) if log.context}
+    assert windows == {16000}

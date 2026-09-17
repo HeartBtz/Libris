@@ -45,12 +45,15 @@ async def build_context(
     instruction: str = "",
     extra: dict | None = None,
     needs: list[str] | None = None,
+    provider_id: str | None = None,
 ) -> BuiltContext:
     with SessionLocal() as db:
         project = db.get(Project, project_id)
         segment = db.get(Segment, segment_id)
         chapter = db.get(Chapter, segment.chapter_id)
-        provider = db.get(Provider, project.provider_id)
+        # The budget must fit the provider that will receive the prompt: a job may run on a
+        # recovery provider whose window differs from the project's.
+        provider = db.get(Provider, provider_id or project.provider_id)
         if not provider:
             raise LLMError("Choisissez un provider avant de lancer le traitement.")
         count = 4 if deep else 2

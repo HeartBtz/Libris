@@ -9,6 +9,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from app.config import settings
 from app.db import SessionLocal
+from app.diagnostics import safe_trace
 from app.engines.context.config import memory_config
 from app.engines.context.providers import OpenVikingContextProvider
 from app.engines.memory.catalog import schedule_catalogs
@@ -67,10 +68,22 @@ async def heartbeat(job_id: str, owner: str, task: asyncio.Task) -> None:
             return
 
 
+def _suspend_safely(job_id: str, *arguments) -> None:
+    """A recovery transition must never become the failure that takes the worker down."""
+    try:
+        suspend(job_id, *arguments)
+    except SQLAlchemyError:
+        # The lease expires on its own and the job is reclaimed from its checkpoint.
+        logger.error("job=%s status=suspend_deferred reason=database_unavailable", job_id)
+
+
 async def execute(job_id: str, owner: str) -> None:
     try:
         job = checkpoint(job_id, owner)
     except JobStopped:
+        return
+    except SQLAlchemyError:
+        logger.error("job=%s status=database_unavailable step=claim", job_id)
         return
     scope = execution.set((job_id, owner))
     heart = asyncio.create_task(heartbeat(job_id, owner, asyncio.current_task()))
@@ -108,28 +121,34 @@ async def execute(job_id: str, owner: str) -> None:
     except JobStopped:
         pass
     except ProviderUnavailable as exc:
-        suspend(job_id, owner, "waiting", "provider_unavailable", str(exc), exc.retry_after)
+        _suspend_safely(job_id, owner, "waiting", "provider_unavailable", str(exc), exc.retry_after)
     except ProviderAuthenticationRequired as exc:
-        suspend(job_id, owner, "blocked", "authentication_required", str(exc))
+        _suspend_safely(job_id, owner, "blocked", "authentication_required", str(exc))
     except ProviderContentRefused as exc:
-        with SessionLocal() as db:
-            current = fence(db, job_id, owner)
-            sid = current.checkpoint.get("segment_id")
-            if sid:
-                segment = db.get(Segment, sid)
-                if segment and not segment.human:
-                    segment.status, segment.error = "refused", str(exc)
-            db.add(
-                Issue(
-                    project_id=job.project_id,
-                    segment_id=sid,
-                    severity="error",
-                    code="content_refusal",
-                    message=f"{job.operation} : {exc} Source conservée ; intervention humaine nécessaire.",
+        try:
+            with SessionLocal() as db:
+                current = fence(db, job_id, owner)
+                sid = current.checkpoint.get("segment_id")
+                if sid:
+                    segment = db.get(Segment, sid)
+                    if segment and not segment.human:
+                        segment.status, segment.error = "refused", str(exc)
+                db.add(
+                    Issue(
+                        project_id=job.project_id,
+                        segment_id=sid,
+                        severity="error",
+                        code="content_refusal",
+                        message=f"{job.operation} : {exc} Source conservée ; intervention humaine nécessaire.",
+                    )
                 )
-            )
-            db.commit()
-        suspend(job_id, owner, "blocked", "content_refusal", str(exc))
+                db.commit()
+        except JobStopped:
+            pass  # Paused, cancelled or reclaimed while the request was in flight: that decision wins.
+        except SQLAlchemyError:
+            logger.error("job=%s status=database_unavailable step=content_refusal", job_id)
+        else:
+            _suspend_safely(job_id, owner, "blocked", "content_refusal", str(exc))
     except asyncio.CancelledError:
         with contextlib.suppress(SQLAlchemyError):
             suspend(
@@ -152,9 +171,13 @@ async def execute(job_id: str, owner: str) -> None:
             )
     except Exception as exc:
         logger.error(
-            "job=%s project=%s status=failed error_type=%s", job_id, job.project_id, type(exc).__name__
+            "job=%s project=%s status=failed error_type=%s trace=%s",
+            job_id,
+            job.project_id,
+            type(exc).__name__,
+            safe_trace(exc),
         )
-        with SessionLocal() as db:
+        with contextlib.suppress(SQLAlchemyError), SessionLocal() as db:
             current = db.get(Job, job_id)
             if current and current.lease_owner == owner and current.status not in {"paused", "cancelled"}:
                 current.status, current.error = "failed", str(exc)[:1500]
@@ -188,8 +211,12 @@ async def worker_slot(stopped: asyncio.Event, operations: tuple[str, ...] | None
                     with contextlib.suppress(asyncio.CancelledError):
                         await work
                     break
-                with contextlib.suppress(asyncio.CancelledError):
+                try:
                     await work
+                except asyncio.CancelledError:
+                    pass
+                except Exception as exc:
+                    logger.error("operation=worker_slot status=task_failed trace=%s", safe_trace(exc))
             finally:
                 shutdown.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
@@ -238,8 +265,12 @@ async def provider_dispatcher(stopped: asyncio.Event) -> None:
                 if task is shutdown:
                     continue
                 running.discard(task)
-                with contextlib.suppress(asyncio.CancelledError):
-                    await task
+                # One job's unexpected failure must not stop every other book.
+                if not task.cancelled() and task.exception() is not None:
+                    logger.error(
+                        "operation=provider_dispatch status=task_failed trace=%s",
+                        safe_trace(task.exception()),
+                    )
     finally:
         shutdown.cancel()
         for task in running:

@@ -158,3 +158,18 @@ def test_export_reimport_restores_translations(book_bytes):
         assert restored["validated"]
     finally:
         client.__exit__(None, None, None)
+
+
+def test_unexpected_error_is_traceable_without_leaking_its_message(seeded, monkeypatch, caplog):
+    def explode(*_arguments):
+        raise RuntimeError("private sentence from a book")
+
+    monkeypatch.setattr("app.api.projects.project_view", explode)
+    with TestClient(app, raise_server_exceptions=False) as client:
+        client.post("/api/auth/login", json={"username": "tester", "password": "test-password-123456789"})
+        response = client.get(f"/api/projects/{seeded[0]}")
+    assert response.status_code == 500
+    reference = response.json()["detail"].split("diagnostic : ")[1].split(".")[0]
+    assert f"reference={reference}" in caplog.text
+    assert "trace=RuntimeError" in caplog.text and "projects.py" in caplog.text
+    assert "private sentence" not in caplog.text and "private sentence" not in response.text

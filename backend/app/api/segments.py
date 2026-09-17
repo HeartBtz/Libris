@@ -358,5 +358,14 @@ def resolve(issue_id: str, user: CurrentUser, db: DB):
         raise HTTPException(404, "Problème introuvable.")
     access(db, issue.project_id, user, write=True)
     issue.resolved = True
+    segment = db.get(Segment, issue.segment_id) if issue.segment_id else None
+    if segment and segment.status == "check":
+        # Same rule as accepting or rejecting a suggestion: nothing left to review means "ok".
+        db.flush()
+        pending = db.scalar(
+            select(Issue.id).where(Issue.segment_id == segment.id, Issue.resolved.is_(False)).limit(1)
+        )
+        segment.status = "check" if segment.critique or pending else "ok"
+        emit(db, issue.project_id, segment_id=segment.id, status="issue_resolved")
     db.commit()
     return row(issue)

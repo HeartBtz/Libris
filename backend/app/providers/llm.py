@@ -18,6 +18,7 @@ from app.jobs.execution import execution
 from app.models import Job, Prompt, Provider, RequestLog
 from app.providers.codex import bridge_call
 from app.providers.refusals import refusal_http, refusal_reason
+from app.providers.tracing import compact_parameters, compact_trace
 from app.providers.transports import endpoint, generation_parameters, normalize_response, wire_payload
 from app.security import decrypt
 
@@ -199,7 +200,7 @@ class OpenAIProvider:
                         fingerprint=fingerprint,
                         parameters=params,
                         messages=actual_messages,
-                        context=context or {},
+                        context=compact_trace(context or {}),
                         parsed=parsed.model_dump(),
                         status="success",
                         cached=True,
@@ -221,8 +222,8 @@ class OpenAIProvider:
                 operation,
                 fingerprint,
                 actual_messages,
-                payload,
-                context or {},
+                compact_parameters(payload),
+                compact_trace(context or {}),
                 attempt,
             )
             start = time.monotonic()

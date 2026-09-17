@@ -98,5 +98,10 @@ export function number(value: number) {
   return value.toLocaleString(getLocale(), { maximumFractionDigits: 1 });
 }
 export const labels: Record<string, string> = new Proxy({}, {
-  get: (_target, status: string) => message(`status.${status}` as Parameters<typeof message>[0]),
+  get: (_target, status: string) => {
+    const key = `status.${status}`;
+    const text = message(key);
+    // An unknown status shows as itself, never as the raw "status.xxx" lookup key.
+    return text === key ? status : text;
+  },
 });

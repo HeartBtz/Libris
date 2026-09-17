@@ -48,6 +48,8 @@ const french = {
   "status.success": "Réussie",
   "status.running": "En cours",
   "status.syncing": "Synchronisation",
+  "status.none": "Aucun",
+  "status.archived": "Archivé",
 };
 
 type MessageKey = keyof typeof french;
@@ -99,6 +101,8 @@ const english: Catalog = {
   "status.success": "Successful",
   "status.running": "Running",
   "status.syncing": "Synchronizing",
+  "status.none": "None",
+  "status.archived": "Archived",
 };
 
 let activeLocale: Locale = "fr";

@@ -50,7 +50,7 @@ frontend:
   stage: test
   script:
     - docker run --rm --volume "$CI_PROJECT_DIR:/work" --workdir /work/frontend node:22-bookworm sh -lc "npm ci --cache .npm --prefer-offline && npm run build && npm audit --omit=dev --audit-level=high"
-    - docker run --rm --ipc=host --volume "$CI_PROJECT_DIR:/work" --workdir /work/frontend --env CI=true "$PLAYWRIGHT_IMAGE" sh -lc "npm ci --cache .npm --prefer-offline && npx playwright test e2e/accounts.spec.ts e2e/batch-configure.spec.ts e2e/errors.spec.ts e2e/providers.spec.ts e2e/showcase.spec.ts"
+    - docker run --rm --ipc=host --volume "$CI_PROJECT_DIR:/work" --workdir /work/frontend --env CI=true "$PLAYWRIGHT_IMAGE" sh -lc "npm ci --cache .npm --prefer-offline && npx playwright test e2e/accounts.spec.ts e2e/batch-configure.spec.ts e2e/errors.spec.ts e2e/library-import.spec.ts e2e/providers.spec.ts e2e/showcase.spec.ts"
 
 security:
   stage: test

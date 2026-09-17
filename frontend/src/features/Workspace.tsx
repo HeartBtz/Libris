@@ -1,6 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useState } from "react";
 import { api, date, labels, responseError, send } from "../api";
-import { registerTranslations, useI18n } from "../i18n";
+import { getLocale, registerTranslations, useI18n } from "../i18n";
 import type { Chapter, Job, Project, Run, Segment, User } from "../types";
 import { Editor } from "./Editor";
 import { ValidationPanel } from "./ValidationPanel";
@@ -16,6 +16,9 @@ const translations: Record<string, string> = {
   "Cohérence globale": "Global consistency",
   "Résolution finale des validations": "Final validation resolution",
   "Récupération requise": "Recovery required",
+  "Application des critiques acceptées": "Applying accepted critiques",
+  "Analyse déjà terminée": "Analysis already complete",
+  "Lecture de l’EPUB": "Reading the EPUB",
   "Connexion au suivi…": "Connecting to progress tracking…",
   "Suivi connecté": "Progress tracking connected",
   "Reconnexion du suivi…": "Reconnecting progress tracking…",
@@ -40,7 +43,8 @@ const translations: Record<string, string> = {
   "Réanalyse complète": "Full reanalysis",
   Traduire: "Translate",
   Récupérer: "Recover",
-  "passage(s)": "segment(s)",
+  passage: "segment",
+  passages: "segments",
   "Exporter ↓": "Export ↓",
   "EPUB traduit": "Translated EPUB",
   Texte: "Text",
@@ -96,6 +100,9 @@ const stageLabels: Record<string, string> = {
   consistency: "Cohérence globale",
   final_review: "Résolution finale des validations",
   recovery_required: "Récupération requise",
+  critique_acceptance: "Application des critiques acceptées",
+  already_analyzed: "Analyse déjà terminée",
+  parsing: "Lecture de l’EPUB",
 };
 import {
   Bible,
@@ -122,6 +129,15 @@ export function Workspace({
   const [focusRefusal, setFocusRefusal] = useState("");
   const [tab, setTab] = useState("editor");
   const [exportState, setExportState] = useState<ExportState>("idle");
+  useEffect(() => {
+    // The export outcome is a transient notice: hand the indicator back to the live pipeline stage.
+    if (exportState !== "done" && exportState !== "error") return;
+    const timer = setTimeout(
+      () => setExportState("idle"),
+      exportState === "done" ? 4000 : 10000,
+    );
+    return () => clearTimeout(timer);
+  }, [exportState]);
   const [tick, setTick] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
   const [refreshedAt, setRefreshedAt] = useState("");
@@ -138,7 +154,7 @@ export function Workspace({
       setChapters(c);
       setJobs(j);
       setChapter((previous) => previous || c[0]?.id || "");
-      setRefreshedAt(new Date().toLocaleTimeString("fr-FR"));
+      setRefreshedAt(new Date().toLocaleTimeString(getLocale()));
     } finally {
       setRefreshing(false);
     }
@@ -402,12 +418,9 @@ export function Workspace({
                 >
                   {t("Récupérer")}{" "}
                   {project.stats.errors + project.stats.refused}{" "}
-                  {t("passage(s)").replace(
-                    "segment(s)",
-                    project.stats.errors + project.stats.refused === 1
-                      ? "segment"
-                      : "segments",
-                  )}
+                  {project.stats.errors + project.stats.refused === 1
+                    ? t("passage")
+                    : t("passages")}
                 </button>
               )}
             </>

@@ -15,7 +15,7 @@ from sqlalchemy import select
 from starlette.background import BackgroundTask
 
 from app.api.common import row
-from app.api.projects import import_book
+from app.api.projects import discard_book_file, import_book
 from app.config import settings
 from app.engines.epub import inspect_archive, rebuild
 from app.engines.epub.archive import relative_resource, safe_name, xml
@@ -221,6 +221,16 @@ async def restore_project(file: UploadFile, user: CurrentUser, db: DB):
         raise ValueError("Version de projet non prise en charge.")
     # Reparse the original; never trust imported paths, owners, permissions, jobs or DOM anchors.
     project = import_book(db, user.id, original)
+    try:
+        restore_project_payload(db, project, payload, user)
+        db.commit()
+    except BaseException:
+        discard_book_file(project)
+        raise
+    return {"id": project.id, "title": project.title}
+
+
+def restore_project_payload(db, project, payload: dict, user) -> None:
     info = payload["project"]
     project.target_language = str(info.get("target_language", "fr"))[:80]
     project.series_name = str(info.get("series_name", ""))[:500]
@@ -303,8 +313,6 @@ async def restore_project(file: UploadFile, user: CurrentUser, db: DB):
                     validated=bool(memory.get("validated")),
                 )
             )
-    db.commit()
-    return {"id": project.id, "title": project.title}
 
 
 @router.get("/projects/{pid}/preview/{chapter_id}")

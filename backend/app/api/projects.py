@@ -112,6 +112,11 @@ def project_view(db, project: Project) -> dict:
     )
 
 
+def discard_book_file(project: Project) -> None:
+    """The import is rolled back: its stored EPUB must not stay behind as an orphan."""
+    Path(project.original_path).unlink(missing_ok=True)
+
+
 def import_book(db, owner_id: str, data: bytes) -> Project:
     original_hash = hashlib.sha256(data).hexdigest()
     if db.get_bind().dialect.name == "postgresql":
@@ -134,9 +139,9 @@ def import_book(db, owner_id: str, data: bytes) -> Project:
     project = Project(
         id=project_id,
         owner_id=owner_id,
-        title=parsed["title"],
-        author=parsed["author"],
-        source_language=parsed["language"],
+        title=parsed["title"][:500] or "Sans titre",
+        author=parsed["author"][:500],
+        source_language=parsed["language"][:80] or "en",
         original_hash=original_hash,
         original_path=str(book_path),
         book_info=parsed["info"],
@@ -182,9 +187,18 @@ def projects(user: CurrentUser, db: DB, include_archived: bool = False):
 async def upload(file: UploadFile, user: CurrentUser, db: DB):
     data = await file.read(settings().max_upload_mb * 1024**2 + 1)
     project = await run_in_threadpool(import_book, db, user.id, data)
-    project.book_info = dict(project.book_info, validation=await run_in_threadpool(epubcheck, data))
-    emit(db, project.id, status="imported", step="parsing")
-    db.commit()
+    try:
+        try:
+            validation = await run_in_threadpool(epubcheck, data)
+        except ValueError as exc:
+            # The source report is informative: a validator hiccup must not refuse the book.
+            validation = {"available": True, "valid": None, "message": str(exc)}
+        project.book_info = dict(project.book_info, validation=validation)
+        emit(db, project.id, status="imported", step="parsing")
+        db.commit()
+    except BaseException:
+        discard_book_file(project)
+        raise
     return project_view(db, project)
 
 

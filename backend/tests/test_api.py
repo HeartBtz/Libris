@@ -219,3 +219,68 @@ def test_unreachable_external_service_is_a_502_not_a_generic_500(seeded):
             response = getattr(client, method)(f"/api/projects/{pid}/{path}")
             assert response.status_code == 502, response.text
             assert "injoignable (ConnectError)" in response.json()["detail"]
+
+
+def stored_books():
+    from app.config import settings
+
+    return sorted(path.name for path in (settings().data_dir / "books").glob("*.epub"))
+
+
+def test_failed_imports_leave_no_orphan_file(seeded, book_bytes, monkeypatch):
+    import json as jsonlib
+
+    variant = io.BytesIO(book_bytes)
+    with zipfile.ZipFile(variant, "a") as archive:
+        archive.comment = b"another copy"
+    before = stored_books()
+    with TestClient(app, raise_server_exceptions=False) as client:
+        client.post("/api/auth/login", json={"username": "tester", "password": "test-password-123456789"})
+
+        def explode(*_arguments, **_options):
+            raise RuntimeError("commit path failure")
+
+        monkeypatch.setattr("app.api.projects.emit", explode)
+        failed = client.post("/api/projects", files={"file": ("b.epub", variant.getvalue(), "application/epub+zip")})
+        assert failed.status_code == 500 and stored_books() == before
+        monkeypatch.undo()
+
+        # A project archive whose saved structure does not match its EPUB is refused after the import step.
+        bundle = io.BytesIO()
+        with zipfile.ZipFile(bundle, "w") as archive:
+            archive.writestr("original.epub", variant.getvalue())
+            archive.writestr("project.json", jsonlib.dumps({"schema_version": 1, "project": {}, "segments": []}))
+        refused = client.post("/api/projects/import", files={"file": ("p.zip", bundle.getvalue(), "application/zip")})
+        assert refused.status_code == 422 and stored_books() == before
+
+
+def test_import_survives_a_validator_timeout_and_bounds_metadata(seeded, monkeypatch):
+    from ebooklib import epub
+
+    book = epub.EpubBook()
+    book.set_identifier("long-metadata")
+    book.set_title("T" * 700)
+    book.set_language("en")
+    book.add_author("A" * 700)
+    chapter = epub.EpubHtml(title="One", file_name="one.xhtml", lang="en")
+    chapter.content = "<html><body><h1>One</h1><p>Hello there.</p></body></html>"
+    book.add_item(chapter)
+    book.toc = (chapter,)
+    book.add_item(epub.EpubNcx())
+    book.add_item(epub.EpubNav())
+    book.spine = ["nav", chapter]
+    data = io.BytesIO()
+    epub.write_epub(data, book)
+
+    def timeout(_data):
+        raise ValueError("EPUBCheck n’a pas terminé en 90 secondes ; réessayez plus tard.")
+
+    monkeypatch.setattr("app.api.projects.epubcheck", timeout)
+    with TestClient(app) as client:
+        client.post("/api/auth/login", json={"username": "tester", "password": "test-password-123456789"})
+        created = client.post("/api/projects", files={"file": ("l.epub", data.getvalue(), "application/epub+zip")})
+    assert created.status_code == 201, created.text
+    body = created.json()
+    assert len(body["title"]) == 500 and len(body["author"]) == 500
+    assert body["book_info"]["validation"]["valid"] is None
+    assert "90 secondes" in body["book_info"]["validation"]["message"]

@@ -156,3 +156,28 @@ def test_progress_exposes_the_active_job_model(seeded):
         db.flush()
 
         assert project_view(db, project)["progress"]["model"] == "recovery-model"
+
+
+def test_event_stream_starts_at_the_present_for_a_fresh_client(seeded):
+    import pytest
+    from fastapi import HTTPException
+
+    from app.api.observability import stream_cursor
+    from app.jobs.queue import emit
+    from app.models import Event
+
+    pid = seeded[0]
+    with SessionLocal() as db:
+        for number in range(250):
+            emit(db, pid, status="translating", current=number)
+        db.commit()
+        latest = db.scalar(select(Event.id).where(Event.project_id == pid).order_by(Event.id.desc()))
+        # A book opened after the fact must not replay its whole history.
+        assert stream_cursor(db, pid, None, None) == latest
+        # Reconnection and explicit replay keep their cursor.
+        assert stream_cursor(db, pid, None, str(latest - 10)) == latest - 10
+        assert stream_cursor(db, pid, 0, None) == 0
+        assert stream_cursor(db, pid, 5, "40") == 40
+        assert stream_cursor(db, "unknown-project", None, None) == 0
+        with pytest.raises(HTTPException):
+            stream_cursor(db, pid, None, "not-a-number")

@@ -2,6 +2,25 @@
 
 All notable changes are documented here. Libris follows [Semantic Versioning](https://semver.org/); while the project is below 1.0, minor versions may include breaking operational changes that are called out explicitly.
 
+## [0.3.4] - 2026-09-17
+
+### Added
+
+- Native Anthropic Claude API provider (`kind: anthropic`) supporting Claude 3.5 Sonnet, Haiku, Opus and earlier models with direct Messages API integration.
+- Native OpenAI ChatGPT API provider (`kind: openai_direct`) supporting GPT-4 and GPT-3.5 models with direct Chat Completions API integration.
+
+### Changed
+
+- Exponential backoff with jitter for provider retries (60s → 120s → 240s → 480s → 960s → 1920s → 3600s cap) to prevent rapid retry loops on persistent failures.
+- Provider `Retry-After` headers now take priority over configured delays.
+- Added configurable retry parameters: `PROVIDER_RECOVERY_BASE_SECONDS` (default 60), `PROVIDER_RECOVERY_MAX_SECONDS` (default 3600).
+- Added `SESSION_DURATION_HOURS` configuration (default 24).
+- Structured error codes with retry eligibility and severity metadata.
+
+### Fixed
+
+- Persistent timeout loops when Luna provider returns HTTP 504 at 600s limit (observed 254 retry attempts on Vol. 18).
+
 ## [0.3.3] - 2026-09-16
 
 ### Fixed

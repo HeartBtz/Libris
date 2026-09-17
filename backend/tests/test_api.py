@@ -1,6 +1,8 @@
 import io
 import zipfile
 
+import httpx
+import respx
 from fastapi.testclient import TestClient
 
 from app.db import SessionLocal
@@ -173,3 +175,47 @@ def test_unexpected_error_is_traceable_without_leaking_its_message(seeded, monke
     assert f"reference={reference}" in caplog.text
     assert "trace=RuntimeError" in caplog.text and "projects.py" in caplog.text
     assert "private sentence" not in caplog.text and "private sentence" not in response.text
+
+
+def test_provider_deletion_explains_what_still_references_it(seeded):
+    pid, _, provider_id = seeded
+    with TestClient(app) as client:
+        client.post("/api/auth/login", json={"username": "tester", "password": "test-password-123456789"})
+        used = client.delete(f"/api/providers/{provider_id}")
+        assert used.status_code == 409 and "1 livre(s)" in used.json()["detail"]
+        with SessionLocal() as db:
+            from app.models import Project
+
+            db.get(Project, pid).provider_id = None
+            db.add(
+                RequestLog(
+                    project_id=pid, provider_id=provider_id, operation="translation", model="m",
+                    fingerprint="f", status="success", messages=[], parameters={},
+                )
+            )
+            db.commit()
+        history = client.delete(f"/api/providers/{provider_id}")
+        assert history.status_code == 409 and "1 requête(s)" in history.json()["detail"]
+        assert "existe déjà" not in history.json()["detail"]
+        unused = client.post(
+            "/api/providers",
+            json={"name": "Unused", "base_url": "https://unused.test/v1", "model": "m", "context_window": 32768},
+        ).json()
+        assert client.delete(f"/api/providers/{unused['id']}").json() == {"ok": True}
+
+
+@respx.mock
+def test_unreachable_external_service_is_a_502_not_a_generic_500(seeded):
+    from app.models import AppSetting
+
+    pid = seeded[0]
+    with SessionLocal() as db:
+        db.add(AppSetting(key="openviking", value={"base_url": "https://memory.test", "root_uri": "viking://resources/t"}))
+        db.commit()
+    respx.route(host="memory.test").mock(side_effect=httpx.ConnectError("refused"))
+    with TestClient(app, raise_server_exceptions=False) as client:
+        client.post("/api/auth/login", json={"username": "tester", "password": "test-password-123456789"})
+        for method, path in (("get", "memory/documents/book.md"), ("post", "memory/reindex")):
+            response = getattr(client, method)(f"/api/projects/{pid}/{path}")
+            assert response.status_code == 502, response.text
+            assert "injoignable (ConnectError)" in response.json()["detail"]

@@ -121,6 +121,108 @@ def test_epub2_export_normalizes_epub3_markup_and_xml_ids(book_bytes):
     ]
 
 
+def defective_epub3(book_bytes, declare_scripted=False):
+    """EPUB 3 carrying the conversion artefacts found in Kobo/Calibre sources."""
+    entries = inspect_archive(book_bytes)
+    opf_path, package, _ = structure(entries)
+    assert package.get("version", "").startswith("3.")
+    items = {
+        item.get("href").rsplit("/", 1)[-1]: item
+        for item in package.xpath("//*[local-name()='manifest']/*[local-name()='item']")
+    }
+    paths = {name: relative_resource(opf_path, item.get("href")) for name, item in items.items()}
+    xhtml = "{http://www.w3.org/1999/xhtml}"
+
+    one = xml(entries[paths["chapter1.xhtml"]])
+    head = one.xpath("//*[local-name()='head']")[0]
+    dangling = etree.SubElement(head, f"{xhtml}script")
+    dangling.set("src", "../js/kobo.js")
+    dangling.set("type", "text/javascript")
+    for node in head.xpath("*[local-name()='title']"):
+        node.text = ""
+    if declare_scripted:
+        items["chapter1.xhtml"].set("properties", "scripted")
+
+    two = xml(entries[paths["chapter2.xhtml"]])
+    head = two.xpath("//*[local-name()='head']")[0]
+    present = etree.SubElement(head, f"{xhtml}script")
+    present.set("src", "js/reader.js")
+    data_block = etree.SubElement(head, f"{xhtml}script")
+    data_block.set("type", "application/ld+json")
+    data_block.text = "{}"
+    script_item = etree.SubElement(items["chapter2.xhtml"].getparent(), items["chapter2.xhtml"].tag)
+    script_item.set("id", "reader-js")
+    script_item.set("href", "js/reader.js")
+    script_item.set("media-type", "application/javascript")
+
+    ncx = xml(entries[paths["toc.ncx"]])
+    ncx.xpath("//*[local-name()='meta'][@name='dtb:uid']")[0].set("content", "9780316340137")
+
+    def dump(root):
+        return etree.tostring(root.getroottree(), encoding="utf-8", xml_declaration=True)
+
+    data = replace_epub_entries(
+        book_bytes,
+        {
+            opf_path: dump(package),
+            paths["chapter1.xhtml"]: dump(one),
+            paths["chapter2.xhtml"]: dump(two),
+            paths["toc.ncx"]: dump(ncx),
+            relative_resource(opf_path, "js/reader.js"): b"window.reader = true;",
+        },
+    )
+    return data, opf_path, paths
+
+
+def manifest_properties(package, name):
+    item = package.xpath(
+        "//*[local-name()='manifest']/*[local-name()='item'][substring(@href, string-length(@href) - "
+        f"{len(name) - 1}) = '{name}']"
+    )[0]
+    return item.get("properties", "").split()
+
+
+def test_epub3_export_repairs_inherited_source_defects(book_bytes):
+    data, opf_path, paths = defective_epub3(book_bytes)
+    parsed = parse_book(data)
+    output = inspect_archive(rebuild(data, identity_segments(parsed), "fr", "La Tour d’argent"))
+    package = xml(output[opf_path])
+    one, two = xml(output[paths["chapter1.xhtml"]]), xml(output[paths["chapter2.xhtml"]])
+
+    # Dangling script removed, nothing scripted left: the property must not be declared.
+    assert one.xpath("//*[local-name()='script']") == []
+    assert "scripted" not in manifest_properties(package, "chapter1.xhtml")
+    assert one.xpath("string(//*[local-name()='head']/*[local-name()='title'])") == "La Tour d’argent"
+    assert len(one.xpath("//*[local-name()='p']")) == len(
+        xml(inspect_archive(data)[paths["chapter1.xhtml"]]).xpath("//*[local-name()='p']")
+    )
+    # Resolvable script kept and declared; the JSON data block alone would not require it.
+    assert two.xpath("//*[local-name()='script']/@src") == ["js/reader.js"]
+    assert "scripted" in manifest_properties(package, "chapter2.xhtml")
+    assert "nav" in manifest_properties(package, "nav.xhtml")
+    # NCX identifier realigned with the package unique identifier.
+    identifier = package.xpath("string(//*[local-name()='identifier'][@id=/*/@unique-identifier])")
+    ncx = xml(output[paths["toc.ncx"]])
+    assert identifier == "test-book"
+    assert ncx.xpath("//*[local-name()='meta'][@name='dtb:uid']/@content") == [identifier]
+
+
+def test_epub3_export_drops_scripted_property_left_without_script(book_bytes):
+    data, opf_path, _ = defective_epub3(book_bytes, declare_scripted=True)
+    output = inspect_archive(rebuild(data, identity_segments(parse_book(data)), "fr"))
+    item = xml(output[opf_path]).xpath("//*[local-name()='item'][contains(@href, 'chapter1.xhtml')]")[0]
+    assert item.get("properties") is None
+
+
+def test_export_keeps_clean_documents_byte_identical(book_bytes):
+    _, _, paths = defective_epub3(book_bytes)
+    before = inspect_archive(book_bytes)
+    after = inspect_archive(rebuild(book_bytes, [], "fr"))
+    assert before.keys() == after.keys()
+    for name in ("nav.xhtml", "toc.ncx"):
+        assert before[paths[name]] == after[paths[name]]
+
+
 def test_inline_phrase_translated_as_whole():
     root = xml(b'<p>Hello <em>beautiful</em> world <a href="#a"><strong>again</strong></a>.</p>')
     value, _ = linearize(root)

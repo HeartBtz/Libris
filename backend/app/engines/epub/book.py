@@ -115,6 +115,96 @@ def _normalize_epub2(entries: dict[str, bytes], opf_path: str, package: etree._E
     _rewrite_fragments(package, opf_path, identifiers)
 
 
+def _remove_preserving_tail(node: etree._Element) -> None:
+    parent = node.getparent()
+    previous = node.getprevious()
+    if node.tail:
+        if previous is not None:
+            previous.tail = (previous.tail or "") + node.tail
+        else:
+            parent.text = (parent.text or "") + node.tail
+    parent.remove(node)
+
+
+def _is_scripted(root: etree._Element) -> bool:
+    """EPUB 3 `scripted` property: executable scripts, event handlers or HTML forms."""
+    for node in root.iter():
+        if not isinstance(node.tag, str):
+            continue
+        name = etree.QName(node).localname
+        if name == "form":
+            return True
+        if name == "script":
+            kind = node.get("type", "").split(";")[0].strip().lower()
+            if not kind or kind == "module" or kind.endswith(("javascript", "ecmascript")):
+                return True
+        if any(attribute.lower().startswith("on") for attribute in node.attrib if "}" not in attribute):
+            return True
+    return False
+
+
+def _normalize_inherited_defects(
+    entries: dict[str, bytes], opf_path: str, package: etree._Element, title: str
+) -> None:
+    """Repair unambiguous source defects that EPUBCheck rejects, whatever the translation."""
+    epub3 = package.get("version", "").startswith("3.")
+    for item in package.xpath("//o:manifest/o:item", namespaces=NS):
+        if item.get("media-type") != "application/xhtml+xml":
+            continue
+        path = relative_resource(opf_path, item.get("href", ""))
+        if path not in entries:
+            continue
+        root = xml(entries[path])
+        changed = False
+        # A script whose local target is absent can never run; conversion tools leave such stubs.
+        for script in root.xpath("//*[local-name()='script'][@src]"):
+            parsed = urlsplit(script.get("src", ""))
+            if parsed.scheme or parsed.netloc:
+                continue
+            try:
+                missing = relative_resource(path, parsed.path) not in entries
+            except ValueError:
+                missing = True
+            if missing:
+                _remove_preserving_tail(script)
+                changed = True
+        if epub3:
+            for node in root.xpath("//*[local-name()='head']/*[local-name()='title']"):
+                if not "".join(node.itertext()).strip() and title:
+                    node.text = title
+                    changed = True
+            properties = item.get("properties", "").split()
+            scripted = _is_scripted(root)
+            if scripted != ("scripted" in properties):
+                properties = [*properties, "scripted"] if scripted else [p for p in properties if p != "scripted"]
+                if properties:
+                    item.set("properties", " ".join(properties))
+                else:
+                    item.attrib.pop("properties", None)
+        if changed:
+            entries[path] = etree.tostring(root.getroottree(), encoding="utf-8", xml_declaration=True)
+
+    name = package.get("unique-identifier")
+    identifiers = package.xpath("//dc:identifier[@id=$name]", namespaces=NS, name=name) if name else []
+    identifier = (identifiers[0].text or "").strip() if identifiers else ""
+    if not identifier:
+        return
+    for item in package.xpath("//o:manifest/o:item[@media-type='application/x-dtbncx+xml']", namespaces=NS):
+        path = relative_resource(opf_path, item.get("href", ""))
+        if path not in entries:
+            continue
+        root = xml(entries[path])
+        stale = [
+            meta
+            for meta in root.xpath("//*[local-name()='head']/*[local-name()='meta'][@name='dtb:uid']")
+            if meta.get("content", "").strip() != identifier
+        ]
+        for meta in stale:
+            meta.set("content", identifier)
+        if stale:
+            entries[path] = etree.tostring(root.getroottree(), encoding="utf-8", xml_declaration=True)
+
+
 def structure(entries: dict[str, bytes]) -> tuple[str, etree._Element, list[str]]:
     container = xml(entries["META-INF/container.xml"])
     roots = container.xpath("//c:rootfile/@full-path", namespaces=NS)
@@ -231,6 +321,8 @@ def rebuild(
             root.set("{http://www.w3.org/XML/1998/namespace}lang", language)
         entries[path] = etree.tostring(root.getroottree(), encoding="utf-8", xml_declaration=True)
     _normalize_epub2(entries, opf_path, package)
+    declared_title = package.xpath("string(//dc:title[1])", namespaces=NS).strip()
+    _normalize_inherited_defects(entries, opf_path, package, title or declared_title)
     for key, value in (("language", language), ("title", title), ("creator", author)):
         if value is not None:
             nodes = package.xpath(f"//dc:{key}", namespaces=NS)

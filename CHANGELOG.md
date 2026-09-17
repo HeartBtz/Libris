@@ -2,6 +2,16 @@
 
 All notable changes are documented here. Libris follows [Semantic Versioning](https://semver.org/); while the project is below 1.0, minor versions may include breaking operational changes that are called out explicitly.
 
+## [Unreleased]
+
+### Fixed
+
+- **EPUB 3 export compatibility.** Fully translated EPUB 3 books could not be exported (`HTTP 422`, "EPUBCheck signale un EPUB invalide") when the *source* file carried conversion artefacts from Kobo, Calibre or Sigil. Nine volumes of one series were affected in production while their EPUB 2 siblings exported fine, because only EPUB 2 packages were normalized before validation. Export now repairs these inherited defects deterministically, without touching the translated text, and EPUBCheck remains a blocking gate (#4):
+  - `<script src>` stubs whose local target is missing from the archive (typically `js/kobo.js`) are removed (`RSC-007`);
+  - the manifest `scripted` property is reconciled with what each content document really contains (`OPF-014`/`OPF-015`);
+  - the NCX `dtb:uid` is realigned with the package unique identifier (`NCX-001`), for EPUB 2 and EPUB 3;
+  - empty XHTML `<title>` elements receive the book title (`RSC-005`).
+
 ## [0.3.4] - 2026-09-17
 
 ### Added

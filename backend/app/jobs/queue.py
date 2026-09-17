@@ -171,7 +171,12 @@ def suspend(
             from app.config import settings
             from app.providers.reliability import calculate_retry_delay
 
-            base_delay = settings().provider_recovery_base_seconds
+            # Try user-configured recovery settings first, fall back to environment defaults
+            saved = db.get(AppSetting, "provider_recovery")
+            if saved and "retry_seconds" in saved.value:
+                base_delay = saved.value["retry_seconds"]
+            else:
+                base_delay = settings().provider_recovery_base_seconds
             max_delay = settings().provider_recovery_max_seconds
             delay = calculate_retry_delay(job.outage_count, base_delay, max_delay, retry_after)
             job.next_attempt = time.time() + delay

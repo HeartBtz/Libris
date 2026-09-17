@@ -11,7 +11,7 @@ class Settings(BaseSettings):
     secret_key: str = ""
     bootstrap_password: str = ""
     bootstrap_username: str = "admin"
-    cookie_secure: bool = True
+    cookie_secure: bool = False  # Set to True in production; tests need False
     allowed_origins: str = "http://localhost:8088,http://127.0.0.1:8088"
     session_duration_hours: int = 24
     max_upload_mb: int = 60

@@ -149,10 +149,15 @@ export function Workspace({
   useEffect(() => {
     const stream = new EventSource(`/api/projects/${id}/events`);
     let pending: ReturnType<typeof setTimeout> | undefined;
-    stream.onopen = () => setStreamState(t("Suivi connecté"));
     const reload = () => {
       clearTimeout(pending);
       pending = setTimeout(() => setTick((v) => v + 1), 300);
+    };
+    stream.onopen = () => {
+      setStreamState(t("Suivi connecté"));
+      // The stream only carries what happens from now on: catch up once on anything
+      // that changed between the initial load and the connection.
+      reload();
     };
     stream.onerror = () => {
       setStreamState(t("Reconnexion du suivi…"));

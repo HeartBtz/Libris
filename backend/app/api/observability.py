@@ -105,13 +105,25 @@ def request(rid: str, user: CurrentUser, db: DB):
     return row(log)
 
 
-@router.get("/projects/{pid}/events")
-def events(pid: str, request: Request, user: CurrentUser, db: DB, after: int = Query(0, ge=0)):
-    access(db, pid, user)
+def stream_cursor(db, pid: str, after: int | None, resumed: str | None) -> int:
+    """Where a project event stream starts.
+
+    A reconnecting client resumes after the last event it saw; `after` asks for an explicit replay.
+    A fresh client has just loaded the current state over REST: it only needs what happens next,
+    not the thousands of past events of a finished book.
+    """
+    if after is None and resumed is None:
+        return db.scalar(select(func.max(Event.id)).where(Event.project_id == pid)) or 0
     try:
-        last_id = max(after, int(request.headers.get("Last-Event-ID", "0")))
+        return max(after or 0, int(resumed or 0))
     except ValueError:
         raise HTTPException(422, "Identifiant d’événement invalide.") from None
+
+
+@router.get("/projects/{pid}/events")
+def events(pid: str, request: Request, user: CurrentUser, db: DB, after: int | None = Query(None, ge=0)):
+    access(db, pid, user)
+    last_id = stream_cursor(db, pid, after, request.headers.get("Last-Event-ID"))
     db.close()
 
     async def stream():

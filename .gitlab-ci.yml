@@ -231,28 +231,38 @@ release-gitlab:
 
 deploy-production:
   stage: deploy
-  tags: [libris-production-ct116]
   interruptible: false
   timeout: 25 minutes
   resource_group: libris-production-ct116
-  before_script:
-    - export DOCKER_CONFIG="$CI_PROJECT_DIR/.docker-$CI_JOB_ID"
-    - mkdir -p "$DOCKER_CONFIG"
-    - echo "$CI_REGISTRY_PASSWORD" | docker login "$CI_REGISTRY" --username "$CI_REGISTRY_USER" --password-stdin
-    - docker pull "$APP_IMAGE_REFERENCE"
-    - docker pull "$CODEX_IMAGE_REFERENCE"
+  needs:
+    - job: release-images
   script:
-    - docker tag "$APP_IMAGE_REFERENCE" "libris-production:$CI_COMMIT_SHA"
-    - docker tag "$CODEX_IMAGE_REFERENCE" "libris-codex-production:$CI_COMMIT_SHA"
-    - APP_IMAGE_ID="$(docker image inspect --format '{{.Id}}' "libris-production:$CI_COMMIT_SHA")"
-    - CODEX_IMAGE_ID="$(docker image inspect --format '{{.Id}}' "libris-codex-production:$CI_COMMIT_SHA")"
-    - timeout --signal=TERM --kill-after=5m 15m sudo /usr/local/sbin/libris-production-deploy "$CI_COMMIT_SHA" "${CI_COMMIT_TAG#v}" "$APP_IMAGE_ID" "$CODEX_IMAGE_ID"
-  after_script:
-    - rm -rf "$CI_PROJECT_DIR/.docker-$CI_JOB_ID"
+    - |
+      timeout --signal=TERM --kill-after=5m 20m \
+        ssh -o BatchMode=yes root@ct116-opencode.homelab.hbtz.lan \
+        bash -s -- "$CI_COMMIT_SHA" "${CI_COMMIT_TAG#v}" \
+        "$APP_IMAGE_REFERENCE" "$CODEX_IMAGE_REFERENCE" <<'REMOTE'
+      set -euo pipefail
+      commit="$1"
+      version="$2"
+      app_reference="$3"
+      codex_reference="$4"
+      [[ "$commit" =~ ^[0-9a-f]{40}$ ]]
+      [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+      [[ "$app_reference" == 192.168.1.126:5050/dev/libris@sha256:* ]]
+      [[ "$codex_reference" == 192.168.1.126:5050/dev/libris@sha256:* ]]
+      export DOCKER_CONFIG=/etc/libris-registry
+      docker pull "$app_reference"
+      docker pull "$codex_reference"
+      docker tag "$app_reference" "libris-production:$commit"
+      docker tag "$codex_reference" "libris-codex-production:$commit"
+      app_image_id="$(docker image inspect --format '{{.Id}}' "libris-production:$commit")"
+      codex_image_id="$(docker image inspect --format '{{.Id}}' "libris-codex-production:$commit")"
+      timeout --signal=TERM --kill-after=5m 15m /usr/local/sbin/libris-production-deploy \
+        "$commit" "$version" "$app_image_id" "$codex_image_id"
+      REMOTE
   environment:
     name: production
     url: http://192.168.1.116:8088
   rules:
     - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/ && $CI_COMMIT_REF_PROTECTED == "true"
-      when: manual
-      allow_failure: false

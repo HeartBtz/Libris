@@ -1052,6 +1052,10 @@ label:has(> input[type="checkbox"]) {
   margin-left: auto;
 }
 
+.error-text {
+  white-space: pre-line;
+}
+
 .notice {
   padding: var(--space-s);
   margin: var(--space-s) 0;

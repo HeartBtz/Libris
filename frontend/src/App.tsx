@@ -245,7 +245,8 @@ export function App() {
       </header>
       {error && (
         <div className="error-banner" role="alert">
-          <strong>{t("app.error")}</strong> {error}
+          <strong>{t("app.error")}</strong>{" "}
+          <span className="error-text">{error}</span>
           <button onClick={() => setError("")} aria-label={t("app.closeError")}>
             ×
           </button>
@@ -356,6 +357,7 @@ function Login({ run, onLogin }: { run: Run; onLogin: (user: User) => void }) {
               autoComplete="current-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
+              minLength={12}
               required
             />
           </label>

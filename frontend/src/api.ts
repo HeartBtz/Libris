@@ -22,15 +22,42 @@ export async function api<T>(
       ...options.headers,
     },
   });
-  const data: unknown = await response.json();
-  if (!response.ok) {
-    const detail = (data as { detail?: unknown }).detail;
-    throw new ApiError(
-      response.status,
-      typeof detail === "string" ? detail : JSON.stringify(detail ?? data),
-    );
+  if (!response.ok) throw await responseError(response);
+  return (await response.json()) as T;
+}
+/** One readable line per failure; never echoes submitted values back to the screen. */
+export function errorMessage(status: number, body: unknown): string {
+  const detail =
+    body && typeof body === "object" && "detail" in body
+      ? (body as { detail: unknown }).detail
+      : body;
+  if (typeof detail === "string" && detail.trim()) return detail;
+  if (Array.isArray(detail)) {
+    const lines = detail.map((item: { loc?: unknown[]; msg?: unknown }) => {
+      const field = Array.isArray(item?.loc) ? item.loc.at(-1) : undefined;
+      const text = typeof item?.msg === "string" ? item.msg : "";
+      return typeof field === "string" && text ? `${field} : ${text}` : text;
+    });
+    if (lines.some(Boolean)) return lines.filter(Boolean).join(" · ");
   }
-  return data as T;
+  if (detail && typeof detail === "object") {
+    const { message: text, errors } = detail as {
+      message?: unknown;
+      errors?: unknown;
+    };
+    if (typeof text === "string" && text) {
+      const list = Array.isArray(errors)
+        ? errors.filter((item): item is string => typeof item === "string")
+        : [];
+      return [text, ...list].join("\n");
+    }
+  }
+  return `${message("app.error")} (HTTP ${status})`;
+}
+export async function responseError(response: Response): Promise<ApiError> {
+  // A reverse proxy answers HTML on 502/504/413: the body is not always JSON.
+  const body: unknown = await response.json().catch(() => null);
+  return new ApiError(response.status, errorMessage(response.status, body));
 }
 export function send<T>(
   path: string,
@@ -56,15 +83,7 @@ export async function downloadApi(path: string, name: string, body: unknown) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
-  if (!response.ok) {
-    const data = (await response.json()) as { detail?: unknown };
-    throw new ApiError(
-      response.status,
-      typeof data.detail === "string"
-        ? data.detail
-        : JSON.stringify(data.detail ?? data),
-    );
-  }
+  if (!response.ok) throw await responseError(response);
   const url = URL.createObjectURL(await response.blob());
   const anchor = document.createElement("a");
   anchor.href = url;

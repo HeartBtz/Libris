@@ -8,6 +8,7 @@ from app.api.common import row
 from app.models import Provider
 from app.providers.codex import bridge_call
 from app.providers.llm import llm
+from app.providers.transports import NATIVE
 from app.schemas import ProviderInput
 from app.security import DB, Admin, CurrentUser, encrypt
 
@@ -23,8 +24,14 @@ def providers(_user: CurrentUser, db: DB):
     return [public(p) for p in db.scalars(select(Provider).order_by(Provider.name))]
 
 
+def require_key(kind: str, key: str) -> None:
+    if kind in NATIVE and not key:
+        raise HTTPException(422, "Une clé API est requise pour ce type de provider.")
+
+
 @router.post("", status_code=201)
 def create(body: ProviderInput, _admin: Admin, db: DB):
+    require_key(body.kind, body.api_key or "")
     provider = Provider(**body.model_dump(exclude={"api_key"}), encrypted_key=encrypt(body.api_key or ""))
     db.add(provider)
     db.commit()
@@ -42,6 +49,7 @@ def update(provider_id: str, body: ProviderInput, _admin: Admin, db: DB):
         provider.encrypted_key = encrypt(body.api_key)
     if body.kind == "codex_chatgpt":
         provider.encrypted_key = ""
+    require_key(body.kind, provider.encrypted_key)
     db.commit()
     return public(provider)
 

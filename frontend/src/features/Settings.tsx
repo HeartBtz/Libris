@@ -8,7 +8,7 @@ import { RecoverySettings } from "./Account";
 const translations: Record<string, string> = {
   "Modèle local": "Local model", "Administration": "Administration", "Paramètres": "Settings", "← Bibliothèque": "← Library", "Mémoire · OpenViking": "Memory · OpenViking", "Utilisateurs": "Users",
   "{message} {count} résultat(s). Le test ne modifie pas la configuration.": "{message} {count} result(s). The test does not change the configuration.", "Configuration enregistrée. Prise en compte par le worker aux prochaines recherches.": "Configuration saved. It will be used by the worker for subsequent searches.", "Recherche web · SearXNG": "Web search · SearXNG", "Recherche terminologique facultative pendant la revue finale. Les termes recherchés sont transmis à votre instance et à ses moteurs amont.": "Optional terminology search during final review. Search terms are sent to your instance and its upstream engines.", "URL de l’instance SearXNG": "SearXNG instance URL", "Activer la recherche pendant la revue finale": "Enable search during final review", "Le format JSON doit être autorisé dans search.formats sur SearXNG. Deux recherches maximum par passage. Aucune recherche lorsque cette option est désactivée.": "JSON format must be enabled in SearXNG search.formats. A maximum of two searches per segment. No search is made when this option is disabled.", "Enregistrer": "Save", "Tester la connexion": "Test connection",
-  "Provider enregistré.": "Provider saved.", "Nouveau provider": "New provider", "Connexion au modèle": "Model connection", "Les clés sont chiffrées côté serveur et ne sont jamais renvoyées au navigateur. L’URL doit être accessible depuis le conteneur.": "Keys are encrypted server-side and are never returned to the browser. The URL must be reachable from the container.", "Connexion / protocole": "Connection / protocol", "Codex / OpenAI · clé API (Responses)": "Codex / OpenAI · API key (Responses)", "Nom": "Name", "Clé API": "API key", "Enregistrée — laisser vide pour conserver": "Saved — leave empty to keep", "Facultative": "Optional", "Modèle": "Model", "Fenêtre de contexte": "Context window", "Tokens de sortie maximum": "Maximum output tokens", "Température": "Temperature", "Timeout (secondes)": "Timeout (seconds)", "Livres simultanés": "Concurrent books", "Coût / million tokens entrée": "Cost / million input tokens", "Coût / million tokens sortie": "Cost / million output tokens", "La limite de livres simultanés s’applique à ce provider, analyses, traductions et relectures confondues. Chaque provider dispose de sa propre capacité indépendante.": "The concurrent-book limit applies to this provider across analysis, translation, and review. Each provider has its own independent capacity.", "L’inférence utilise OpenAI. Température et Top P ne sont pas envoyés pour ce transport.": "Inference uses OpenAI. Temperature and Top P are not sent for this transport.", "La limite de sortie est une réservation du budget de l’application ; Codex ne fournit pas de plafond de génération équivalent à max_output_tokens.": "The output limit reserves application budget; Codex does not provide a generation ceiling equivalent to max_output_tokens.", "Une clé API est facturée séparément de l’abonnement ChatGPT.": "An API key is billed separately from the ChatGPT subscription.", "Capacités déclarées": "Declared capabilities", "Paramètre limite de sortie": "Output limit parameter", "Non envoyé": "Not sent", "Tester / détecter les modèles": "Test / detect models",
+  "Provider enregistré.": "Provider saved.", "Nouveau provider": "New provider", "Connexion au modèle": "Model connection", "Les clés sont chiffrées côté serveur et ne sont jamais renvoyées au navigateur. L’URL doit être accessible depuis le conteneur.": "Keys are encrypted server-side and are never returned to the browser. The URL must be reachable from the container.", "Connexion / protocole": "Connection / protocol", "Codex / OpenAI · clé API (Responses)": "Codex / OpenAI · API key (Responses)", "Nom": "Name", "Clé API": "API key", "Enregistrée — laisser vide pour conserver": "Saved — leave empty to keep", "Facultative": "Optional", "Requise": "Required", "Anthropic · Claude (clé API)": "Anthropic · Claude (API key)", "OpenAI · Chat Completions (clé API)": "OpenAI · Chat Completions (API key)", "L’inférence utilise l’API Anthropic, facturée à l’usage. Température et Top P ne sont pas envoyés : les modèles Claude actuels les refusent.": "Inference uses the Anthropic API, billed per use. Temperature and Top P are not sent: current Claude models reject them.", "Modèle": "Model", "Fenêtre de contexte": "Context window", "Tokens de sortie maximum": "Maximum output tokens", "Température": "Temperature", "Timeout (secondes)": "Timeout (seconds)", "Livres simultanés": "Concurrent books", "Coût / million tokens entrée": "Cost / million input tokens", "Coût / million tokens sortie": "Cost / million output tokens", "La limite de livres simultanés s’applique à ce provider, analyses, traductions et relectures confondues. Chaque provider dispose de sa propre capacité indépendante.": "The concurrent-book limit applies to this provider across analysis, translation, and review. Each provider has its own independent capacity.", "L’inférence utilise OpenAI. Température et Top P ne sont pas envoyés pour ce transport.": "Inference uses OpenAI. Temperature and Top P are not sent for this transport.", "La limite de sortie est une réservation du budget de l’application ; Codex ne fournit pas de plafond de génération équivalent à max_output_tokens.": "The output limit reserves application budget; Codex does not provide a generation ceiling equivalent to max_output_tokens.", "Une clé API est facturée séparément de l’abonnement ChatGPT.": "An API key is billed separately from the ChatGPT subscription.", "Capacités déclarées": "Declared capabilities", "Paramètre limite de sortie": "Output limit parameter", "Non envoyé": "Not sent", "Tester / détecter les modèles": "Test / detect models",
   "Chargement…": "Loading…", "Mémoire narrative · OpenViking": "Narrative memory · OpenViking", "Hybrid conserve la continuité SQL lorsque OpenViking est absent ou indisponible. Les ressources sont séparées par propriétaire et projet, avec contrôle temporel des événements.": "Hybrid preserves SQL continuity when OpenViking is absent or unavailable. Resources are separated by owner and project, with temporal control of events.", "URL OpenViking": "OpenViking URL", "Racine dédiée viking://": "Dedicated viking:// root", "Budget contexte": "Context budget", "Budget retrieval": "Retrieval budget", "Score minimal": "Minimum score", "Authentification": "Authentication", "API key — recommandé": "API key — recommended", "Recherche sémantique (find)": "Semantic search (find)", "Recherche approfondie (search)": "Deep search (search)", "Les modèles VLM et embeddings se configurent sur le serveur OpenViking. L’application utilise find/search limités au projet, puis lit les souvenirs pertinents en L2. L’assemblage global non borné est évité.": "VLM and embedding models are configured on the OpenViking server. The application uses project-limited find/search, then reads relevant memories in L2. Unbounded global assembly is avoided.",
   "Version {version}": "Version {version}", "initiale": "initial", "Contenu du prompt": "Prompt content", "Nouvelle version enregistrée.": "New version saved.", "Créer une version": "Create version", "Exporter les prompts": "Export prompts", "Utilisateurs de Libris": "Libris users", "Utilisateur": "User", "Rôle": "Role", "Administrateur": "Administrator", "Créer un compte": "Create an account", "Mot de passe initial": "Initial password", "Créer le compte": "Create account", "Enregistrée": "Saved",
 };
@@ -227,6 +227,7 @@ function ProviderSettings({ run }: { run: Run }) {
   const [key, setKey] = useState("");
   const [result, setResult] = useState("");
   const [models, setModels] = useState<string[]>([]);
+  const native = value.kind === "anthropic" || value.kind === "openai_direct";
   useEffect(() => {
     void run(async () => setProviders(await api("/providers")));
   }, [run]);
@@ -266,7 +267,14 @@ function ProviderSettings({ run }: { run: Run }) {
             <small>{p.model}</small>
           </button>
         ))}
-        <button onClick={() => setValue({ ...initial })}>
+        <button
+          onClick={() => {
+            setValue({ ...initial });
+            setKey("");
+            setModels([]);
+            setResult("");
+          }}
+        >
           + {t("Nouveau provider")}
         </button>
       </aside>
@@ -295,15 +303,20 @@ function ProviderSettings({ run }: { run: Run }) {
                     base_url:
                       kind === "codex_chatgpt"
                         ? ""
-                        : kind === "openai_responses"
-                          ? "https://api.openai.com/v1"
-                          : "http://localhost:8000/v1",
+                        : kind === "anthropic"
+                          ? "https://api.anthropic.com"
+                          : kind === "openai_responses" ||
+                              kind === "openai_direct"
+                            ? "https://api.openai.com/v1"
+                            : "http://localhost:8000/v1",
                     model: "",
                     timeout: kind === "openai" ? 180 : 600,
                     capabilities: {
                       ...value.capabilities,
-                      supports_json_schema: kind !== "openai",
-                      supports_reasoning: kind !== "openai",
+                      supports_json_schema:
+                        kind !== "openai" && kind !== "anthropic",
+                      supports_reasoning:
+                        kind === "openai_responses" || kind === "codex_chatgpt",
                     },
                   });
                 }}
@@ -315,6 +328,12 @@ function ProviderSettings({ run }: { run: Run }) {
                   {t("Codex / OpenAI · clé API (Responses)")}
                 </option>
                 <option value="codex_chatgpt">{t("Codex · compte ChatGPT")}</option>
+                <option value="anthropic">
+                  {t("Anthropic · Claude (clé API)")}
+                </option>
+                <option value="openai_direct">
+                  {t("OpenAI · Chat Completions (clé API)")}
+                </option>
               </select>
             </label>
             <label>
@@ -344,10 +363,13 @@ function ProviderSettings({ run }: { run: Run }) {
                   autoComplete="new-password"
                   value={key}
                   onChange={(e) => setKey(e.target.value)}
+                  required={native && !value.has_api_key}
                   placeholder={
                     value.has_api_key
                       ? t("Enregistrée — laisser vide pour conserver")
-                      : t("Facultative")
+                      : native
+                        ? t("Requise")
+                        : t("Facultative")
                   }
                 />
               </label>
@@ -412,6 +434,7 @@ function ProviderSettings({ run }: { run: Run }) {
               .filter(
                 (name) =>
                   value.kind === "openai" ||
+                  value.kind === "openai_direct" ||
                   !["temperature", "top_p"].includes(name),
               )
               .map((name) => (
@@ -458,7 +481,13 @@ function ProviderSettings({ run }: { run: Run }) {
               }}
             />
           )}
-          {value.kind !== "openai" && (
+          {value.kind === "anthropic" && (
+            <p className="muted">
+              {t("L’inférence utilise l’API Anthropic, facturée à l’usage. Température et Top P ne sont pas envoyés : les modèles Claude actuels les refusent.")}
+            </p>
+          )}
+          {(value.kind === "openai_responses" ||
+            value.kind === "codex_chatgpt") && (
             <p className="muted">
               {t("L’inférence utilise OpenAI. Température et Top P ne sont pas envoyés pour ce transport.")}{" "}
               {value.kind === "codex_chatgpt"

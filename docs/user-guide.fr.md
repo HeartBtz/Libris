@@ -47,6 +47,8 @@ La preview est volontairement simplifiée (CSS de lecture neutre) ; les CSS et r
 
 ## Codex
 
+Deux connexions natives par clé API existent aussi : **Anthropic · Claude** (base URL `https://api.anthropic.com`, API Messages ; température et Top P ne sont pas envoyés car les modèles Claude actuels les refusent) et **OpenAI · Chat Completions** (base URL `https://api.openai.com/v1`). La clé API y est obligatoire, et le bouton de test liste les modèles via `/v1/models`.
+
 Pour connecter **Codex avec un compte ChatGPT** ou **un modèle Codex via clé API OpenAI**, voir [Connexion Codex](codex.md). Les providers OpenAI-compatible existants continuent d’utiliser Chat Completions.
 
 ## OpenViking

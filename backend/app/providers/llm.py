@@ -18,7 +18,7 @@ from app.jobs.execution import execution
 from app.models import Job, Prompt, Provider, RequestLog
 from app.providers.codex import bridge_call
 from app.providers.refusals import refusal_http, refusal_reason
-from app.providers.transports import generation_parameters, normalize_response, wire_payload
+from app.providers.transports import endpoint, generation_parameters, normalize_response, wire_payload
 from app.security import decrypt
 
 T = TypeVar("T", bound=BaseModel)
@@ -95,22 +95,22 @@ class OpenAIProvider:
         if provider.kind == "codex_chatgpt":
             result = await bridge_call(provider.id, "models")
             return result["models"]
-        if provider.kind == "anthropic":
-            from app.providers.anthropic import AnthropicProvider
-            return await AnthropicProvider().models(provider)
-        if provider.kind == "openai_direct":
-            from app.providers.openai_direct import OpenAIDirectProvider
-            return await OpenAIDirectProvider().models(provider)
         async with httpx.AsyncClient(
             timeout=provider.timeout, follow_redirects=False, trust_env=False
         ) as client:
-            response = await client.get(provider.base_url + "/models", headers=self.headers(provider))
+            response = await client.get(
+                endpoint(provider, "/models"),
+                headers=self.headers(provider),
+                params={"limit": 1000} if provider.kind == "anthropic" else None,
+            )
             response.raise_for_status()
             return [str(m["id"]) for m in response.json().get("data", []) if "id" in m]
 
     @staticmethod
     def headers(provider: Provider) -> dict:
         key = decrypt(provider.encrypted_key)
+        if provider.kind == "anthropic":
+            return {"x-api-key": key, "anthropic-version": "2023-06-01"}
         return {"Authorization": f"Bearer {key}"} if key else {}
 
     async def complete(
@@ -143,6 +143,8 @@ class OpenAIProvider:
             else ("json_object" if caps.get("supports_json_object", True) else "text")
         )
         modes = [mode] + (["json_object", "text"] if mode == "json_schema" else ["text"])
+        if provider.kind == "anthropic":
+            modes = ["text"]  # The schema travels in the system prompt; the reply is validated as JSON.
         modes = list(dict.fromkeys(modes))
         actual_messages = [
             *messages,
@@ -251,36 +253,9 @@ class OpenAIProvider:
                             timeout=provider.timeout + 5,
                         )
                         response = None
-                    elif provider.kind == "anthropic":
-                        from app.providers.anthropic import AnthropicProvider
-                        # Direct provider handles its own request/response cycle
-                        parsed = await AnthropicProvider().complete(
-                            provider=provider,
-                            messages=actual_messages,
-                            response_model=response_model,
-                            temperature=params.get("temperature"),
-                        )
-                        # Skip the rest of the loop, we already have parsed result
-                        raw = {}
-                        response = None
-                    elif provider.kind == "openai_direct":
-                        from app.providers.openai_direct import OpenAIDirectProvider
-                        # Direct provider handles its own request/response cycle
-                        parsed = await OpenAIDirectProvider().complete(
-                            provider=provider,
-                            messages=actual_messages,
-                            response_model=response_model,
-                            temperature=params.get("temperature"),
-                        )
-                        # Skip the rest of the loop, we already have parsed result
-                        raw = {}
-                        response = None
                     else:
-                        endpoint = (
-                            "/responses" if provider.kind == "openai_responses" else "/chat/completions"
-                        )
                         response = await client.post(
-                            provider.base_url + endpoint, headers=self.headers(provider), json=payload
+                            endpoint(provider), headers=self.headers(provider), json=payload
                         )
                     if response is not None and response.status_code in (400, 422) and len(modes) > 1:
                         # Only capability-specific errors trigger a structured-output fallback.
@@ -293,46 +268,39 @@ class OpenAIProvider:
                         raw = response.json()
                     if isinstance(raw, dict):
                         raw = normalize_response(provider.kind, raw)
-                # Skip standard response parsing for direct providers
-                if provider.kind in ("anthropic", "openai_direct"):
-                    # parsed already set, validator already applied in provider
-                    if validator:
-                        validator(parsed)
-                    error = None
-                else:
-                    if not isinstance(raw, dict):
-                        raw = {"unexpected_shape": type(raw).__name__}
-                        raise LLMError("Format de réponse du provider inattendu.")
-                    if not raw.get("choices"):
-                        raise LLMError("Réponse du provider sans choices exploitables.")
-                    choice = raw["choices"][0]
-                    message = choice.get("message", {})
-                    refused = refusal_reason(raw, message.get("content") or "")
-                    if refused:
-                        raise ProviderContentRefused(refused)
-                    if choice.get("finish_reason") not in ("stop", "eos_token"):
-                        truncated = True
-                        reasoning_failure = bool(
-                            message.get("reasoning") or message.get("reasoning_content")
-                        )
-                        transient = False
-                        raise LLMError(
-                            "Réponse tronquée ou arrêt inattendu : " + str(choice.get("finish_reason"))
-                        )
-                    if not message.get("content") and (
+                if not isinstance(raw, dict):
+                    raw = {"unexpected_shape": type(raw).__name__}
+                    raise LLMError("Format de réponse du provider inattendu.")
+                if not raw.get("choices"):
+                    raise LLMError("Réponse du provider sans choices exploitables.")
+                choice = raw["choices"][0]
+                message = choice.get("message", {})
+                refused = refusal_reason(raw, message.get("content") or "")
+                if refused:
+                    raise ProviderContentRefused(refused)
+                if choice.get("finish_reason") not in ("stop", "eos_token"):
+                    truncated = True
+                    reasoning_failure = bool(
                         message.get("reasoning") or message.get("reasoning_content")
-                    ):
-                        reasoning_failure = True
-                        transient = False
-                        raise LLMError(
-                            "Le provider a renvoyé du raisonnement sans contenu final (content=null). "
-                            "Désactivez ou réduisez le niveau de raisonnement."
-                        )
-                    if message.get("refusal"):
-                        raise LLMError("Le provider a refusé la requête.")
-                    parsed = parse_json(message.get("content") or "", response_model)
-                    if validator:
-                        validator(parsed)
+                    )
+                    transient = False
+                    raise LLMError(
+                        "Réponse tronquée ou arrêt inattendu : " + str(choice.get("finish_reason"))
+                    )
+                if not message.get("content") and (
+                    message.get("reasoning") or message.get("reasoning_content")
+                ):
+                    reasoning_failure = True
+                    transient = False
+                    raise LLMError(
+                        "Le provider a renvoyé du raisonnement sans contenu final (content=null). "
+                        "Désactivez ou réduisez le niveau de raisonnement."
+                    )
+                if message.get("refusal"):
+                    raise LLMError("Le provider a refusé la requête.")
+                parsed = parse_json(message.get("content") or "", response_model)
+                if validator:
+                    validator(parsed)
             except (httpx.TimeoutException, TimeoutError):
                 error = f"Timeout du provider après {provider.timeout} secondes."
                 unavailable = True

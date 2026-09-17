@@ -23,7 +23,7 @@ class Capabilities(StrictModel):
 
 
 class ProviderInput(StrictModel):
-    kind: Literal["openai", "openai_responses", "codex_chatgpt"] = "openai"
+    kind: Literal["openai", "openai_responses", "codex_chatgpt", "anthropic", "openai_direct"] = "openai"
     name: str = Field(min_length=1, max_length=100)
     base_url: str = Field(default="", max_length=500)
     api_key: str | None = Field(default=None, max_length=4000)

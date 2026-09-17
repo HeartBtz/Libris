@@ -284,3 +284,36 @@ def test_import_survives_a_validator_timeout_and_bounds_metadata(seeded, monkeyp
     assert len(body["title"]) == 500 and len(body["author"]) == 500
     assert body["book_info"]["validation"]["valid"] is None
     assert "90 secondes" in body["book_info"]["validation"]["message"]
+
+
+def test_resolving_the_last_issue_clears_the_segment_flag(seeded):
+    from sqlalchemy import select
+
+    from app.models import Issue, Segment
+
+    pid = seeded[0]
+    with SessionLocal() as db:
+        first, second = list(db.scalars(select(Segment).where(Segment.project_id == pid).order_by(Segment.position)))[:2]
+        for segment in (first, second):
+            segment.translation, segment.status = "Traduit.", "check"
+        second.critique = [{"unit_id": "u", "suggestion": "Encore à traiter."}]
+        issues = [
+            Issue(project_id=pid, segment_id=first.id, severity="warning", code="length", message="a"),
+            Issue(project_id=pid, segment_id=first.id, severity="warning", code="terms", message="b"),
+            Issue(project_id=pid, segment_id=second.id, severity="warning", code="length", message="c"),
+        ]
+        db.add_all(issues)
+        db.commit()
+        ids, first_id, second_id = [issue.id for issue in issues], first.id, second.id
+    with TestClient(app) as client:
+        client.post("/api/auth/login", json={"username": "tester", "password": "test-password-123456789"})
+        assert client.get(f"/api/projects/{pid}").json()["stats"]["flagged"] == 2
+        assert client.post(f"/api/issues/{ids[0]}/resolve").status_code == 200
+        with SessionLocal() as db:
+            assert db.get(Segment, first_id).status == "check"  # one issue left
+        client.post(f"/api/issues/{ids[1]}/resolve")
+        client.post(f"/api/issues/{ids[2]}/resolve")
+        with SessionLocal() as db:
+            assert db.get(Segment, first_id).status == "ok"
+            assert db.get(Segment, second_id).status == "check"  # a critique is still pending
+        assert client.get(f"/api/projects/{pid}").json()["stats"]["flagged"] == 1

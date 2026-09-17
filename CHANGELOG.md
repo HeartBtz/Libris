@@ -2,6 +2,12 @@
 
 All notable changes are documented here. Libris follows [Semantic Versioning](https://semver.org/); while the project is below 1.0, minor versions may include breaking operational changes that are called out explicitly.
 
+## [0.3.3] - 2026-09-16
+
+### Fixed
+
+- Normalize hybrid EPUB 2 exports containing EPUB 3/HTML5 markup, invalid or duplicate XML IDs, and EPUB 3-only spine attributes so EPUBCheck accepts translated books while internal links remain valid.
+
 ## [0.3.2] - 2026-09-16
 
 ### Fixed
@@ -157,3 +163,4 @@ All notable changes are documented here. Libris follows [Semantic Versioning](ht
 [0.3.0]: https://github.com/HeartBtz/Libris/releases/tag/v0.3.0
 [0.3.1]: https://github.com/HeartBtz/Libris/releases/tag/v0.3.1
 [0.3.2]: https://github.com/HeartBtz/Libris/releases/tag/v0.3.2
+[0.3.3]: https://github.com/HeartBtz/Libris/releases/tag/v0.3.3

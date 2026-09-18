@@ -83,8 +83,11 @@ def test_tbx_export_is_a_tbx_basic_document(seeded):
         s.get("{http://www.w3.org/XML/1998/namespace}lang") for s in entries[0].findall("t:langSec", namespace)
     ]
     assert languages == ["en", "fr-FR"]
-    statuses = [n.text for n in root.findall(".//t:termNote[@type='administrativeStatus']", namespace)]
-    assert statuses == ["preferredTerm-admn-sts", "deprecatedTerm-admn-sts"]  # sorted by source
+    statuses = {
+        entry.find("t:langSec/t:termSec/t:term", namespace).text: entry.find(".//t:termNote", namespace).text
+        for entry in entries
+    }
+    assert statuses == {"Silver Tower": "preferredTerm-admn-sts", "pendant": "deprecatedTerm-admn-sts"}
 
 
 TBX_V2 = """<?xml version="1.0" encoding="UTF-8"?>

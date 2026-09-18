@@ -2,7 +2,7 @@
 
 from app.db import SessionLocal
 from app.engines.context.builder import build_context
-from app.engines.quality.checks import checks, validate_translation
+from app.engines.quality.checks import checks, locked_term_error, validate_translation
 from app.jobs.execution import execution
 from app.jobs.queue import checkpoint, fence
 from app.models import Segment
@@ -32,8 +32,8 @@ async def repair_translation(project, segment, operation, job, extra, terms):
                 project.source_language,
                 project.target_language,
             )
-            if any(item["code"] == "locked_term" for item in findings):
-                raise ValueError("Glossaire verrouillé non respecté.")
+            if error := locked_term_error(findings):
+                raise ValueError(error)
 
         data = completed.get(str(start))
         if data:

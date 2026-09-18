@@ -6,7 +6,7 @@ from sqlalchemy import delete, func, or_, select
 from app.db import SessionLocal
 from app.engines.context.builder import build_context
 from app.engines.memory.store import propose_terms, remember
-from app.engines.quality.checks import checks, validate_translation
+from app.engines.quality.checks import checks, locked_term_error, validate_translation
 from app.engines.translation.versions import save_version
 from app.jobs.queue import checkpoint, fence, finish_segment
 from app.models import Entity, Glossary, Issue, Job, Project, Segment
@@ -67,8 +67,8 @@ async def translation_call(
             project.source_language,
             project.target_language,
         )
-        if any(i["code"] == "locked_term" for i in findings):
-            raise ValueError("Glossaire verrouillé non respecté.")
+        if error := locked_term_error(findings):
+            raise ValueError(error)
 
     try:
         return await llm.complete(

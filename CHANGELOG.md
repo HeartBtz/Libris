@@ -7,6 +7,7 @@ All notable changes are documented here. Libris follows [Semantic Versioning](ht
 ### Fixed
 
 - **Release pipeline.** The production deployment only waited for the release images to be tagged, so it started while the container runtime test and the vulnerability scan were still running: a failed gate could not stop it. It now waits for the runtime test, the scan and the GitLab publication, and a test keeps those gates in place. The release guides describe the deployment as automatic, consistently (#30).
+- **Invalid model answers.** An answer refused by validation (missing or merged paragraphs, invalid JSON, locked glossary) was asked again unchanged, up to five times at full price. The next attempt now tells the model why its answer was rejected, and validation failures stop after three attempts so that the cheaper small-batch repair takes over; network errors keep their five attempts (#32).
 
 ## [0.4.1] - 2026-09-18
 

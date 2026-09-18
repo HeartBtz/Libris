@@ -33,6 +33,8 @@ export interface Project {
   quality: string;
   context_backend: string;
   instructions: string;
+  /** Present only on servers that support reusing validated translations. */
+  translation_memory?: boolean;
   status: string;
   stats: Stats;
   updated_at: number;

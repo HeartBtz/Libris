@@ -12,6 +12,7 @@ All notable changes are documented here. Libris follows [Semantic Versioning](ht
 ### Changed
 
 - Operations guide: `docs/ci-cd.md` now lists what lives outside Git on the production target and gives a verified procedure to re-provision `/opt/libris-production` if it is lost, with a warning to free disk space inside `backups/` and never by deleting the directory (#21).
+- CI: the image build job now removes this project's own unused images older than three days from the shared runner (they remain in the registry); per-commit images had been accumulating there indefinitely (#20).
 
 ## [0.4.0] - 2026-09-18
 

@@ -83,6 +83,9 @@ container-build:
     - mkdir -p "$DOCKER_CONFIG"
     - echo "$CI_REGISTRY_PASSWORD" | docker login "$CI_REGISTRY" --username "$CI_REGISTRY_USER" --password-stdin
   script:
+    # Every default-branch commit leaves two ~500 MB images on the shared runner. Drop this project's own
+    # unused images after three days: they all remain in the registry, and nothing else on the runner is touched.
+    - docker image prune --all --force --filter "label=org.opencontainers.image.source=https://github.com/HeartBtz/Libris" --filter "until=72h" >/dev/null || true
     - if ! docker pull "$CI_REGISTRY_IMAGE:sha-$CI_COMMIT_SHA"; then docker build --pull --build-arg VCS_REF="$CI_COMMIT_SHA" --tag "$CI_REGISTRY_IMAGE:sha-$CI_COMMIT_SHA" . && docker push "$CI_REGISTRY_IMAGE:sha-$CI_COMMIT_SHA"; fi
     - if ! docker pull "$CI_REGISTRY_IMAGE:codex-sha-$CI_COMMIT_SHA"; then docker build --pull --file codex_bridge/Dockerfile --build-arg VCS_REF="$CI_COMMIT_SHA" --tag "$CI_REGISTRY_IMAGE:codex-sha-$CI_COMMIT_SHA" . && docker push "$CI_REGISTRY_IMAGE:codex-sha-$CI_COMMIT_SHA"; fi
     - APP_IMAGE_REFERENCE="$(docker image inspect --format '{{ index .RepoDigests 0 }}' "$CI_REGISTRY_IMAGE:sha-$CI_COMMIT_SHA")"

@@ -323,3 +323,49 @@ async def test_forced_retranslation_asks_the_provider_again(seeded):
         fresh = list(db.scalars(select(RequestLog).where(RequestLog.cached.is_(False), RequestLog.status == "success")))
     assert forced - first >= passages  # at least one real provider call per passage
     assert len(fresh) == forced
+
+
+async def test_heartbeat_survives_a_database_blip_but_not_a_lost_lease(monkeypatch):
+    from sqlalchemy.exc import OperationalError
+
+    from app.jobs import worker
+    from app.jobs.queue import JobStopped
+
+    class Task:
+        cancelled = False
+
+        def cancel(self):
+            self.cancelled = True
+
+    async def no_wait(_seconds):
+        return None
+
+    monkeypatch.setattr(worker.asyncio, "sleep", no_wait)
+    now = [0.0]
+    outcomes = [OperationalError("select", {}, Exception("blip")), None, JobStopped()]
+    calls = []
+
+    def renew(job_id, owner):
+        calls.append(now[0])
+        now[0] += 2
+        outcome = outcomes.pop(0)
+        if outcome:
+            raise outcome
+
+    monkeypatch.setattr(worker, "checkpoint", renew)
+    task = Task()
+    await worker.heartbeat("job", "owner", task, clock=lambda: now[0])
+    assert len(calls) == 3 and task.cancelled  # the blip was tolerated, the lost lease was not
+
+    # A database that stays down is abandoned before the 60 s lease can expire under the job.
+    now[0], calls[:] = 0.0, []
+
+    def down(job_id, owner):
+        calls.append(now[0])
+        now[0] += 10
+        raise OperationalError("select", {}, Exception("down"))
+
+    monkeypatch.setattr(worker, "checkpoint", down)
+    task = Task()
+    await worker.heartbeat("job", "owner", task, clock=lambda: now[0])
+    assert task.cancelled and 40 < now[0] <= 60

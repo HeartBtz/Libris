@@ -58,15 +58,27 @@ async def sync_outbox(project_id: str | None = None) -> None:
                 db.commit()
 
 
-async def heartbeat(job_id: str, owner: str, task: asyncio.Task) -> None:
+HEARTBEAT_GRACE = 40  # seconds without a renewal before giving up; the lease itself lasts 60
+
+
+async def heartbeat(job_id: str, owner: str, task: asyncio.Task, clock=time.monotonic) -> None:
     interval = settings().worker_heartbeat_seconds
+    renewed = clock()
     while True:
         await asyncio.sleep(interval)
         try:
             checkpoint(job_id, owner)
-        except (JobStopped, SQLAlchemyError):
+            renewed = clock()
+        except JobStopped:
             task.cancel()
             return
+        except SQLAlchemyError as exc:
+            # The lease outlives a database blip: cancelling at once would throw away a model call
+            # that is already paid for. Give up only when the lease can no longer be trusted.
+            if clock() - renewed > HEARTBEAT_GRACE:
+                task.cancel()
+                return
+            logger.warning("job=%s heartbeat=deferred reason=%s", job_id, type(exc).__name__)
 
 
 def _suspend_safely(job_id: str, *arguments) -> None:

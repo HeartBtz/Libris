@@ -238,8 +238,16 @@ deploy-production:
   interruptible: false
   timeout: 25 minutes
   resource_group: libris-production-ct116
+  # `needs` bypasses stage ordering: every gate the deployment must wait for is listed explicitly.
   needs:
     - job: release-images
+      artifacts: true
+    - job: container-runtime
+      artifacts: false
+    - job: container-scan
+      artifacts: false
+    - job: publish-gitlab
+      artifacts: false
   script:
     - |
       timeout --signal=TERM --kill-after=5m 20m \

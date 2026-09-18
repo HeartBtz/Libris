@@ -43,7 +43,7 @@ If Docker Hub variables are absent, the Docker Hub publication job is omitted ra
 4. Wait for the branch pipeline to pass.
 5. Create and push the immutable annotated `vX.Y.Z` tag.
 6. Verify GitLab Registry, Docker Hub, the GitLab release, the GitHub mirror, GHCR and the GitHub release independently.
-7. Run the protected manual `deploy-production` job and verify CT116 independently.
+7. Let the protected `deploy-production` job run: it starts automatically once the image runtime test, the vulnerability scan and the GitLab publication have succeeded. Verify CT116 independently.
 
 Do not treat a green pipeline as deployment proof. Pull each published digest, inspect its OCI version/revision labels and query `/health` from a disposable container stack before announcing the release.
 

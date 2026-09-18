@@ -10,6 +10,7 @@ import {
   Dialog,
   EmptyState,
   Field,
+  FileButton,
   FormGrid,
   IconButton,
   Input,
@@ -26,7 +27,6 @@ import {
   useToast,
 } from "../ui";
 import { RequestDetails } from "./Editor";
-import { FileButton } from "./Library";
 import { MemoryPanel } from "./MemoryPanel";
 import { duration, projectProgress } from "./progress";
 

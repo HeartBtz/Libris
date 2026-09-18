@@ -31,7 +31,7 @@ Une réponse HTTP reçue juste avant un crash peut être recalculée si elle n�
 
 Priorité : instructions > décisions humaines validées > glossaire verrouillé > données structurées validées > retrieval externe > synthèses automatiques > voisinage > inférences.
 
-Le voisinage reçoit une réservation pratique avant les mémoires optionnelles afin qu’un passage ne devienne pas isolé. Les instructions et le glossaire obligatoire ne sont jamais retirés pour masquer un dépassement de budget. Les éléments supprimés et la raison de leur exclusion sont enregistrés.
+Le voisinage est servi en premier afin qu’un passage ne devienne pas isolé, mais il ne reçoit au plus que 60 % du budget de contexte optionnel (dont deux tiers pour ce qui précède) dès que d’autres éléments — fiches de personnages, glossaire, état du chapitre, mémoire — sont candidats ; un voisin trop long est réduit à un extrait (fin du passage précédent, début du suivant) plutôt que retiré. Les instructions et le glossaire obligatoire ne sont jamais retirés pour masquer un dépassement de budget. Les éléments supprimés et la raison de leur exclusion sont enregistrés.
 
 Pour OpenViking : `target_uri` borne la recherche ; une seconde barrière compare les URI retournées à la liste exacte des événements admis par SQL. Les résultats inattendus, les synthèses globales de répertoire et les événements futurs ne sont pas injectés. Le contenu L2 est comparé à l’événement canonique.
 

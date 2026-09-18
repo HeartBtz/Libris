@@ -7,6 +7,7 @@ All notable changes are documented here. Libris follows [Semantic Versioning](ht
 ### Fixed
 
 - **Release pipeline.** The production deployment only waited for the release images to be tagged, so it started while the container runtime test and the vulnerability scan were still running: a failed gate could not stop it. It now waits for the runtime test, the scan and the GitLab publication, and a test keeps those gates in place. The release guides describe the deployment as automatic, consistently (#30).
+- **Context allocation.** The two passages before and after the one being translated took the whole optional context allowance on their own, so validated character sheets, accepted glossary terms and the chapter state were silently left out of every request, whatever the model's window. The neighbourhood now gets at most 60 % of that allowance when other material competes for it, and a neighbour that is too long is shortened to an excerpt instead of being dropped (which could end in a misleading "window too small" error). The default allowance, hence the cost of a request, is unchanged; the Context Inspector's input estimate is now correct (#33).
 
 ## [0.4.1] - 2026-09-18
 

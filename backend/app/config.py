@@ -33,6 +33,11 @@ class Settings(BaseSettings):
     memory_catalog_interval_seconds: int = Field(default=60, ge=10, le=86400)
     provider_recovery_base_seconds: int = 60
     provider_recovery_max_seconds: int = 3600
+    # Diagnostic data is bounded by the worker (app.maintenance.retention); 0 disables a rule.
+    retention_request_bodies_days: int = Field(default=30, ge=0)
+    retention_events_days: int = Field(default=7, ge=0)
+    retention_outbox_sent_days: int = Field(default=7, ge=0)
+    retention_bible_revisions: int = Field(default=20, ge=0)
 
     def prepare(self) -> None:
         for name in ("books", "projects", "exports"):

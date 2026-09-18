@@ -1,0 +1,144 @@
+"""Bounded growth for diagnostic data: request bodies, progress events, sent outbox rows, bible revisions.
+
+    docker compose exec api python -m app.maintenance.retention --dry-run
+    docker compose exec api python -m app.maintenance.retention
+
+The worker runs the same pass at start-up and then every hour. Request rows themselves are kept — token
+counts, costs, durations, errors and the cached answer (`parsed`) are untouched — only their bulky
+prompt, raw response and context trace are emptied. Each rule is disabled by setting its value to 0.
+PostgreSQL reuses the freed space but only returns it to the operating system after
+`VACUUM (FULL, ANALYZE) llm_requests;`, which locks the table: stop the worker first.
+"""
+
+import argparse
+import time
+
+from sqlalchemy import Text, cast, delete, func, select, update
+
+from app.config import settings
+from app.db import SessionLocal
+from app.models import BibleRevision, Event, Outbox, RequestLog
+
+DAY = 86400
+KEPT_EVENTS = 500  # per book, whatever their age: the interface replays recent progress from them
+BATCH = 200
+
+
+def request_bodies(days: int, dry_run: bool, now: float) -> int:
+    done = 0
+    while days:
+        with SessionLocal() as db:
+            ids = list(
+                db.scalars(
+                    select(RequestLog.id)
+                    .where(
+                        RequestLog.created_at < now - days * DAY,
+                        RequestLog.status != "running",
+                        func.length(cast(RequestLog.messages, Text)) > 2,
+                    )
+                    .order_by(RequestLog.id)
+                    .offset(done if dry_run else 0)
+                    .limit(BATCH)
+                )
+            )
+            if not ids:
+                break
+            if not dry_run:
+                db.execute(
+                    update(RequestLog).where(RequestLog.id.in_(ids)).values(messages=[], raw={}, context={})
+                )
+                db.commit()
+        done += len(ids)
+    return done
+
+
+def events(days: int, dry_run: bool, now: float) -> int:
+    done = 0
+    if not days:
+        return done
+    cutoff = now - days * DAY
+    with SessionLocal() as db:
+        projects = list(db.scalars(select(Event.project_id).where(Event.created_at < cutoff).distinct()))
+    for project_id in projects:
+        with SessionLocal() as db:
+            floor = db.scalar(
+                select(Event.id)
+                .where(Event.project_id == project_id)
+                .order_by(Event.id.desc())
+                .offset(KEPT_EVENTS - 1)
+                .limit(1)
+            )
+            if floor is None:
+                continue
+            old = (Event.project_id == project_id, Event.id < floor, Event.created_at < cutoff)
+            if dry_run:
+                done += db.scalar(select(func.count()).select_from(Event).where(*old))
+            else:
+                done += db.execute(delete(Event).where(*old)).rowcount
+                db.commit()
+    return done
+
+
+def outbox(days: int, dry_run: bool, now: float) -> int:
+    if not days:
+        return 0
+    old = (Outbox.status == "sent", Outbox.created_at < now - days * DAY)
+    with SessionLocal() as db:
+        if dry_run:
+            return db.scalar(select(func.count()).select_from(Outbox).where(*old))
+        count = db.execute(delete(Outbox).where(*old)).rowcount
+        db.commit()
+        return count
+
+
+def bible_revisions(keep: int, dry_run: bool) -> int:
+    done = 0
+    if not keep:
+        return done
+    with SessionLocal() as db:
+        crowded = list(
+            db.scalars(
+                select(BibleRevision.project_id)
+                .where(BibleRevision.human.is_(False))
+                .group_by(BibleRevision.project_id)
+                .having(func.count() > keep)
+            )
+        )
+    for project_id in crowded:
+        with SessionLocal() as db:
+            ids = list(
+                db.scalars(
+                    select(BibleRevision.id)
+                    .where(BibleRevision.project_id == project_id, BibleRevision.human.is_(False))
+                    .order_by(BibleRevision.created_at.desc(), BibleRevision.id.desc())
+                    .offset(keep)
+                )
+            )
+            done += len(ids)
+            if ids and not dry_run:
+                for start in range(0, len(ids), BATCH):
+                    db.execute(delete(BibleRevision).where(BibleRevision.id.in_(ids[start : start + BATCH])))
+                db.commit()
+    return done
+
+
+def apply(dry_run: bool = False) -> dict:
+    config, now = settings(), time.time()
+    return {
+        "request_bodies": request_bodies(config.retention_request_bodies_days, dry_run, now),
+        "events": events(config.retention_events_days, dry_run, now),
+        "outbox": outbox(config.retention_outbox_sent_days, dry_run, now),
+        "bible_revisions": bible_revisions(config.retention_bible_revisions, dry_run),
+    }
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    parser.add_argument("--dry-run", action="store_true", help="count without writing")
+    arguments = parser.parse_args()
+    result = apply(arguments.dry_run)
+    verb = "would be" if arguments.dry_run else "were"
+    print(
+        f"{result['request_bodies']} request bodies {verb} emptied; {result['events']} events, "
+        f"{result['outbox']} sent outbox rows and {result['bible_revisions']} bible revisions {verb} deleted."
+    )

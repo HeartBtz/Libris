@@ -31,7 +31,6 @@ import { MemoryPanel } from "./MemoryPanel";
 import { duration, projectProgress } from "./progress";
 
 registerTranslations({
-  "Réglages du livre": "Book settings",
   "{words} mots · {sections} sections · {images} images · {size} Mo":
     "{words} words · {sections} sections · {images} images · {size} MB",
   Livre: "Book",
@@ -126,7 +125,7 @@ registerTranslations({
   "Lancez l’analyse pour construire la mémoire du livre.": "Run analysis to build the book memory.",
   Personnages: "Characters",
   Validé: "Validated",
-  "À examiner": "To review",
+  "À relire": "To review",
   "Modifier la fiche": "Edit profile",
   "Modifier {name}": "Edit {name}",
   "Fiche personnage": "Character profile",
@@ -653,7 +652,7 @@ export function Glossary({ project, run, tick }: { project: Project; run: Run; t
                 <tr key={term.id} className={!term.accepted ? "is-proposal" : undefined}>
                   <td className="glossary-source">
                     {term.source}
-                    {!term.accepted && <Badge tone="warning">{t("À examiner")}</Badge>}
+                    {!term.accepted && <Badge tone="warning">{t("À relire")}</Badge>}
                   </td>
                   <td>
                     <Input
@@ -850,7 +849,7 @@ export function Bible({
                         <div className="row">
                           <strong>{entity.name}</strong>
                           <Badge tone={entity.validated ? "success" : "neutral"}>
-                            {entity.validated ? t("Validé") : t("À examiner")}
+                            {entity.validated ? t("Validé") : t("À relire")}
                           </Badge>
                         </div>
                         <p className="subtle">

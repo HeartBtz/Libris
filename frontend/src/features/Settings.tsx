@@ -497,7 +497,7 @@ function ProviderSettings({ run }: { run: Run }) {
                     value={value.base_url}
                     onChange={(e) => field("base_url", e.target.value)}
                     required
-                    placeholder="http://serveur:8000/v1"
+                    placeholder="http://gpu-host:8000/v1"
                   />
                 </Field>
               )}

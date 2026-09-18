@@ -26,7 +26,7 @@ registerTranslations({
   Reconstruire: "Rebuild",
   "Réindexation demandée à OpenViking.": "Reindexing requested from OpenViking.",
   "{count} documents remis en file de réécriture.": "{count} documents queued for rewriting.",
-  "Racine : {root}": "Root: {root}",
+  "Racine :": "Root:",
   "Documents OpenViking du projet ({count})": "Project OpenViking documents ({count})",
   "Les liens ouvrent le contenu réellement lu dans OpenViking via le backend, sans exposer la clé. Les événements narratifs et les documents globaux sont séparés.":
     "Links open the content actually read in OpenViking through the backend, without exposing the key. Narrative events and global documents are kept separate.",
@@ -149,8 +149,7 @@ export function MemoryPanel({ pid, run, refreshKey = 0 }: { pid: string; run: Ru
         {state && (
           <>
             <p className="subtle">
-              {t("Racine : {root}", { root: "" })}
-              <code>{state.root_uri}</code>
+              {t("Racine :")} <code>{state.root_uri}</code>
             </p>
             {!!Object.keys(state.outbox).length && (
               <p className="subtle tabular">

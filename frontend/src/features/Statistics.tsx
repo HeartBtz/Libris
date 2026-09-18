@@ -14,7 +14,6 @@ registerTranslations({
   "Total tokens": "Total tokens",
   "Part des tokens": "Share of tokens",
   "Par modèle": "By model",
-  Total: "Total",
   "Aucun modèle enregistré.": "No registered model.",
   "Les statistiques apparaîtront après les premières requêtes aux modèles.":
     "Statistics will appear after the first model requests.",

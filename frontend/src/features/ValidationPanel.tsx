@@ -59,7 +59,6 @@ registerTranslations({
     "No eligible passages: human decisions are protected, or nothing remains to be re-examined.",
   "Un travail occupe ce livre. Terminez-le ou annulez-le pour lancer une revue manuelle ; une simple pause ne libère pas le livre.":
     "A job is using this book. Finish or cancel it to start a manual review; simply pausing does not release the book.",
-  "Reprise ciblée": "Targeted retry",
   "{count} passage refusé et ignoré": "{count} refused and skipped passage",
   "{count} passages refusés et ignorés": "{count} refused and skipped passages",
   "Après deux refus du provider initial, Libris poursuit le livre. Choisissez ici un autre modèle, par exemple un modèle non censuré, pour ne retraduire que ces passages.":
@@ -80,7 +79,6 @@ registerTranslations({
   "Ce qui fait douter l’IA": "What makes AI uncertain",
   "Amélioration proposée": "Proposed improvement",
   Proposition: "Proposal",
-  "Application…": "Applying…",
   "Accepter cette proposition": "Accept this proposal",
   Accepter: "Accept",
   Refuser: "Reject",
@@ -92,7 +90,6 @@ registerTranslations({
   "Chaque proposition IA encore ouverte sera appliquée à son passage. Les corrections humaines restent protégées ; l’opération est mise en file.":
     "Every open AI proposal will be applied to its passage. Human corrections remain protected; the operation is queued.",
   "Acceptation en file…": "Queuing acceptances…",
-  "Refus…": "Rejecting…",
   "Refuser cette proposition": "Reject this proposal",
   "Ce passage a été signalé par un contrôle technique. Le détail est affiché ci-dessus ; aucune proposition IA n’a été enregistrée pour ce signalement.":
     "This passage was flagged by a technical check. The details are shown above; no AI proposal was saved for this report.",

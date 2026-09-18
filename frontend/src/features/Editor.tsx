@@ -30,7 +30,7 @@ import { MarkedText, MarkerTextarea, markers } from "./MarkedText";
 registerTranslations({
   "Filtrer les passages": "Filter passages",
   "Tous les passages": "All passages",
-  "À vérifier": "Needs review",
+  "À vérifier": "To review",
   Erreurs: "Errors",
   Incertitudes: "Uncertainties",
   "Refus du provider": "Provider refusals",
@@ -103,7 +103,6 @@ registerTranslations({
   "Consignes du passage": "Passage guidance",
   "Consignes propres à ce passage, prises en compte lors de sa prochaine traduction.":
     "Guidance specific to this passage, used in its next translation.",
-  "Consignes enregistrées.": "Guidance saved.",
   Consignes: "Guidance",
   "Contexte / historique / Ask AI": "Context / history / Ask AI",
   "Actions du passage {position}": "Passage {position} actions",

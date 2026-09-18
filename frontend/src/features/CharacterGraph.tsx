@@ -83,7 +83,6 @@ registerTranslations({
   "Historique des fusions": "Merge history",
   Relations: "Relationships",
   "{source} → {target} : {type}": "{source} → {target}: {type}",
-  "validé": "validated",
   "Chargement du graphe…": "Loading graph…",
   "Détail": "Details",
   "Aucune relation pour l’instant.": "No relationship yet.",

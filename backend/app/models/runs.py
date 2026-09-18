@@ -40,6 +40,7 @@ class Job(Identified, Base):
 
 class Event(Base):
     __tablename__ = "events"
+    __table_args__ = (Index("ix_events_project_id_id", "project_id", "id"),)
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     project_id: Mapped[str] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), index=True)
     created_at: Mapped[float] = mapped_column(Float)
@@ -48,6 +49,15 @@ class Event(Base):
 
 class RequestLog(Identified, Base):
     __tablename__ = "llm_requests"
+    __table_args__ = (
+        # Admission control counts the running calls of a provider before every model call.
+        Index(
+            "ix_llm_requests_running",
+            "provider_id",
+            postgresql_where=text("status = 'running'"),
+            sqlite_where=text("status = 'running'"),
+        ),
+    )
     job_id: Mapped[str | None] = mapped_column(ForeignKey("jobs.id", ondelete="SET NULL"), index=True)
     execution_owner: Mapped[str] = mapped_column(String(36), default="", server_default="")
     project_id: Mapped[str] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), index=True)

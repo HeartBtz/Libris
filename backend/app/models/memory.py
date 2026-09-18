@@ -1,4 +1,4 @@
-from sqlalchemy import JSON, Boolean, Float, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import JSON, Boolean, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db import Base
@@ -27,7 +27,7 @@ class Entity(Identified, Base):
 class EntityMerge(Identified, Base):
     __tablename__ = "entity_merges"
     project_id: Mapped[str] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), index=True)
-    target_id: Mapped[str] = mapped_column(ForeignKey("entities.id", ondelete="CASCADE"))
+    target_id: Mapped[str] = mapped_column(ForeignKey("entities.id", ondelete="CASCADE"), index=True)
     source_ids: Mapped[list] = mapped_column(JSON)
     snapshots: Mapped[list] = mapped_column(JSON)
     reason: Mapped[str] = mapped_column(Text)
@@ -37,9 +37,11 @@ class EntityMerge(Identified, Base):
 class CharacterRelation(Identified, Base):
     __tablename__ = "character_relations"
     project_id: Mapped[str] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), index=True)
-    source_id: Mapped[str] = mapped_column(ForeignKey("entities.id", ondelete="CASCADE"))
-    target_id: Mapped[str] = mapped_column(ForeignKey("entities.id", ondelete="CASCADE"))
-    segment_id: Mapped[str | None] = mapped_column(ForeignKey("segments.id", ondelete="SET NULL"))
+    source_id: Mapped[str] = mapped_column(ForeignKey("entities.id", ondelete="CASCADE"), index=True)
+    target_id: Mapped[str] = mapped_column(ForeignKey("entities.id", ondelete="CASCADE"), index=True)
+    segment_id: Mapped[str | None] = mapped_column(
+        ForeignKey("segments.id", ondelete="SET NULL"), index=True
+    )
     position: Mapped[int] = mapped_column(Integer, default=-1)
     relation_type: Mapped[str] = mapped_column(String(80))
     description: Mapped[str] = mapped_column(Text, default="")
@@ -63,6 +65,7 @@ class Glossary(Identified, Base):
 
 class Memory(Identified, Base):
     __tablename__ = "memories"
+    __table_args__ = (Index("ix_memories_segment_kind", "segment_id", "kind"),)
     project_id: Mapped[str] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), index=True)
     segment_id: Mapped[str | None] = mapped_column(ForeignKey("segments.id", ondelete="CASCADE"))
     position: Mapped[int] = mapped_column(Integer, default=-1)
@@ -71,8 +74,19 @@ class Memory(Identified, Base):
     validated: Mapped[bool] = mapped_column(Boolean, default=False)
 
 
+OUTBOX_PENDING = "status <> 'sent'"
+
+
 class Outbox(Identified, Base):
     __tablename__ = "memory_outbox"
+    __table_args__ = (
+        Index(
+            "ix_memory_outbox_pending",
+            "next_attempt",
+            postgresql_where=text(OUTBOX_PENDING),
+            sqlite_where=text(OUTBOX_PENDING),
+        ),
+    )
     project_id: Mapped[str] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), index=True)
     event_key: Mapped[str] = mapped_column(String(150), unique=True)
     session_name: Mapped[str] = mapped_column(String(100))

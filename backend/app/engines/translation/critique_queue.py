@@ -7,6 +7,7 @@ from app.engines.context.builder import build_context
 from app.engines.epub.text import restore_missing_codes
 from app.engines.quality.checks import validate_translation
 from app.engines.translation.versions import save_version
+from app.jobs.concurrency import blocking
 from app.jobs.queue import checkpoint, emit, fence
 from app.models import Issue, Job, Project, Segment
 from app.providers.llm import LLMError, ProviderAuthenticationRequired, ProviderUnavailable, llm
@@ -45,40 +46,103 @@ def _unqueue(segment: Segment, item: dict) -> None:
     ]
 
 
+def _queued_item(job: Job, item: dict):
+    """Short read. No session or transaction may stay open while the model is working."""
+    with SessionLocal() as db:
+        segment = db.get(Segment, item["segment_id"])
+        project = db.get(Project, job.project_id)
+        critique = next(
+            (value for value in (segment.critique if segment else []) if matches_acceptance(value, item)),
+            None,
+        )
+        if not segment or not critique:
+            return None
+        target = next((unit for unit in segment.translated_units if unit["id"] == item["unit_id"]), None)
+        source = next((unit for unit in segment.units if unit["id"] == item["unit_id"]), None)
+        if not target or not source:
+            _unqueue(segment, item)
+            db.commit()
+            return None
+        provider_id = job.provider_id or project.provider_id
+        translated = [dict(unit) for unit in segment.translated_units]
+        return (
+            project.id, segment.id, segment.revision, provider_id, translated, dict(target), dict(source),
+            dict(critique),
+        )
+
+
+def _apply_item(job, owner, item, project_id, segment_id, revision, translated, failure) -> None:
+    """Write, only if this worker still owns the job (a pause or cancel during the call wins)."""
+    with SessionLocal() as db:
+        fence(db, job.id, owner)
+        segment = db.get(Segment, segment_id)
+        if segment is None:
+            return
+        if not failure and not save_version(
+            db,
+            segment_id,
+            translated,
+            "human",
+            revision,
+            author_id=item["author_id"],
+            validated=False,
+            stage="done",
+        ):
+            db.rollback()
+            fence(db, job.id, owner)
+            segment = db.get(Segment, segment_id)
+            failure = "La traduction a été modifiée avant le traitement de la file."
+        if failure:
+            _unqueue(segment, item)
+            db.add(
+                Issue(
+                    project_id=project_id,
+                    segment_id=segment_id,
+                    severity="warning",
+                    code="queued_critique_failed",
+                    message=f"Proposition acceptée non appliquée : {failure}",
+                )
+            )
+        else:
+            db.refresh(segment)
+            segment.critique = [value for value in segment.critique if not matches_acceptance(value, item)]
+            if not segment.critique:
+                for issue in db.scalars(
+                    select(Issue).where(
+                        Issue.segment_id == segment_id,
+                        Issue.code == "queued_critique_failed",
+                        Issue.resolved.is_(False),
+                    )
+                ):
+                    issue.resolved = True
+                db.flush()
+            unresolved = db.scalar(
+                select(Issue.id).where(Issue.segment_id == segment_id, Issue.resolved.is_(False)).limit(1)
+            )
+            segment.status = "check" if segment.critique or unresolved else "ok"
+            emit(db, project_id, segment_id=segment_id, status="ai_suggestion_accepted")
+        db.commit()
+
+
 async def accept_queued_critiques(job: Job, owner: str) -> None:
     """Apply accepted AI proposals one at a time so a failed proposal never blocks the queue."""
     index = max(int(job.checkpoint.get("current", 1)) - 1, 0)
     while True:
-        current = checkpoint(job.id, owner)
+        current = await blocking(checkpoint, job.id, owner)
         queued = current.options.get("critique_acceptances", [])
         if index >= len(queued):
             return
         item = queued[index]
-        checkpoint(job.id, owner, {"step": "critique_acceptance", "current": index + 1, "total": len(queued)})
-        # 1. Short read. No session or transaction may stay open while the model is working.
-        with SessionLocal() as db:
-            segment = db.get(Segment, item["segment_id"])
-            project = db.get(Project, job.project_id)
-            critique = next(
-                (value for value in (segment.critique if segment else []) if matches_acceptance(value, item)),
-                None,
-            )
-            if not segment or not critique:
-                index += 1
-                continue
-            target = next((unit for unit in segment.translated_units if unit["id"] == item["unit_id"]), None)
-            source = next((unit for unit in segment.units if unit["id"] == item["unit_id"]), None)
-            if not target or not source:
-                _unqueue(segment, item)
-                db.commit()
-                index += 1
-                continue
-            project_id, segment_id, revision = project.id, segment.id, segment.revision
-            provider_id = job.provider_id or project.provider_id
-            translated = [dict(unit) for unit in segment.translated_units]
-            target, source, critique = dict(target), dict(source), dict(critique)
+        await blocking(
+            checkpoint, job.id, owner, {"step": "critique_acceptance", "current": index + 1, "total": len(queued)}
+        )
+        loaded = await blocking(_queued_item, job, item)
+        if loaded is None:
+            index += 1
+            continue
+        project_id, segment_id, revision, provider_id, translated, target, source, critique = loaded
 
-        # 2. Network calls, without any database resource.
+        # Network calls, without any database resource.
         failure = ""
         try:
             built = await build_context(
@@ -115,55 +179,5 @@ async def accept_queued_critiques(job: Job, owner: str) -> None:
         except (LLMError, ValueError) as exc:
             failure = str(exc)[:500]
 
-        # 3. Write, only if this worker still owns the job (a pause or cancel during the call wins).
-        with SessionLocal() as db:
-            fence(db, job.id, owner)
-            segment = db.get(Segment, segment_id)
-            if segment is None:
-                index += 1
-                continue
-            if not failure and not save_version(
-                db,
-                segment_id,
-                translated,
-                "human",
-                revision,
-                author_id=item["author_id"],
-                validated=False,
-                stage="done",
-            ):
-                db.rollback()
-                fence(db, job.id, owner)
-                segment = db.get(Segment, segment_id)
-                failure = "La traduction a été modifiée avant le traitement de la file."
-            if failure:
-                _unqueue(segment, item)
-                db.add(
-                    Issue(
-                        project_id=project_id,
-                        segment_id=segment_id,
-                        severity="warning",
-                        code="queued_critique_failed",
-                        message=f"Proposition acceptée non appliquée : {failure}",
-                    )
-                )
-            else:
-                db.refresh(segment)
-                segment.critique = [value for value in segment.critique if not matches_acceptance(value, item)]
-                if not segment.critique:
-                    for issue in db.scalars(
-                        select(Issue).where(
-                            Issue.segment_id == segment_id,
-                            Issue.code == "queued_critique_failed",
-                            Issue.resolved.is_(False),
-                        )
-                    ):
-                        issue.resolved = True
-                    db.flush()
-                unresolved = db.scalar(
-                    select(Issue.id).where(Issue.segment_id == segment_id, Issue.resolved.is_(False)).limit(1)
-                )
-                segment.status = "check" if segment.critique or unresolved else "ok"
-                emit(db, project_id, segment_id=segment_id, status="ai_suggestion_accepted")
-            db.commit()
+        await blocking(_apply_item, job, owner, item, project_id, segment_id, revision, translated, failure)
         index += 1

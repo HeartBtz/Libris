@@ -4,6 +4,7 @@ from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.orm import Session
 
 from app.db import SessionLocal
+from app.jobs.concurrency import job_lock
 from app.jobs.segment_state import FINISHED, mark
 from app.models import AppSetting, Event, Job, Project, Provider, RequestLog
 from app.models.common import uid
@@ -142,6 +143,13 @@ def claim(operations: tuple[str, ...] | None = None) -> tuple[str, str] | None:
 
 
 def checkpoint(job_id: str, owner: str, progress: dict | None = None) -> Job:
+    if progress is None:
+        return _checkpoint(job_id, owner, None)
+    with job_lock(job_id):
+        return _checkpoint(job_id, owner, progress)
+
+
+def _checkpoint(job_id: str, owner: str, progress: dict | None) -> Job:
     with SessionLocal() as db:
         job = db.scalar(select(Job).where(Job.id == job_id).with_for_update())
         if not job or job.lease_owner != owner or job.status not in RUNNING or job.lease_until < time.time():

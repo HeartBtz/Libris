@@ -32,6 +32,9 @@ class Settings(BaseSettings):
     prompt_dir: Path = Path(__file__).resolve().parents[2] / "prompts"
     # The job lease lasts 60 s: the heartbeat that renews it must stay well below.
     worker_heartbeat_seconds: int = Field(default=2, ge=1, le=20)
+    # Passages of one book translated or reviewed at once; 0 follows the provider's max_concurrency,
+    # 1 restores strictly sequential processing.
+    worker_book_parallelism: int = Field(default=0, ge=0, le=16)
     memory_catalog_interval_seconds: int = Field(default=60, ge=10, le=86400)
     provider_recovery_base_seconds: int = 60
     provider_recovery_max_seconds: int = 3600

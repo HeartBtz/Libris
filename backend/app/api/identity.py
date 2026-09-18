@@ -2,10 +2,11 @@ import hashlib
 import secrets
 import time
 
-from fastapi import APIRouter, Cookie, HTTPException, Response
+from fastapi import APIRouter, Cookie, HTTPException, Request, Response
 from pydantic import BaseModel, Field
 from sqlalchemy import delete, select
 
+from app import throttle
 from app.api.common import row
 from app.config import settings
 from app.models import LoginSession, User
@@ -37,11 +38,15 @@ class AccountUpdate(BaseModel):
 
 
 @router.post("/auth/login")
-def login(body: Credentials, response: Response, db: DB):
+def login(body: Credentials, request: Request, response: Response, db: DB):
+    client, account = request.client.host if request.client else "local", body.username.casefold()
+    throttle.check(client, account)
     user = db.scalar(select(User).where(User.username == body.username))
     matches = password_matches(body.password, user.password_hash if user else _dummy_password)
     if not user or not matches or not user.active:
+        throttle.failed(client, account)
         raise HTTPException(401, "Identifiants incorrects.")
+    throttle.succeeded(client, account)
     token = secrets.token_urlsafe(40)
     lifetime = settings().session_duration_hours * 3600
     db.execute(delete(LoginSession).where(LoginSession.expires_at < time.time()))
@@ -90,9 +95,13 @@ def logout(response: Response, user: CurrentUser, db: DB, epub_session: str = Co
 
 
 @router.put("/auth/password")
-def change_password(body: PasswordChange, response: Response, user: CurrentUser, db: DB):
+def change_password(body: PasswordChange, request: Request, response: Response, user: CurrentUser, db: DB):
+    client, account = request.client.host if request.client else "local", f"password:{user.id}"
+    throttle.check(client, account)
     if not password_matches(body.current_password, user.password_hash):
+        throttle.failed(client, account)
         raise HTTPException(400, "Mot de passe actuel incorrect.")
+    throttle.succeeded(client, account)
     user.password_hash = password_hash(body.new_password)
     db.execute(delete(LoginSession).where(LoginSession.user_id == user.id))
     db.commit()

@@ -2,6 +2,12 @@
 
 All notable changes are documented here. Libris follows [Semantic Versioning](https://semver.org/); while the project is below 1.0, minor versions may include breaking operational changes that are called out explicitly.
 
+## [Unreleased]
+
+### Security
+
+- **Login throttling.** The brute-force protection counted every login — successful ones included — in a single bucket per client address. Behind a reverse proxy all visitors share the proxy's address, so twenty logins in five minutes locked everybody out, and anyone could do it on purpose. Only failed attempts now count, per client address *and* account name (with a higher overall ceiling per address), a successful login clears the counter, and expired entries are purged. Set `FORWARDED_ALLOW_IPS` to your proxy's address so that real client addresses are used (#22).
+
 ## [0.4.0] - 2026-09-18
 
 A maintenance release coming out of a full audit of the application and of its production instance. It fixes the EPUB 3 export failures, makes the worker and provider recovery robust, stops two disk-space leaks, and repairs a number of interface defects. It is a minor version because a few behaviours change on purpose: sessions now last the documented 24 hours by default (`SESSION_DURATION_HOURS`), the live event stream of a book no longer replays its history, starting a job on a busy book answers HTTP 409, and "Configure selection" no longer overrides languages and qualities you did not set. No database migration is included.

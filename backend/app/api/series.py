@@ -8,7 +8,7 @@ import time
 from typing import Literal
 
 import httpx
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import Field
 from sqlalchemy import func, or_, select
 
@@ -21,7 +21,8 @@ from app.engines.memory.catalog import queue_catalog
 from app.engines.memory.events import ensure_events
 from app.engines.series.audit import audit
 from app.engines.series.bible import canonical, refresh_series, series_volumes
-from app.jobs.queue import HELD
+from app.i18n import localize, preferred_language
+from app.jobs.queue import HELD, RUNNING
 from app.models import (
     AuditEntry,
     Chapter,
@@ -99,7 +100,7 @@ def series_views(db, user: User, series: list[Series], include_archived: bool = 
         translated = sum(s.get("translated", 0) for s in stats)
         numbers = [p.volume_number for p in volumes if p.volume_number is not None]
         backends = sorted({p.context_backend for p in volumes})
-        running = [progress[p.id] for p in volumes if progress[p.id]["state"] in HELD]
+        running = [progress[p.id] for p in volumes if progress[p.id]["state"] in RUNNING]
         views.append(
             {
                 **row(current, ("bible",)),
@@ -498,7 +499,7 @@ def delete_series_term(series_id: str, term_id: str, user: CurrentUser, db: DB):
 
 
 @router.get("/{series_id}/entities")
-def series_entities(series_id: str, user: CurrentUser, db: DB, category: str | None = None):
+def series_entities(series_id: str, request: Request, user: CurrentUser, db: DB, category: str | None = None):
     series = series_access(db, series_id, user)
     query = select(SeriesEntity).where(SeriesEntity.series_id == series.id)
     if category:
@@ -515,6 +516,7 @@ def series_entities(series_id: str, user: CurrentUser, db: DB, category: str | N
         by_entity.setdefault(link.series_entity_id, []).append(
             {
                 **row(link),
+                "reason": localize(link.reason, preferred_language(request.headers.get("accept-language"))),
                 "local_name": local.name if local else "",
                 "local_aliases": (local.data.get("aliases", []) if local else []),
                 "volume_title": titles.get(link.project_id, ("", None))[0],

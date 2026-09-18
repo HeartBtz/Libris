@@ -22,3 +22,10 @@ def test_production_deployment_waits_for_every_image_gate():
 def test_image_gates_run_on_release_tags():
     for name in ("container-runtime", "container-scan"):
         assert "allow_failure: true" not in job_block(name)
+
+
+def test_release_tags_promote_only_images_verified_on_the_default_branch():
+    # No `needs` on the marker job: it runs after every test and image check of the branch pipeline.
+    marker = job_block("verified-image")
+    assert "needs:" not in marker and "verified-sha-$CI_COMMIT_SHA" in marker
+    assert "verified-sha-$CI_COMMIT_SHA" in job_block("release-images")

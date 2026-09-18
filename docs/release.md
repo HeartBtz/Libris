@@ -24,7 +24,7 @@ Use an annotated unsigned tag only when commit signing is not configured, and di
 
 ## Canonical GitLab release
 
-Push the release commit to the canonical GitLab repository and wait for its protected default-branch pipeline to publish the commit-SHA images. The subsequent tag pipeline verifies that the tag points into the default branch, reuses those images by digest, promotes them to GitLab Container Registry and Docker Hub tags, then creates the GitLab release. Docker Hub publication requires protected masked `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN` variables.
+Push the release commit to the canonical GitLab repository. Its protected default-branch pipeline builds the commit-SHA images, checks them and, once every job has passed, marks them `verified-sha-<commit>`. The tag pipeline does not run the tests again: it verifies that the tag points into the default branch, waits (up to 20 minutes) for that marker, reuses the verified images by digest, promotes them to GitLab Container Registry and Docker Hub tags, then creates the GitLab release. Docker Hub publication requires protected masked `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN` variables.
 
 ## GitHub mirror
 

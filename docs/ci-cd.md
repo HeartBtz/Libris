@@ -4,7 +4,19 @@ GitLab at `git.hbtz.fr/HeartBtz/libris` is the canonical repository and release 
 
 ## Pipeline flow
 
-Every branch or merge request runs backend, migration, frontend, dependency and secret checks on the separate CT105 runner. Only the protected default branch builds and pushes the commit-addressed application and Codex images. A release tag must point to a commit contained in the default branch and reuses those existing SHA images instead of rebuilding them. The build job records their registry digests as a dotenv artifact; runtime checks, the packaged EPUBCheck smoke test, the HIGH/CRITICAL vulnerability scans, publication and deployment all consume those exact digest references.
+All jobs run on the CT105 shell runner and start their tools with `docker run`; containers, networks and Compose projects are named after `$CI_JOB_ID` so that up to eight concurrent jobs never collide.
+
+| Pipeline | Jobs |
+| --- | --- |
+| Merge request, branch | `backend` (Ruff + pytest on SQLite), `backend-postgres` (migration round trip + pytest on PostgreSQL), `frontend` (build, `npm audit`, Playwright specs that mock the API), `audit` (version consistency, `pip-audit`, Gitleaks) |
+| Default branch | the same, then `container-build`, `container-runtime`, `container-scan`, and `verified-image` once everything passed |
+| Release tag `vX.Y.Z` | `release-policy`, `release-images`, `container-runtime`, `container-scan`, publication, release, `deploy-production` |
+
+A merge request that only changes documentation (nothing under `backend/`, `frontend/`, `codex_bridge/`, `prompts/`, `scripts/`, `deploy/`, the Dockerfile, the Compose files or this pipeline) only runs `audit`: version pins live in the README and docs. pip and npm downloads are cached per lockfile (`.cache/pip`, `.cache/npm` in the runner cache).
+
+Only the protected default branch builds and pushes the commit-addressed application and Codex images (`sha-<commit>`, `codex-sha-<commit>`). The build job records their registry digests as a dotenv artifact; runtime checks, the packaged EPUBCheck smoke test, the HIGH/CRITICAL vulnerability scan, publication and deployment all consume those exact digest references. Trivy analyses each image once: the application report is both the gate and the CycloneDX SBOM artifact (every package, HIGH/CRITICAL findings that have a fix).
+
+When every job of the default-branch pipeline has passed, `verified-image` adds the `verified-sha-<commit>` tag. A release tag must point to a commit contained in the default branch and does not run the tests again: `release-images` waits up to 20 minutes for that marker (the tag is often pushed while the branch pipeline is still running), then promotes the `sha-<commit>` digests. If the branch pipeline failed, make it pass and retry `release-images`.
 
 A semantic tag such as `v0.3.1` promotes that exact SHA image to three version aliases:
 
@@ -18,7 +30,7 @@ GitLab also creates its release object from the protected tag. The GitHub mirror
 
 ## Required GitLab settings
 
-Protect `main` and tags matching `v*`. Enable the project Container Registry, protect immutable `sha-*`, `codex-sha-*` and exact-version image tags from overwrites, and keep the existing GitHub push mirror directed from GitLab to GitHub. Enable **Prevent outdated deployment jobs** and disable retries of outdated deployment jobs. Do not push release commits directly to GitHub because the next mirror update can overwrite divergent refs.
+Protect `main` and tags matching `v*`. Enable the project Container Registry, protect immutable `sha-*`, `codex-sha-*`, `verified-sha-*` and exact-version image tags from overwrites, and keep the existing GitHub push mirror directed from GitLab to GitHub. Enable **Prevent outdated deployment jobs** and disable retries of outdated deployment jobs. Do not push release commits directly to GitHub because the next mirror update can overwrite divergent refs.
 
 Add these protected and masked CI/CD variables in **Settings > CI/CD > Variables**:
 

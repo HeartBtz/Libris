@@ -8,6 +8,7 @@ workflow:
       when: never
     - if: $CI_COMMIT_BRANCH
 
+# Jobs that write to the registry, a release or production are not interruptible; checks are.
 default:
   interruptible: true
   timeout: 30 minutes
@@ -15,54 +16,128 @@ default:
 variables:
   DOCKER_BUILDKIT: "1"
   DOCKERHUB_IMAGE: heartbtz/libris
+  PYTHON_IMAGE: python:3.13-bookworm
+  POSTGRES_IMAGE: postgres:17-bookworm
   PLAYWRIGHT_IMAGE: mcr.microsoft.com/playwright:v1.63.0-noble
+  GITLEAKS_IMAGE: ghcr.io/gitleaks/gitleaks:v8.28.0
   TRIVY_IMAGE: aquasec/trivy@sha256:62b1e65e8869bc4b4c6aa4fa2b21595256c7c2f6018a9d9ad61caf87187c1969
+  PYTHON_TEST_DEPS: pip install -q -r backend/requirements.lock && pip install -q -e './backend[test]'
 
-migration-postgres:
+# A release tag reuses what the default branch already tested: no test job runs on tags, and a merge
+# request that only touches documentation neither tests the code nor builds an image.
+.code-rules:
+  rules:
+    - if: $CI_COMMIT_TAG
+      when: never
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      changes:
+        paths:
+          - backend/**/*
+          - frontend/**/*
+          - codex_bridge/**/*
+          - prompts/**/*
+          - scripts/**/*
+          - deploy/**/*
+          - Dockerfile
+          - .dockerignore
+          - docker-compose.yml
+          - docker-compose.test.yml
+          - .gitlab-ci.yml
+    - if: $CI_COMMIT_BRANCH
+
+.pip-cache:
+  cache:
+    key:
+      prefix: pip
+      files: [backend/requirements.lock, backend/pyproject.toml]
+    paths: [.cache/pip/]
+
+.registry-login:
+  before_script:
+    - export DOCKER_CONFIG="$CI_PROJECT_DIR/.docker-$CI_JOB_ID"
+    - mkdir -p "$DOCKER_CONFIG"
+    - echo "$CI_REGISTRY_PASSWORD" | docker login "$CI_REGISTRY" --username "$CI_REGISTRY_USER" --password-stdin
+  after_script:
+    - rm -rf "$CI_PROJECT_DIR/.docker-$CI_JOB_ID"
+
+# Jobs that consume the digest-pinned images recorded by container-build or release-images.
+.pinned-images:
+  extends: .registry-login
+  before_script:
+    - !reference [.registry-login, before_script]
+    - docker pull --quiet "$APP_IMAGE_REFERENCE"
+    - docker pull --quiet "$CODEX_IMAGE_REFERENCE"
+
+backend:
   stage: test
+  extends: [.code-rules, .pip-cache]
+  script:
+    - >-
+      docker run --rm --volume "$CI_PROJECT_DIR:/work" --workdir /work
+      --env PIP_CACHE_DIR=/work/.cache/pip --env PIP_DISABLE_PIP_VERSION_CHECK=1 --env PIP_ROOT_USER_ACTION=ignore
+      "$PYTHON_IMAGE" sh -lc "$PYTHON_TEST_DEPS && cd backend && ruff check app tests && pytest -q"
+
+backend-postgres:
+  stage: test
+  extends: [.code-rules, .pip-cache]
   script:
     - DB_CONTAINER="libris-ci-postgres-$CI_JOB_ID"
     # Throwaway database: keep its data in memory so that nothing can be left on the runner's disk.
-    - docker run --detach --name "$DB_CONTAINER" --tmpfs /var/lib/postgresql/data --env POSTGRES_DB=libris_test --env POSTGRES_USER=libris --env POSTGRES_PASSWORD=libris_test_password postgres:17-bookworm
-    - for attempt in $(seq 1 30); do docker exec "$DB_CONTAINER" pg_isready -U libris -d libris_test && break; test "$attempt" -lt 30; sleep 1; done
+    - docker run --detach --name "$DB_CONTAINER" --tmpfs /var/lib/postgresql/data --env POSTGRES_DB=libris_test --env POSTGRES_USER=libris --env POSTGRES_PASSWORD=libris_test_password "$POSTGRES_IMAGE"
+    # TCP only answers once the image's initialisation (and its restart) is over.
+    - for attempt in $(seq 1 30); do docker exec "$DB_CONTAINER" pg_isready -h 127.0.0.1 -U libris -d libris_test && break; test "$attempt" -lt 30; sleep 1; done
     - >-
       docker run --rm --network "container:$DB_CONTAINER"
       --volume "$CI_PROJECT_DIR:/work" --workdir /work
+      --env PIP_CACHE_DIR=/work/.cache/pip --env PIP_DISABLE_PIP_VERSION_CHECK=1 --env PIP_ROOT_USER_ACTION=ignore
       --env DATABASE_URL=postgresql+psycopg://libris:libris_test_password@127.0.0.1:5432/libris_test
       --env LIBRIS_TEST_DATABASE_URL=postgresql+psycopg://libris:libris_test_password@127.0.0.1:5432/libris_test
       --env SECRET_KEY=ci-only-secret-key-with-more-than-32-characters
       --env BOOTSTRAP_PASSWORD=ci-only-password-with-more-than-16-characters
-      python:3.13-bookworm sh -lc
-      "pip install -q -r backend/requirements.lock && pip install -q -e './backend[test]' && cd backend && alembic upgrade head && alembic downgrade c93b8c242df1 && alembic upgrade head && pytest -q"
+      "$PYTHON_IMAGE" sh -lc
+      "$PYTHON_TEST_DEPS && cd backend && alembic upgrade head && alembic downgrade c93b8c242df1 && alembic upgrade head && pytest -q"
   after_script:
     - docker rm --force --volumes "libris-ci-postgres-$CI_JOB_ID" >/dev/null 2>&1 || true
 
-backend:
-  stage: test
-  script:
-    - >-
-      docker run --rm --volume "$CI_PROJECT_DIR:/work" --workdir /work
-      --env CI_COMMIT_TAG="${CI_COMMIT_TAG:-}"
-      python:3.13-bookworm sh -lc
-      "pip install -q -r backend/requirements.lock && pip install -q -e './backend[test]' && if [ -n \"\$CI_COMMIT_TAG\" ]; then python3 scripts/check_version.py \"\$CI_COMMIT_TAG\"; else python3 scripts/check_version.py; fi && cd backend && pytest -q && ruff check app tests"
-
 frontend:
   stage: test
+  extends: .code-rules
+  cache:
+    key:
+      prefix: npm
+      files: [frontend/package-lock.json]
+    paths: [.cache/npm/]
   script:
-    - docker run --rm --volume "$CI_PROJECT_DIR:/work" --workdir /work/frontend node:22-bookworm sh -lc "npm ci --cache .npm --prefer-offline && npm run build && npm audit --omit=dev --audit-level=high"
-    - docker run --rm --ipc=host --volume "$CI_PROJECT_DIR:/work" --workdir /work/frontend --env CI=true "$PLAYWRIGHT_IMAGE" sh -lc "npm ci --cache .npm --prefer-offline && npx playwright test e2e/accounts.spec.ts e2e/batch-configure.spec.ts e2e/editor-conflict.spec.ts e2e/errors.spec.ts e2e/library-import.spec.ts e2e/providers.spec.ts e2e/showcase.spec.ts e2e/stale-responses.spec.ts"
+    # One container and one `npm ci`: the Playwright image also builds and audits the application.
+    - >-
+      docker run --rm --ipc=host --volume "$CI_PROJECT_DIR:/work" --workdir /work/frontend
+      --env CI=true --env npm_config_cache=/work/.cache/npm
+      "$PLAYWRIGHT_IMAGE" sh -lc
+      "npm ci --prefer-offline --no-audit --no-fund && npm run build && npm audit --omit=dev --audit-level=high && npx playwright test --grep-invert '@integration|@journey'"
+  artifacts:
+    when: on_failure
+    paths: [frontend/test-results/]
+    expire_in: 7 days
 
-security:
-  stage: test
-  script:
-    - docker run --rm --volume "$CI_PROJECT_DIR:/work" --workdir /work python:3.13-bookworm sh -lc "pip install -q pip-audit==2.9.0 && pip-audit -r backend/requirements.lock"
-
-secret-scan:
+# Always runs, documentation-only changes included: version pins live in the README and docs.
+audit:
   stage: test
   variables:
     GIT_DEPTH: "0"
+  cache:
+    key: pip-audit-2.9.0
+    paths: [.cache/pip-audit/]
   script:
-    - docker run --rm --volume "$CI_PROJECT_DIR:/repo" ghcr.io/gitleaks/gitleaks:v8.28.0 git /repo --redact --no-banner
+    - >-
+      docker run --rm --volume "$CI_PROJECT_DIR:/work" --workdir /work
+      --env PIP_CACHE_DIR=/work/.cache/pip-audit --env PIP_DISABLE_PIP_VERSION_CHECK=1 --env PIP_ROOT_USER_ACTION=ignore
+      "$PYTHON_IMAGE" sh -lc
+      "python3 scripts/check_version.py && pip install -q pip-audit==2.9.0 && pip-audit -r backend/requirements.lock"
+    - docker run --rm --volume "$CI_PROJECT_DIR:/repo" "$GITLEAKS_IMAGE" git /repo --redact --no-banner
+  rules:
+    - if: $CI_COMMIT_TAG
+      when: never
+    - when: on_success
 
 release-policy:
   stage: test
@@ -71,17 +146,14 @@ release-policy:
   script:
     - git fetch --no-tags origin "$CI_DEFAULT_BRANCH:refs/remotes/origin/$CI_DEFAULT_BRANCH"
     - git merge-base --is-ancestor "$CI_COMMIT_SHA" "origin/$CI_DEFAULT_BRANCH"
-    - docker run --rm --volume "$CI_PROJECT_DIR:/work" --workdir /work python:3.13-bookworm python3 scripts/check_version.py "$CI_COMMIT_TAG"
+    - docker run --rm --volume "$CI_PROJECT_DIR:/work" --workdir /work "$PYTHON_IMAGE" python3 scripts/check_version.py "$CI_COMMIT_TAG"
   rules:
     - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/
 
 container-build:
   stage: build
+  extends: .registry-login
   interruptible: false
-  before_script:
-    - export DOCKER_CONFIG="$CI_PROJECT_DIR/.docker-$CI_JOB_ID"
-    - mkdir -p "$DOCKER_CONFIG"
-    - echo "$CI_REGISTRY_PASSWORD" | docker login "$CI_REGISTRY" --username "$CI_REGISTRY_USER" --password-stdin
   script:
     # Every default-branch commit leaves two ~500 MB images on the shared runner. Drop this project's own
     # unused images after three days: they all remain in the registry, and nothing else on the runner is touched.
@@ -92,8 +164,6 @@ container-build:
     - CODEX_IMAGE_REFERENCE="$(docker image inspect --format '{{ index .RepoDigests 0 }}' "$CI_REGISTRY_IMAGE:codex-sha-$CI_COMMIT_SHA")"
     - test -n "$APP_IMAGE_REFERENCE" && test -n "$CODEX_IMAGE_REFERENCE"
     - printf 'APP_IMAGE_REFERENCE=%s\nCODEX_IMAGE_REFERENCE=%s\n' "$APP_IMAGE_REFERENCE" "$CODEX_IMAGE_REFERENCE" > image.env
-  after_script:
-    - rm -rf "$CI_PROJECT_DIR/.docker-$CI_JOB_ID"
   artifacts:
     reports:
       dotenv: image.env
@@ -101,22 +171,42 @@ container-build:
   rules:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
 
+# Runs after every other default-branch job (no `needs`): the marker certifies that the commit passed
+# the tests, the image checks and the scan. Release tags wait for it instead of racing the branch pipeline.
+verified-image:
+  stage: publish
+  extends: .registry-login
+  interruptible: false
+  script:
+    - docker pull --quiet "$APP_IMAGE_REFERENCE"
+    - docker tag "$APP_IMAGE_REFERENCE" "$CI_REGISTRY_IMAGE:verified-sha-$CI_COMMIT_SHA"
+    - docker push --quiet "$CI_REGISTRY_IMAGE:verified-sha-$CI_COMMIT_SHA"
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
 release-images:
   stage: build
-  interruptible: false
-  before_script:
-    - export DOCKER_CONFIG="$CI_PROJECT_DIR/.docker-$CI_JOB_ID"
-    - mkdir -p "$DOCKER_CONFIG"
-    - echo "$CI_REGISTRY_PASSWORD" | docker login "$CI_REGISTRY" --username "$CI_REGISTRY_USER" --password-stdin
+  extends: .registry-login
+  timeout: 25 minutes
   script:
-    - docker pull "$CI_REGISTRY_IMAGE:sha-$CI_COMMIT_SHA"
-    - docker pull "$CI_REGISTRY_IMAGE:codex-sha-$CI_COMMIT_SHA"
+    # A tag pushed right after its merge starts while the default-branch pipeline is still testing: wait up
+    # to 20 minutes for that pipeline's marker, then promote the exact `sha-` digests it verified.
+    - |
+      for attempt in $(seq 1 40); do
+        if docker pull --quiet "$CI_REGISTRY_IMAGE:verified-sha-$CI_COMMIT_SHA" >/dev/null 2>&1; then break; fi
+        if [ "$attempt" -eq 40 ]; then
+          echo "$CI_COMMIT_SHORT_SHA was never verified on $CI_DEFAULT_BRANCH: make its pipeline pass, then retry this job." >&2
+          exit 1
+        fi
+        echo "Waiting for the $CI_DEFAULT_BRANCH pipeline to verify $CI_COMMIT_SHORT_SHA ($attempt/40)"
+        sleep 30
+      done
+    - docker pull --quiet "$CI_REGISTRY_IMAGE:sha-$CI_COMMIT_SHA"
+    - docker pull --quiet "$CI_REGISTRY_IMAGE:codex-sha-$CI_COMMIT_SHA"
     - APP_IMAGE_REFERENCE="$(docker image inspect --format '{{ index .RepoDigests 0 }}' "$CI_REGISTRY_IMAGE:sha-$CI_COMMIT_SHA")"
     - CODEX_IMAGE_REFERENCE="$(docker image inspect --format '{{ index .RepoDigests 0 }}' "$CI_REGISTRY_IMAGE:codex-sha-$CI_COMMIT_SHA")"
     - test -n "$APP_IMAGE_REFERENCE" && test -n "$CODEX_IMAGE_REFERENCE"
     - printf 'APP_IMAGE_REFERENCE=%s\nCODEX_IMAGE_REFERENCE=%s\n' "$APP_IMAGE_REFERENCE" "$CODEX_IMAGE_REFERENCE" > image.env
-  after_script:
-    - rm -rf "$CI_PROJECT_DIR/.docker-$CI_JOB_ID"
   artifacts:
     reports:
       dotenv: image.env
@@ -126,17 +216,12 @@ release-images:
 
 container-runtime:
   stage: verify
+  extends: .pinned-images
   needs:
     - job: container-build
       optional: true
     - job: release-images
       optional: true
-  before_script:
-    - export DOCKER_CONFIG="$CI_PROJECT_DIR/.docker-$CI_JOB_ID"
-    - mkdir -p "$DOCKER_CONFIG"
-    - echo "$CI_REGISTRY_PASSWORD" | docker login "$CI_REGISTRY" --username "$CI_REGISTRY_USER" --password-stdin
-    - docker pull "$APP_IMAGE_REFERENCE"
-    - docker pull "$CODEX_IMAGE_REFERENCE"
   script:
     - APP_VERSION="$(docker run --rm --entrypoint python "$APP_IMAGE_REFERENCE" -c 'import app; print(app.__version__)')"
     - LABEL_VERSION="$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.version" }}' "$APP_IMAGE_REFERENCE")"
@@ -147,33 +232,32 @@ container-runtime:
     - test "$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.version" }}' "$CODEX_IMAGE_REFERENCE")" = "$APP_VERSION"
     - docker run --rm --entrypoint codex "$CODEX_IMAGE_REFERENCE" --version
     - docker run --rm --interactive --entrypoint python "$APP_IMAGE_REFERENCE" - < scripts/check_epubcheck.py
-  after_script:
-    - rm -rf "$CI_PROJECT_DIR/.docker-$CI_JOB_ID"
   rules:
     - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
 
 container-scan:
   stage: verify
+  extends: .pinned-images
   resource_group: libris-trivy-cache
   needs:
     - job: container-build
       optional: true
     - job: release-images
       optional: true
-  before_script:
-    - export DOCKER_CONFIG="$CI_PROJECT_DIR/.docker-$CI_JOB_ID"
-    - export TRIVY_CACHE_VOLUME=libris-trivy-cache
-    - mkdir -p "$DOCKER_CONFIG"
-    - echo "$CI_REGISTRY_PASSWORD" | docker login "$CI_REGISTRY" --username "$CI_REGISTRY_USER" --password-stdin
-    - docker pull "$APP_IMAGE_REFERENCE"
-    - docker volume create "$TRIVY_CACHE_VOLUME" >/dev/null
+  variables:
+    TRIVY_CACHE_VOLUME: libris-trivy-cache
   script:
-    - docker run --rm --env TMPDIR=/root/.cache/trivy --volume "$TRIVY_CACHE_VOLUME:/root/.cache/trivy" --volume /var/run/docker.sock:/var/run/docker.sock "$TRIVY_IMAGE" image --scanners vuln --format cyclonedx "$APP_IMAGE_REFERENCE" > libris.cdx.json
-    - docker run --rm --env TMPDIR=/root/.cache/trivy --volume "$TRIVY_CACHE_VOLUME:/root/.cache/trivy" --volume /var/run/docker.sock:/var/run/docker.sock "$TRIVY_IMAGE" image --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 "$APP_IMAGE_REFERENCE"
-    - docker run --rm --env TMPDIR=/root/.cache/trivy --volume "$TRIVY_CACHE_VOLUME:/root/.cache/trivy" --volume /var/run/docker.sock:/var/run/docker.sock "$TRIVY_IMAGE" image --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 "$CODEX_IMAGE_REFERENCE"
-  after_script:
-    - rm -rf "$CI_PROJECT_DIR/.docker-$CI_JOB_ID"
+    - docker volume create "$TRIVY_CACHE_VOLUME" >/dev/null
+    - trivy() { docker run --rm --env TMPDIR=/root/.cache/trivy --volume "$TRIVY_CACHE_VOLUME:/root/.cache/trivy" --volume /var/run/docker.sock:/var/run/docker.sock --volume "$CI_PROJECT_DIR:/out" "$TRIVY_IMAGE" "$@"; }
+    - trivy image --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 "$CODEX_IMAGE_REFERENCE"
+    # One analysis of the application image gives both the gate and the SBOM (all packages, HIGH/CRITICAL
+    # fixable findings); `convert` only reformats that report.
+    - status=0
+    - trivy image --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --list-all-pkgs --format json --output /out/libris.trivy.json --exit-code 1 "$APP_IMAGE_REFERENCE" || status=$?
+    - trivy convert --format table /out/libris.trivy.json
+    - trivy convert --format cyclonedx --output /out/libris.cdx.json /out/libris.trivy.json
+    - test "$status" -eq 0
   artifacts:
     when: always
     paths: [libris.cdx.json]
@@ -184,15 +268,8 @@ container-scan:
 
 .publish-image:
   stage: publish
+  extends: .pinned-images
   interruptible: false
-  before_script:
-    - export DOCKER_CONFIG="$CI_PROJECT_DIR/.docker-$CI_JOB_ID"
-    - mkdir -p "$DOCKER_CONFIG"
-    - echo "$CI_REGISTRY_PASSWORD" | docker login "$CI_REGISTRY" --username "$CI_REGISTRY_USER" --password-stdin
-    - docker pull "$APP_IMAGE_REFERENCE"
-    - docker pull "$CODEX_IMAGE_REFERENCE"
-  after_script:
-    - rm -rf "$CI_PROJECT_DIR/.docker-$CI_JOB_ID"
   rules:
     - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/
 
@@ -206,10 +283,7 @@ publish-gitlab:
 publish-dockerhub:
   extends: .publish-image
   before_script:
-    - export DOCKER_CONFIG="$CI_PROJECT_DIR/.docker-$CI_JOB_ID"
-    - mkdir -p "$DOCKER_CONFIG"
-    - echo "$CI_REGISTRY_PASSWORD" | docker login "$CI_REGISTRY" --username "$CI_REGISTRY_USER" --password-stdin
-    - docker pull "$APP_IMAGE_REFERENCE"
+    - !reference [.pinned-images, before_script]
     - echo "$DOCKERHUB_TOKEN" | docker login --username "$DOCKERHUB_USERNAME" --password-stdin
   script:
     - VERSION="${CI_COMMIT_TAG#v}"

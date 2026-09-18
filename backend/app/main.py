@@ -20,6 +20,7 @@ from app.api import (
     estimates,
     exports,
     identity,
+    imports,
     memory,
     monitoring,
     observability,
@@ -27,6 +28,7 @@ from app.api import (
     providers,
     recovery,
     segments,
+    series,
 )
 from app.config import settings
 from app.db import SessionLocal
@@ -164,7 +166,10 @@ async def unexpected(request: Request, exc: Exception):
     )
 
 
-for module in (identity, providers, recovery, exports, projects, segments, memory, observability, characters, coverage):
+for module in (
+    identity, providers, recovery, exports, projects, segments, memory, observability, characters, coverage,
+    series, imports,
+):  # fmt: skip
     app.include_router(module.router)
 app.include_router(estimates.router)
 app.include_router(monitoring.router)

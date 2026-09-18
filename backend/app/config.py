@@ -17,6 +17,12 @@ class Settings(BaseSettings):
     allowed_origins: str = "http://localhost:8088,http://127.0.0.1:8088"
     session_duration_hours: int = Field(default=24, ge=1, le=24 * 90)
     max_upload_mb: int = 60
+    # Two-phase imports: files kept for inspection before the commit (DATA_DIR/staging).
+    import_max_files: int = Field(default=500, ge=1, le=5000)
+    import_max_session_mb: int = Field(default=2048, ge=1)
+    import_session_hours: int = Field(default=24, ge=1, le=24 * 30)
+    # Characters of one text chapter (TXT file or JSON chapter), after decoding.
+    text_chapter_max_chars: int = Field(default=2_000_000, ge=1000, le=50_000_000)
     max_unpacked_mb: int = 300
     max_entries: int = 5000
     # Whole-archive compression ratio above which an EPUB is refused as a possible zip bomb.
@@ -56,7 +62,7 @@ class Settings(BaseSettings):
     metrics_token: str = ""
 
     def prepare(self) -> None:
-        for name in ("books", "projects", "exports"):
+        for name in ("books", "projects", "exports", "sources", "staging"):
             (self.data_dir / name).mkdir(parents=True, exist_ok=True)
         if len(self.secret_key) < 32:
             raise RuntimeError("SECRET_KEY doit contenir au moins 32 caractères (voir .env.example).")

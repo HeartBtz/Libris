@@ -260,6 +260,18 @@ def upgrade():
         postgresql_where=sa.text(LIVE_REQUEST),
         sqlite_where=sa.text(LIVE_REQUEST),
     )
+    op.create_table(
+        "import_sessions",
+        sa.Column("id", sa.String(36), primary_key=True),
+        sa.Column("owner_id", sa.String(36), sa.ForeignKey("users.id", ondelete="CASCADE"), nullable=False),
+        sa.Column("format", sa.String(10), nullable=False),
+        sa.Column("files", sa.JSON(), nullable=False),
+        sa.Column("result", sa.JSON(), nullable=True),
+        sa.Column("expires_at", sa.Float(), nullable=False),
+        created(),
+    )
+    op.create_index("ix_import_sessions_owner_id", "import_sessions", ["owner_id"])
+    op.create_index("ix_import_sessions_expires_at", "import_sessions", ["expires_at"])
     migrate_existing_books()
 
 
@@ -383,6 +395,9 @@ def migrate_existing_books():
 def downgrade():
     # TXT and JSON volumes stay in the tables (their passages and translations are intact), but 0.5
     # cannot export them: it only knows EPUB sources.
+    op.drop_index("ix_import_sessions_expires_at", table_name="import_sessions")
+    op.drop_index("ix_import_sessions_owner_id", table_name="import_sessions")
+    op.drop_table("import_sessions")
     op.drop_index("ix_translation_requests_live", table_name="translation_requests")
     for column in ("owner_id", "series_id", "project_id"):
         op.drop_index(f"ix_translation_requests_{column}", table_name="translation_requests")

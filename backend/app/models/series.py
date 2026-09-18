@@ -194,3 +194,16 @@ class TranslationRequest(Identified, Base):
     chapter_ids: Mapped[list] = mapped_column(JSON, default=list)
     error: Mapped[str] = mapped_column(Text, default="")
     updated_at: Mapped[float] = mapped_column(Float, default=time.time, onupdate=time.time)
+
+
+class ImportSession(Identified, Base):
+    """Files uploaded for inspection; nothing becomes a project before the commit."""
+
+    __tablename__ = "import_sessions"
+    owner_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    format: Mapped[str] = mapped_column(String(10))
+    # [{"index", "name", "size", "sha256", "path", "inspection"}]; files live under DATA_DIR/staging.
+    files: Mapped[list] = mapped_column(JSON, default=list)
+    # The commit's answer, returned again when the same commit is repeated.
+    result: Mapped[dict | None] = mapped_column(JSON)
+    expires_at: Mapped[float] = mapped_column(Float, index=True)

@@ -359,6 +359,22 @@ def chapter_instructions(project_id: str, chapter_id: str, body: InstructionInpu
     return row(chapter)
 
 
+class StaleInput(BaseModel):
+    stale: bool
+
+
+@router.put("/{project_id}/chapters/{chapter_id}/stale")
+def chapter_stale(project_id: str, chapter_id: str, body: StaleInput, user: CurrentUser, db: DB):
+    """An earlier chapter's source changed: a person checked this one, or asks for it to be checked."""
+    access(db, project_id, user, write=True)
+    chapter = db.get(Chapter, chapter_id)
+    if not chapter or chapter.project_id != project_id:
+        raise HTTPException(404, "Chapitre introuvable.")
+    chapter.context_stale = body.stale
+    db.commit()
+    return row(chapter)
+
+
 @router.post("/{project_id}/jobs", status_code=202)
 def start_job(project_id: str, body: JobInput, user: CurrentUser, db: DB):
     project = access(db, project_id, user, write=True)

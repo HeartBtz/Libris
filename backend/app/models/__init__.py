@@ -15,6 +15,7 @@ from app.models.runs import Event, Issue, Job, JobSegmentState, RequestLog
 from app.models.series import (
     ApiToken,
     AuditEntry,
+    ImportSession,
     Series,
     SeriesEntity,
     SeriesEntityLink,
@@ -50,6 +51,7 @@ __all__ = [
     "AppSetting",
     "ApiToken",
     "AuditEntry",
+    "ImportSession",
     "Series",
     "SeriesEntity",
     "SeriesEntityLink",

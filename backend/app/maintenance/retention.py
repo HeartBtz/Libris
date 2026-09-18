@@ -11,6 +11,7 @@ PostgreSQL reuses the freed space but only returns it to the operating system af
 """
 
 import argparse
+import shutil
 import time
 
 from sqlalchemy import Text, cast, delete, func, select, update
@@ -18,7 +19,7 @@ from sqlalchemy import Text, cast, delete, func, select, update
 from app.config import settings
 from app.db import SessionLocal
 from app.jobs.segment_state import REVIEWED
-from app.models import BibleRevision, Event, Job, JobSegmentState, Outbox, RequestLog
+from app.models import BibleRevision, Event, ImportSession, Job, JobSegmentState, Outbox, RequestLog
 
 DAY = 86400
 KEPT_EVENTS = 500  # per book, whatever their age: the interface replays recent progress from them
@@ -147,6 +148,22 @@ def job_state(days: int, dry_run: bool, now: float) -> int:
     return done
 
 
+def import_sessions(dry_run: bool, now: float) -> int:
+    """Expired imports lose their uploaded files; a confirmed one keeps its answer a week longer."""
+    from app.engines.ingestion.store import data_path
+
+    with SessionLocal() as db:
+        expired = list(db.scalars(select(ImportSession).where(ImportSession.expires_at < now)))
+        if dry_run:
+            return len(expired)
+        for session in expired:
+            shutil.rmtree(data_path(f"staging/{session.id}"), ignore_errors=True)
+            if session.result is None or session.expires_at < now - 7 * DAY:
+                db.delete(session)
+        db.commit()
+    return len(expired)
+
+
 def apply(dry_run: bool = False) -> dict:
     config, now = settings(), time.time()
     return {
@@ -155,6 +172,7 @@ def apply(dry_run: bool = False) -> dict:
         "outbox": outbox(config.retention_outbox_sent_days, dry_run, now),
         "bible_revisions": bible_revisions(config.retention_bible_revisions, dry_run),
         "job_state": job_state(config.retention_job_state_days, dry_run, now),
+        "import_sessions": import_sessions(dry_run, now),
     }
 
 
@@ -167,5 +185,6 @@ if __name__ == "__main__":
     print(
         f"{result['request_bodies']} request bodies {verb} emptied; {result['events']} events, "
         f"{result['outbox']} sent outbox rows, {result['bible_revisions']} bible revisions and "
-        f"{result['job_state']} job state rows {verb} deleted."
+        f"{result['job_state']} job state rows {verb} deleted; {result['import_sessions']} expired imports "
+        f"{verb} cleaned."
     )

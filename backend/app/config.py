@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     bootstrap_password: str = ""
     bootstrap_username: str = "admin"
     cookie_secure: bool = False  # Set to True in production; tests need False
+    openapi_enabled: bool = True  # /openapi.json, for signed-in users only
     allowed_origins: str = "http://localhost:8088,http://127.0.0.1:8088"
     session_duration_hours: int = Field(default=24, ge=1, le=24 * 90)
     max_upload_mb: int = 60

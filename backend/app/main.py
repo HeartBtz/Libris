@@ -30,7 +30,7 @@ from app.limits import BodyLimit
 from app.models import User
 from app.models.common import uid
 from app.providers.llm import LLMError
-from app.security import password_hash
+from app.security import CurrentUser, password_hash
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 
@@ -56,7 +56,9 @@ async def lifespan(_app: FastAPI):
     yield
 
 
-app = FastAPI(title="Libris", version=__version__, lifespan=lifespan, docs_url=None, redoc_url=None)
+app = FastAPI(
+    title="Libris", version=__version__, lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None
+)
 login_attempts = throttle.attempts  # kept for callers that reset the throttle
 app.add_middleware(BodyLimit)
 
@@ -141,6 +143,14 @@ async def unexpected(_request: Request, exc: Exception):
 
 for module in (identity, providers, recovery, exports, projects, segments, memory, observability, characters, coverage):
     app.include_router(module.router)
+
+
+@app.get("/openapi.json", include_in_schema=False)
+def openapi_schema(_user: CurrentUser):
+    # The API map is for signed-in users only, and can be switched off entirely (OPENAPI_ENABLED).
+    if not settings().openapi_enabled:
+        return JSONResponse({"detail": "Route API inconnue."}, status_code=404)
+    return app.openapi()
 
 
 @app.get("/health")

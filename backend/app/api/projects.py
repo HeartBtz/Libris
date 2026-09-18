@@ -52,6 +52,29 @@ def project_view(db, project: Project) -> dict:
     return project_views(db, [project])[0]
 
 
+def check_series_access(db, project: Project, user: User, series_name: str) -> None:
+    """A shared editor may not pull the conventions of the owner's books they cannot read.
+
+    The owner's other volumes of a series feed the prompts of this book (terms, decisions): joining
+    a series is reading it.
+    """
+    wanted = " ".join(series_name.split()).casefold()
+    if project.owner_id == user.id or not wanted:
+        return
+    readable = set(db.scalars(select(Membership.project_id).where(Membership.user_id == user.id)))
+    for other_id, other_series in db.execute(
+        select(Project.id, Project.series_name).where(
+            Project.owner_id == project.owner_id, Project.id != project.id, Project.series_name != ""
+        )
+    ):
+        if " ".join(other_series.split()).casefold() == wanted and other_id not in readable:
+            raise HTTPException(
+                403,
+                "Seul le propriétaire peut rattacher ce livre à cette série : elle contient des livres "
+                "que vous ne pouvez pas lire.",
+            )
+
+
 def discard_book_file(project: Project) -> None:
     """The import is rolled back: its stored EPUB must not stay behind as an orphan."""
     Path(project.original_path).unlink(missing_ok=True)
@@ -153,6 +176,10 @@ def configure_series(body: SeriesBatchInput, user: CurrentUser, db: DB):
     if body.mode == "sequential" and body.first_volume + len(body.project_ids) - 1 > 10000:
         raise HTTPException(422, "La numérotation dépasse le volume 10000.")
     projects = [access(db, project_id, user, write=True) for project_id in body.project_ids]
+    if body.mode != "clear":
+        for project in projects:
+            if project.series_name != series_name:
+                check_series_access(db, project, user, series_name)
     for offset, project in enumerate(projects):
         project.series_name = "" if body.mode == "clear" else series_name
         if body.mode == "sequential":
@@ -197,6 +224,8 @@ def configure(project_id: str, body: ProjectConfig, user: CurrentUser, db: DB):
         raise HTTPException(409, "Mettez le travail en pause avant de modifier sa configuration.")
     if body.provider_id and not db.get(Provider, body.provider_id):
         raise HTTPException(422, "Provider inconnu.")
+    if "series_name" in changed:
+        check_series_access(db, project, user, body.series_name)
     for key, value in values.items():
         setattr(project, key, value)
     for job in db.scalars(select(Job).where(Job.project_id == project_id, Job.status.in_(HELD))):

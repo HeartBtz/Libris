@@ -16,6 +16,7 @@ All notable changes are documented here. Libris follows [Semantic Versioning](ht
 ### Security
 
 - **Login throttling.** The brute-force protection counted every login — successful ones included — in a single bucket per client address. Behind a reverse proxy all visitors share the proxy's address, so twenty logins in five minutes locked everybody out, and anyone could do it on purpose. Only failed attempts now count, per client address *and* account name (with a higher overall ceiling per address), a successful login clears the counter, and expired entries are purged. Set `FORWARDED_ALLOW_IPS` to your proxy's address so that real client addresses are used (#22).
+- **Data consistency.** Restoring a "source kept" version (or re-importing a project archive containing one) now brings back the dedicated "Original conservé" status, so the passage stays listed among those still needing a translation; conversely, replacing a kept original with a real translation settles its standing alert. Importing a glossary whose JSON root is an object (`{"terms": [...]}`) is refused with an explicit message where it used to answer "0 imported" and swallow the mistake. Saving a character sheet now refuses an empty or over-long name and a name or alias that already belongs to another confirmed character, like the dedicated alias action already did (#25).
 
 ## [0.4.0] - 2026-09-18
 

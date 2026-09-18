@@ -13,7 +13,7 @@ from app.api.common import row
 from app.config import settings
 from app.engines.context.config import memory_config
 from app.engines.memory.catalog import CATALOG_NAME, catalog_uri, queue_catalog
-from app.engines.memory.identities import canonical_bible, identities, upsert_profiles
+from app.engines.memory.identities import canonical_bible, identities, names, normalized, upsert_profiles
 from app.engines.memory.store import invalidate_after_decision
 from app.models import AppSetting, BibleRevision, Entity, Glossary, Outbox, Prompt
 from app.providers.openviking import OpenVikingClient, project_uri, validate_root
@@ -118,8 +118,20 @@ def character(pid: str, eid: str, body: Character, user: CurrentUser, db: DB):
         raise HTTPException(
             409, "Cette fiche a été fusionnée. Rechargez sa fiche canonique avant de la modifier."
         )
-    entity.data = dict(body.model_dump(), first_position=entity.data.get("first_position", -1))
-    entity.name, entity.validated = body.canonical_name, True
+    name = body.canonical_name.strip()
+    labels = [name, *body.aliases, *body.proposed_aliases]
+    if not name or any(len(label) > 300 for label in labels):
+        raise HTTPException(422, "Nom canonique requis ; noms et alias limités à 300 caractères.")
+    claimed = {normalized(label) for label in [name, *body.aliases] if label.strip()}
+    for other in identities(db, pid):
+        if other.id != eid and claimed & names(other):
+            raise HTTPException(
+                409, "Ce nom ou cet alias désigne déjà une autre fiche. Utilisez la fusion d’identités."
+            )
+    entity.data = dict(
+        body.model_dump(), canonical_name=name, first_position=entity.data.get("first_position", -1)
+    )
+    entity.name, entity.validated = name, True
     entity.identity_validated = True
     invalidate_after_decision(db, project, entity.name)
     db.commit()
@@ -215,8 +227,13 @@ async def import_terms(pid: str, file: UploadFile, user: CurrentUser, db: DB):
     text = (await file.read(2 * 1024**2 + 1)).decode("utf-8-sig")
     if len(text) > 2 * 1024**2:
         raise HTTPException(413, "Glossaire trop volumineux.")
-    data = json.loads(text) if text.lstrip().startswith("[") else list(csv.DictReader(io.StringIO(text)))
-    if not isinstance(data, list) or len(data) > 10000:
+    if text.lstrip().startswith(("[", "{")):
+        data = json.loads(text)
+        if not isinstance(data, list):
+            raise ValueError("Glossaire JSON invalide : une liste de termes [{...}, ...] est attendue.")
+    else:
+        data = list(csv.DictReader(io.StringIO(text)))
+    if len(data) > 10000:
         raise ValueError("Glossaire invalide ou trop volumineux.")
     count = 0
     for item in data:

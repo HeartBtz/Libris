@@ -33,7 +33,8 @@ test("multiple EPUB import, batch selection, canonical graph and validated relat
   await assistant.getByRole("button", { name: "Continuer" }).click();
   await assistant.getByRole("button", { name: "Continuer" }).click();
   await assistant.getByRole("button", { name: "Importer uniquement" }).click();
-  await expect(assistant.getByText("Import terminé.")).toBeVisible();
+  // Up to three EPUBs are checked with EPUBCheck while the import is confirmed.
+  await expect(assistant.getByText("Import terminé.")).toBeVisible({ timeout: 60_000 });
   await assistant.getByRole("button", { name: "Fermer" }).first().click();
   await page.getByRole("checkbox", { name: "Sélectionner Batch fixture A" }).check();
   await page.getByRole("checkbox", { name: "Sélectionner Batch fixture B" }).check();

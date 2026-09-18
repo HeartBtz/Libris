@@ -49,3 +49,15 @@ async def test_large_neighbours_leave_room_for_characters_and_glossary(seeded):
     assert neighbours <= 12000 * 3 // 5
     prompt = sum(len(m["content"].encode()) for m in built.messages)
     assert abs(built.inspector["input_estimate"] - prompt) < 1500
+
+
+def test_lexical_relevance_ignores_the_instruction_of_the_retrieval_query():
+    from app.engines.context.builder import context_query
+    from app.engines.context.providers import relevance
+
+    query = context_query("Bell raised the dagger toward the minotaur.", "[]", ["Bell"])
+    template_echo = "Earlier relationships between characters; objects mentioned; what is known now."
+    about_the_passage = "Hestia forged the dagger for Bell before the minotaur appeared."
+    assert relevance(template_echo, query) == 0
+    assert relevance(about_the_passage, query) > 0.3
+    assert relevance("dagger", "a plain query about a dagger") == 1  # queries without the template still work

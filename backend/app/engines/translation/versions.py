@@ -1,6 +1,7 @@
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
+from app.engines.context.series import human_choices
 from app.engines.memory.store import remember
 from app.engines.quality.checks import validate_translation
 from app.models import Issue, Project, Segment, TranslationVersion
@@ -31,6 +32,8 @@ def save_version(
     )
     db.add(version)
     was_retained = segment.retained_source  # read before the UPDATE refreshes the loaded row
+    # Only a correction of machine output is a reusable choice; revising one's own decision is not.
+    previous_units = [] if segment.human else list(segment.translated_units or [])
     permitted = segment.revision == base_revision and (human or not segment.human)
     if permitted:
         changed = db.execute(
@@ -68,6 +71,8 @@ def save_version(
                 "source": segment.source,
                 "translation": "\n\n".join(u["text"] for u in units),
                 "revision": base_revision + 1,
+                # A whole passage only helps where it recurs verbatim; the edits themselves travel.
+                **human_choices(segment.units, previous_units, units),
             },
             "human_decision",
             validated=True,

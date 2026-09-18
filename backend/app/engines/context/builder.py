@@ -7,6 +7,7 @@ from sqlalchemy import select
 from app.db import SessionLocal
 from app.engines.context.config import memory_config
 from app.engines.context.providers import ContextItem, HybridContextProvider
+from app.engines.context.series import prior_volumes, series_decisions, series_terms
 from app.engines.memory.identities import effective_names, plausible_name
 from app.models import Chapter, CharacterRelation, Entity, Glossary, Memory, Project, Provider, Segment
 from app.providers.llm import LLMError, estimate_tokens, load_prompt
@@ -112,80 +113,25 @@ async def build_context(
         glossary = db.scalars(
             select(Glossary).where(Glossary.project_id == project_id, Glossary.accepted.is_(True))
         ).all()
-        applicable = [g for g in glossary if mentioned(g.source, local_source)]
-        series_terms = []
-        series_decisions = []
-        if project.series_name and project.volume_number:
-            prior_projects = list(
-                db.scalars(
-                    select(Project).where(
-                        Project.owner_id == project.owner_id,
-                        Project.series_name == project.series_name,
-                        Project.source_language == project.source_language,
-                        Project.target_language == project.target_language,
-                        Project.volume_number.is_not(None),
-                        Project.volume_number < project.volume_number,
-                    ).order_by(Project.volume_number.desc())
-                )
-            )
-            prior = {candidate.id: candidate for candidate in prior_projects}
-            used_sources = {term.source.casefold() for term in glossary}
-            if prior:
-                for term in db.scalars(
-                    select(Glossary)
-                    .join(Project, Glossary.project_id == Project.id)
-                    .where(
-                        Glossary.project_id.in_(prior),
-                        Glossary.accepted.is_(True),
-                    )
-                    .order_by(
-                        Project.volume_number.desc(),
-                        Project.created_at.desc(),
-                        Glossary.created_at.desc(),
-                    )
-                ):
-                    source_key = term.source.casefold()
-                    if source_key not in used_sources and mentioned(term.source, local_source):
-                        source_project = prior[term.project_id]
-                        series_terms.append(
-                            {
-                                "source": term.source,
-                                "translation": term.translation,
-                                "locked": term.locked,
-                                "source_volume": source_project.volume_number,
-                                "source_project": source_project.title,
-                            }
-                        )
-                        used_sources.add(source_key)
-                memories = list(db.scalars(
-                    select(Memory).where(
-                        Memory.project_id.in_(prior),
-                        Memory.kind == "human_decision",
-                        Memory.validated.is_(True),
-                    )
-                ))
-                memories.sort(
-                    key=lambda memory: (
-                        prior[memory.project_id].volume_number,
-                        prior[memory.project_id].created_at,
-                        memory.created_at,
-                    ),
-                    reverse=True,
-                )
-                for memory in memories:
-                    source = str(memory.content.get("source", ""))
-                    source_key = source.casefold()
-                    if source and source_key not in used_sources and mentioned(source, local_source):
-                        source_project = prior[memory.project_id]
-                        series_decisions.append(
-                            {
-                                "source": source,
-                                "translation": memory.content.get("translation", ""),
-                                "source_volume": source_project.volume_number,
-                                "source_project": source_project.title,
-                            }
-                        )
-                        used_sources.add(source_key)
+        prior = prior_volumes(db, project)
+        local_locked = {g.source.casefold() for g in glossary if g.locked}
+        local_sources = {g.source.casefold() for g in glossary}
+        # A locked series term outranks this book's unlocked entry (showing both would offer two names);
+        # an unlocked one yields to any local entry.
+        series_terms_used = [
+            term
+            for term in series_terms(db, prior)
+            if term["source"].casefold() not in local_locked
+            and (term["locked"] or term["source"].casefold() not in local_sources)
+            and mentioned(term["source"], local_source)
+        ]
+        series_locked = {t["source"].casefold() for t in series_terms_used if t["locked"]}
+        applicable = [
+            g
+            for g in glossary
+            if mentioned(g.source, local_source) and (g.locked or g.source.casefold() not in series_locked)
+        ]
+        series_decisions_used = series_decisions(db, prior, local_source, set(local_sources), mentioned)
         entities = db.scalars(
             select(Entity).where(Entity.project_id == project_id, Entity.merged_into_id.is_(None))
         ).all()
@@ -212,9 +158,13 @@ async def build_context(
             if e.identity_validated or e.validated
         ]
         mandatory["SERIES_CONVENTIONS"] = {
-            "scope": "Only accepted terminology and human decisions from earlier volumes. Local book rules win on conflict.",
-            "terms": series_terms,
-            "human_decisions": series_decisions,
+            "scope": (
+                "Accepted terminology and human decisions from earlier volumes only. Locked terms are "
+                "mandatory unless LOCKED_GLOSSARY or USER_RULES decide otherwise; unlocked terms yield "
+                "to this book's own choices."
+            ),
+            "terms": series_terms_used,
+            "human_decisions": series_decisions_used,
         }
         if extra:
             mandatory.update(extra)

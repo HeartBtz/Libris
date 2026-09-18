@@ -5,6 +5,7 @@ from sqlalchemy import delete, func, or_, select
 
 from app.db import SessionLocal
 from app.engines.context.builder import build_context
+from app.engines.context.series import enforced_glossary
 from app.engines.memory.store import propose_terms, remember
 from app.engines.quality.checks import checks, locked_term_error, validate_translation
 from app.engines.translation.versions import save_version
@@ -54,9 +55,7 @@ async def translation_call(
         provider_id=job.provider_id,
     )
     with SessionLocal() as db:
-        glossary = list(
-            db.scalars(select(Glossary).where(Glossary.project_id == project.id, Glossary.accepted.is_(True)))
-        )
+        glossary = enforced_glossary(db, db.get(Project, project.id))
 
     def validate(result: TranslationResult):
         validate_translation(segment.units, result)
@@ -278,11 +277,7 @@ async def translate(job: Job, owner: str) -> None:
                 segment = db.get(Segment, sid)
                 if segment.human:
                     continue
-                terms = list(
-                    db.scalars(
-                        select(Glossary).where(Glossary.project_id == project.id, Glossary.accepted.is_(True))
-                    )
-                )
+                terms = enforced_glossary(db, project)
                 findings = checks(
                     segment.units,
                     segment.translated_units,

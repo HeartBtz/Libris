@@ -5,10 +5,11 @@ from sqlalchemy import delete, select
 
 from app.db import SessionLocal
 from app.engines.context.builder import build_context
+from app.engines.context.series import enforced_glossary
 from app.engines.quality.checks import checks, validate_translation
 from app.engines.translation.versions import save_version
 from app.jobs.queue import checkpoint, emit, fence
-from app.models import Glossary, Issue, Job, Project, Segment
+from app.models import Issue, Job, Project, Segment
 from app.providers.llm import LLMError, ProviderAuthenticationRequired, ProviderUnavailable, llm
 from app.providers.search import search_config
 from app.schemas import FinalReviewResult
@@ -103,11 +104,7 @@ async def resolve_validations(job: Job, owner: str) -> None:
                 }
                 db.commit()
                 continue
-            terms = list(
-                db.scalars(
-                    select(Glossary).where(Glossary.project_id == project.id, Glossary.accepted.is_(True))
-                )
-            )
+            terms = enforced_glossary(db, project)
             old_issues = list(
                 db.scalars(select(Issue).where(Issue.segment_id == sid, Issue.resolved.is_(False)))
             )

@@ -80,11 +80,11 @@ test("batch pause, resume, cancel by operation and confirmed delete", async ({
             ).status,
         ),
       );
-    await page
-      .getByRole("button", { name: "Mettre la sélection en pause" })
-      .click();
+    await page.getByRole("button", { name: "Plus d’actions" }).click();
+    await page.getByRole("menuitem", { name: "Mettre la sélection en pause" }).click();
     await expect.poll(statuses).toEqual(["paused", "paused"]);
-    await page.getByRole("button", { name: "Reprendre la sélection" }).click();
+    await page.getByRole("button", { name: "Plus d’actions" }).click();
+    await page.getByRole("menuitem", { name: "Reprendre la sélection" }).click();
     await expect
       .poll(async () =>
         (await statuses()).every((s) =>
@@ -92,7 +92,8 @@ test("batch pause, resume, cancel by operation and confirmed delete", async ({
         ),
       )
       .toBe(true);
-    await page.getByRole("button", { name: "Annuler les analyses" }).click();
+    await page.getByRole("button", { name: "Plus d’actions" }).click();
+    await page.getByRole("menuitem", { name: "Annuler les analyses" }).click();
     await expect.poll(statuses).toEqual(["cancelled", "cancelled"]);
     for (const id of ids) {
       await page.request.put(`${base}/api/projects/${id}/bible`, {
@@ -106,10 +107,15 @@ test("batch pause, resume, cancel by operation and confirmed delete", async ({
         ).status(),
       ).toBe(202);
     }
-    await page.getByRole("button", { name: "Annuler les traductions" }).click();
+    await page.getByRole("button", { name: "Plus d’actions" }).click();
+    await page.getByRole("menuitem", { name: "Annuler les traductions" }).click();
     await expect.poll(statuses).toEqual(["cancelled", "cancelled"]);
-    page.once("dialog", (d) => d.accept());
-    await page.getByRole("button", { name: "Supprimer la sélection" }).click();
+    await page.getByRole("button", { name: "Plus d’actions" }).click();
+    await page.getByRole("menuitem", { name: "Supprimer la sélection" }).click();
+    await page
+      .getByRole("dialog", { name: "Supprimer les livres sélectionnés ?" })
+      .getByRole("button", { name: "Supprimer définitivement" })
+      .click();
     await expect
       .poll(async () =>
         Promise.all(

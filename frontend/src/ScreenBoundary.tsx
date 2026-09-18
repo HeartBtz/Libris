@@ -1,6 +1,7 @@
 import { Component } from "react";
 import type { ReactNode } from "react";
 import { registerTranslations, useI18n } from "./i18n";
+import { Button, EmptyState } from "./ui";
 
 const translations: Record<string, string> = {
   "L’interface doit être rechargée": "The interface needs to be reloaded",
@@ -21,7 +22,7 @@ export class ScreenBoundary extends Component<
   render() {
     if (!this.state.error) return this.props.children;
     return (
-      <main className="login" role="alert">
+      <main className="app-loading" role="alert">
         <ScreenBoundaryError error={this.state.error} />
       </main>
     );
@@ -31,15 +32,23 @@ export class ScreenBoundary extends Component<
 function ScreenBoundaryError({ error }: { error: Error }) {
   const { t } = useI18n();
   return (
-    <>
-      <h1>{t("L’interface doit être rechargée")}</h1>
-      <p>
-        {t("Un écran n’a pas pu se charger, notamment après une mise à jour. Les résultats enregistrés côté serveur sont conservés.")}
-      </p>
-      <p className="muted">{error.message}</p>
-      <button className="primary" onClick={() => location.reload()}>
-        {t("Recharger l’interface")}
-      </button>
-    </>
+    <EmptyState
+      icon="alert"
+      title={t("L’interface doit être rechargée")}
+      description={
+        <>
+          {t(
+            "Un écran n’a pas pu se charger, notamment après une mise à jour. Les résultats enregistrés côté serveur sont conservés.",
+          )}
+          <br />
+          <span className="subtle">{error.message}</span>
+        </>
+      }
+      action={
+        <Button variant="primary" icon="refresh" onClick={() => location.reload()}>
+          {t("Recharger l’interface")}
+        </Button>
+      }
+    />
   );
 }

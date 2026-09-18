@@ -1,0 +1,248 @@
+.review-panel {
+  display: grid;
+  gap: var(--space-4);
+  min-width: 0;
+}
+
+.review-overview {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.review-overview > .stat-grid {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+}
+
+.ai-review > .btn {
+  align-self: center;
+}
+
+.ai-review-card {
+  padding: var(--space-4);
+}
+
+.ai-review {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: start;
+  gap: var(--space-3);
+  font-size: var(--text-sm);
+}
+
+@media (max-width: 720px) {
+  .ai-review {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .ai-review > .btn {
+    grid-column: 2;
+    justify-self: start;
+  }
+}
+
+.ai-review-icon {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  flex: none;
+  place-items: center;
+  border-radius: var(--radius-sm);
+  background: var(--accent-soft);
+  color: var(--accent-text);
+}
+
+.refusal-recovery-body {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.align-end {
+  align-self: flex-end;
+}
+
+.compact-list {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding-left: var(--space-5);
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+
+.validation-queue {
+  display: grid;
+  gap: var(--space-4);
+  scroll-margin-top: var(--space-4);
+}
+
+.review-item {
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+}
+
+.review-item-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-4);
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-sunken);
+}
+
+.review-item-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+  min-width: 0;
+  font-size: var(--text-sm);
+}
+
+.review-reasons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+
+.review-item-body {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.review-source,
+.review-item-body > .segment-row {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  min-width: 0;
+  padding: 16px 20px;
+}
+
+.review-item-body > .segment-row {
+  border-left: 1px solid var(--border);
+}
+
+.column-caption {
+  color: var(--text-subtle);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.ai-guidance {
+  display: grid;
+  gap: var(--space-3);
+  padding: 14px 20px 18px;
+  border-top: 1px solid var(--border);
+  background: color-mix(in srgb, var(--accent-soft) 45%, var(--surface));
+}
+
+.ai-guidance-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--accent-text);
+  font-size: var(--text-sm);
+}
+
+.ai-note,
+.ai-suggestion {
+  display: grid;
+  gap: 6px;
+  font-size: var(--text-sm);
+}
+
+.ai-note-label {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.ai-suggestion {
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+
+.ai-suggestion blockquote {
+  background: var(--surface-sunken);
+}
+
+.ai-suggestion-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.recovery-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.recovery-provider {
+  min-width: 260px;
+}
+
+.recovery-excerpt {
+  display: grid;
+  gap: 2px;
+  max-width: 64ch;
+}
+
+.book-excerpt {
+  overflow: hidden;
+  font-family: var(--font-book);
+  font-size: 15px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 1100px) {
+  .review-overview > .stat-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 900px) {
+  .review-item-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .review-item-body > .segment-row {
+    border-top: 1px solid var(--border);
+    border-left: 0;
+  }
+
+  .review-source,
+  .review-item-body > .segment-row,
+  .ai-guidance {
+    padding-inline: 14px;
+  }
+
+  .review-overview > .stat-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .recovery-provider {
+    min-width: 0;
+    flex: 1 1 100%;
+  }
+}

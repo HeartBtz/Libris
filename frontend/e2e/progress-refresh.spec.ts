@@ -62,7 +62,7 @@ test("library shows active-stage progress and refresh reloads metrics", async ({
   expect(Number(await progress.getAttribute("value"))).toBe(expected.value);
   await page.screenshot({ path: "/tmp/libris/epub-library-progress.png" });
   await page.goto(`${base}/#project/${project.id}`);
-  await page.getByRole("button", { name: /Validations/ }).click();
+  await page.getByRole("tab", { name: /Validations/ }).click();
   await expect(
     page.getByRole("button", { name: "Lancer la revue IA", exact: true }),
   ).toBeVisible();
@@ -73,15 +73,16 @@ test("library shows active-stage progress and refresh reloads metrics", async ({
     }),
   ).toBeVisible();
   await expect(
-    page.getByLabel(`${project.stats.flagged} passages à vérifier`, {
-      exact: true,
-    }),
+    page.getByText(
+      `${project.stats.flagged} ${project.stats.flagged > 1 ? "passages" : "passage"} à vérifier`,
+      { exact: true },
+    ),
   ).toBeVisible();
   if (project.stats.flagged) {
-    await expect(page.locator(".validation-item").first()).toBeVisible();
+    await expect(page.locator(".review-item").first()).toBeVisible();
     await expect(
       page
-        .locator(".validation-item")
+        .locator(".review-item")
         .first()
         .getByRole("button", { name: "Valider", exact: true }),
     ).toBeVisible();
@@ -110,7 +111,7 @@ test("library shows active-stage progress and refresh reloads metrics", async ({
           .first(),
       ).toBeVisible();
     }
-    const draft = page.locator(".validation-item textarea").first();
+    const draft = page.locator(".review-item textarea").first();
     const original = await draft.inputValue();
     await draft.fill(`${original} [brouillon de test]`);
     await page
@@ -127,7 +128,13 @@ test("library shows active-stage progress and refresh reloads metrics", async ({
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(
     390,
   );
-  await page.locator(".workspace-nav-select select").selectOption("completion");
+  await page.getByRole("tab", { name: "Bilan & récupération" }).click();
+  // The draft typed above is protected: leaving the review queue asks first.
+  if (project.stats.flagged)
+    await page
+      .getByRole("dialog", { name: "Modifications non enregistrées" })
+      .getByRole("button", { name: "Quitter sans enregistrer" })
+      .click();
   await expect(
     page.getByRole("heading", { name: "Bilan & récupération", exact: true }),
   ).toBeVisible();
@@ -137,9 +144,7 @@ test("library shows active-stage progress and refresh reloads metrics", async ({
   );
   await page.setViewportSize({ width: 1440, height: 1040 });
   await page.screenshot({ path: "/tmp/libris/completion.png" });
-  await page
-    .getByRole("button", { name: "Observabilité", exact: true })
-    .click();
+  await page.getByRole("tab", { name: "Observabilité", exact: true }).click();
   await expect(
     page.getByRole("heading", { name: "Observabilité", exact: true }),
   ).toBeVisible();
@@ -154,7 +159,7 @@ test("library shows active-stage progress and refresh reloads metrics", async ({
     .click();
   expect((await metrics).status()).toBe(200);
   await page.goto(`${base}/#settings`);
-  await page.getByRole("button", { name: "SearXNG", exact: true }).click();
+  await page.getByRole("tab", { name: "SearXNG", exact: true }).click();
   await expect(page.getByLabel("URL de l’instance SearXNG")).toBeEnabled();
   await expect(
     page.getByRole("button", { name: "Tester la connexion", exact: true }),

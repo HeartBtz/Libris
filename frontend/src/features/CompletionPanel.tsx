@@ -1,54 +1,73 @@
 import { useEffect, useState } from "react";
 import { api, labels, send } from "../api";
 import { registerTranslations, useI18n } from "../i18n";
-import type { Project, Provider, Run } from "../types";
+import type { Project, ProviderSummary, Run } from "../types";
+import {
+  Badge,
+  Button,
+  Callout,
+  Card,
+  EmptyState,
+  Field,
+  LoadingBlock,
+  SegmentedControl,
+  Select,
+  Stat,
+  StatusPill,
+  Table,
+} from "../ui";
 
-const translations: Record<string, string> = {
+registerTranslations({
   "Chargement du bilan…": "Loading summary…",
-  "Finir le livre": "Finish the book",
   "Bilan & récupération": "Summary & recovery",
   "Actualiser le bilan": "Refresh summary",
   "Traduction complète": "Translation complete",
   "Traduction incomplète": "Translation incomplete",
-  "Sélectionnez les passages ci-dessous puis relancez-les avec le provider du livre ou un provider de remplacement.": "Select the segments below, then retry them with the book's provider or a replacement provider.",
-  "passages traduits": "segments translated",
-  "manquants": "missing",
-  "conservés en original": "retained in the original",
-  "à vérifier": "to review",
-  "alertes non résolues": "unresolved alerts",
-  "choix humains protégés": "protected human choices",
-  "Dernier travail :": "Last job:",
+  "Sélectionnez les passages ci-dessous puis relancez-les avec le provider du livre ou un provider de remplacement.":
+    "Select the passages below, then retry them with the book's provider or a replacement provider.",
+  "Traduits": "Translated",
+  "Manquants": "Missing",
+  "Conservés en original": "Retained in original",
+  "À vérifier": "To review",
+  "Alertes non résolues": "Unresolved alerts",
+  "Choix humains protégés": "Protected human choices",
+  "Dernier travail : {status}.": "Last job: {status}.",
   "Un travail est encore actif ou en attente.": "A job is still active or pending.",
   "Aucun travail actif.": "No active job.",
-  "La conformité EPUB est vérifiée lors de l’export ; une couverture complète ne garantit pas la qualité littéraire.": "EPUB compliance is checked during export; complete coverage does not guarantee literary quality.",
+  "La conformité EPUB est vérifiée lors de l’export ; une couverture complète ne garantit pas la qualité littéraire.":
+    "EPUB compliance is checked during export; complete coverage does not guarantee literary quality.",
   "Résultat de la revue finale": "Final review result",
-  "Examinés": "Reviewed",
-  "Résolus": "Resolved",
-  "Corrigés": "Corrected",
-  "Restants": "Remaining",
-  "Protégés": "Protected",
-  "Échecs": "Failures",
-  "Passages à récupérer": "Segments to recover",
-  "Filtrer les passages": "Filter segments",
-  "Tous": "All",
-  "Erreurs": "Errors",
-  "Refus": "Refusals",
+  Examinés: "Reviewed",
+  Résolus: "Resolved",
+  Corrigés: "Corrected",
+  Restants: "Remaining",
+  Protégés: "Protected",
+  Échecs: "Failures",
+  "Passages à récupérer": "Passages to recover",
+  "Filtrer les passages": "Filter passages",
+  Tous: "All",
+  Erreurs: "Errors",
+  Refus: "Refusals",
   "Non commencés": "Not started",
-  "Bloqués": "Blocked",
+  Bloqués: "Blocked",
   "Provider de récupération": "Recovery provider",
-  "Choisir": "Choose",
-  "Sélectionner les passages affichés (200 max)": "Select displayed segments (200 max)",
-  "Désélectionner": "Deselect",
-  "Récupération mise en file. Seuls les passages sélectionnés seront traités.": "Recovery queued. Only the selected segments will be processed.",
+  Choisir: "Choose",
+  "Sélectionner les passages affichés (200 max)": "Select displayed passages (200 max)",
+  Désélectionner: "Deselect",
+  "Récupération mise en file. Seuls les passages sélectionnés seront traités.":
+    "Recovery queued. Only the selected passages will be processed.",
   "Mise en file…": "Queuing…",
-  "Relancer la sélection": "Retry selection",
-  "Aucun passage à récupérer pour ce filtre.": "No segments to recover for this filter.",
-  "Passage": "Segment",
-  "Choix humain protégé : récupération automatique désactivée.": "Protected human choice: automatic recovery disabled.",
-  "passages à récupérer ; seuls les premiers sont listés. Relancez-les, puis actualisez le bilan pour voir les suivants.": "passages to recover; only the first ones are listed. Rerun them, then refresh the summary to see the next ones.",
-};
-
-registerTranslations(translations);
+  "Relancer la sélection ({count})": "Retry selection ({count})",
+  "Aucun passage à récupérer pour ce filtre.": "No passages to recover for this filter.",
+  Passage: "Passage",
+  Section: "Section",
+  Extrait: "Excerpt",
+  "Choix humain protégé : récupération automatique désactivée.":
+    "Protected human choice: automatic recovery disabled.",
+  "{count} passages à récupérer ; seuls les premiers sont listés. Relancez-les, puis actualisez le bilan pour voir les suivants.":
+    "{count} passages to recover; only the first ones are listed. Rerun them, then refresh the summary to see the next ones.",
+  "Sélectionner le passage {position}": "Select passage {position}",
+});
 
 interface Report {
   total: number;
@@ -73,6 +92,8 @@ interface Report {
   }[];
 }
 
+type Filter = "all" | "error" | "refused" | "pending" | "blocked";
+
 export function CompletionPanel({
   project,
   run,
@@ -86,10 +107,10 @@ export function CompletionPanel({
 }) {
   const { t } = useI18n();
   const [report, setReport] = useState<Report | null>(null);
-  const [providers, setProviders] = useState<Provider[]>([]);
+  const [providers, setProviders] = useState<ProviderSummary[]>([]);
   const [provider, setProvider] = useState(project.provider_id || "");
   const [selected, setSelected] = useState<string[]>([]);
-  const [filter, setFilter] = useState("all");
+  const [filter, setFilter] = useState<Filter>("all");
   const [busy, setBusy] = useState(false);
   const [reload, setReload] = useState(0);
   const [message, setMessage] = useState("");
@@ -98,207 +119,222 @@ export function CompletionPanel({
     void run.background(async () => {
       const [data, list] = await Promise.all([
         api<Report>(`/projects/${project.id}/completion`),
-        api<Provider[]>("/providers"),
+        api<ProviderSummary[]>("/providers"),
       ]);
       if (active) {
         setReport(data);
         setProviders(list);
-        setSelected((ids) =>
-          ids.filter((id) =>
-            data.recovery.some((s) => s.id === id && s.eligible),
-          ),
-        );
+        setSelected((ids) => ids.filter((id) => data.recovery.some((s) => s.id === id && s.eligible)));
       }
     });
     return () => {
       active = false;
     };
   }, [project.id, reload, tick, run]);
-  if (!report) return <p role="status">{t("Chargement du bilan…")}</p>;
-  const visible = report.recovery.filter(
-    (s) => filter === "all" || s.status === filter,
-  );
+  if (!report) return <LoadingBlock label={t("Chargement du bilan…")} lines={5} />;
+  const visible = report.recovery.filter((s) => filter === "all" || s.status === filter);
+  const review = project.progress?.review;
   return (
-    <section className="validation-panel">
-      <div className="validation-heading">
+    <section className="review-panel">
+      <div className="panel-header">
         <div>
-          <p className="eyebrow">{t("Finir le livre")}</p>
           <h2>{t("Bilan & récupération")}</h2>
-        </div>
-        <button onClick={() => setReload((x) => x + 1)}>
-          {t("Actualiser le bilan")}
-        </button>
-      </div>
-      <div className="notice">
-        <h3>
-          {report.coverage_complete
-            ? t("Traduction complète")
-            : t("Traduction incomplète")}
-        </h3>
-        {!!report.recovery.length && !report.processing && (
-          <p>
-            {t("Sélectionnez les passages ci-dessous puis relancez-les avec le provider du livre ou un provider de remplacement.")}
+          <p className="muted">
+            {t(
+              "La conformité EPUB est vérifiée lors de l’export ; une couverture complète ne garantit pas la qualité littéraire.",
+            )}
           </p>
-        )}
+        </div>
+        <div className="panel-actions">
+          <Button icon="refresh" onClick={() => setReload((x) => x + 1)}>
+            {t("Actualiser le bilan")}
+          </Button>
+        </div>
+      </div>
+      <Card
+        title={
+          <span className="row">
+            {report.coverage_complete ? t("Traduction complète") : t("Traduction incomplète")}
+            <Badge tone={report.coverage_complete ? "success" : "warning"} dot>
+              {report.translated} / {report.total}
+            </Badge>
+          </span>
+        }
+        description={
+          <>
+            {t("Dernier travail : {status}.", { status: labels[report.last_job_status] })}{" "}
+            {report.processing ? t("Un travail est encore actif ou en attente.") : t("Aucun travail actif.")}
+          </>
+        }
+      >
+        <div className="stat-grid">
+          <Stat label={t("Traduits")} value={report.translated} tone="success" />
+          <Stat label={t("Manquants")} value={report.missing} tone={report.missing ? "warning" : undefined} />
+          <Stat label={t("Conservés en original")} value={report.retained} />
+          <Stat label={t("À vérifier")} value={report.flagged} tone={report.flagged ? "warning" : undefined} />
+          <Stat label={t("Alertes non résolues")} value={report.issues} tone={report.issues ? "warning" : undefined} />
+          <Stat label={t("Choix humains protégés")} value={report.protected} />
+        </div>
+      </Card>
+      {review && (
+        <div className="stat-grid" role="group" aria-label={t("Résultat de la revue finale")}>
+          <Stat label={t("Examinés")} value={review.examined} />
+          <Stat label={t("Résolus")} value={review.resolved} />
+          <Stat label={t("Corrigés")} value={review.revised} />
+          <Stat label={t("Restants")} value={review.remaining} />
+          <Stat label={t("Protégés")} value={review.protected} />
+          <Stat label={t("Échecs")} value={review.failed} />
+        </div>
+      )}
+      <Card
+        padded={false}
+        title={t("Passages à récupérer")}
+        description={
+          !!report.recovery.length && !report.processing
+            ? t(
+                "Sélectionnez les passages ci-dessous puis relancez-les avec le provider du livre ou un provider de remplacement.",
+              )
+            : undefined
+        }
+      >
+        <div className="recovery-toolbar">
+          <SegmentedControl
+            size="sm"
+            label={t("Filtrer les passages")}
+            value={filter}
+            onChange={setFilter}
+            options={[
+              { value: "all", label: t("Tous") },
+              { value: "error", label: t("Erreurs") },
+              { value: "refused", label: t("Refus") },
+              { value: "pending", label: t("Non commencés") },
+              { value: "blocked", label: t("Bloqués") },
+            ]}
+          />
+          <Field label={t("Provider de récupération")} inline className="recovery-provider">
+            <Select value={provider} onChange={(e) => setProvider(e.target.value)}>
+              <option value="">{t("Choisir")}</option>
+              {providers.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name} · {p.model}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        </div>
         {(report.recovery_total ?? 0) > report.recovery.length && (
-          <p>
-            {report.recovery_total} {t("passages à récupérer ; seuls les premiers sont listés. Relancez-les, puis actualisez le bilan pour voir les suivants.")}
-          </p>
+          <div className="card-inset">
+            <Callout tone="info">
+              {t(
+                "{count} passages à récupérer ; seuls les premiers sont listés. Relancez-les, puis actualisez le bilan pour voir les suivants.",
+                { count: report.recovery_total ?? 0 },
+              )}
+            </Callout>
+          </div>
         )}
-        <p>
-          {report.translated} / {report.total} {t("passages traduits")} · {report.missing} {t("manquants")} · {report.retained} {t("conservés en original")}
-        </p>
-        <p>
-          {report.flagged} {t("à vérifier")} · {report.issues} {t("alertes non résolues")} · {report.protected} {t("choix humains protégés")}
-        </p>
-        <p>
-          {t("Dernier travail :")} {" "}
-          {labels[report.last_job_status] || report.last_job_status}.{" "}
-          {report.processing
-            ? t("Un travail est encore actif ou en attente.")
-            : t("Aucun travail actif.")}
-        </p>
-        <p className="muted">
-          {t("La conformité EPUB est vérifiée lors de l’export ; une couverture complète ne garantit pas la qualité littéraire.")}
-        </p>
-      </div>
-      {project.progress && (
-        <div
-          className="review-outcome"
-          aria-label={t("Résultat de la revue finale")}
-        >
-          {[
-            [t("Examinés"), project.progress.review.examined],
-            [t("Résolus"), project.progress.review.resolved],
-            [t("Corrigés"), project.progress.review.revised],
-            [t("Restants"), project.progress.review.remaining],
-            [t("Protégés"), project.progress.review.protected],
-            [t("Échecs"), project.progress.review.failed],
-          ].map(([label, value]) => (
-            <span key={label}>
-              <strong>{value}</strong>
-              <small>{label}</small>
-            </span>
-          ))}
-        </div>
-      )}
-      <h3>{t("Passages à récupérer")}</h3>
-      <div className="actions">
-        <label>
-          {t("Filtrer les passages")}
-          <select value={filter} onChange={(e) => setFilter(e.target.value)}>
-            <option value="all">{t("Tous")}</option>
-            <option value="error">{t("Erreurs")}</option>
-            <option value="refused">{t("Refus")}</option>
-            <option value="pending">{t("Non commencés")}</option>
-            <option value="blocked">{t("Bloqués")}</option>
-          </select>
-        </label>
-        <label>
-          {t("Provider de récupération")}
-          <select
-            value={provider}
-            onChange={(e) => setProvider(e.target.value)}
+        {visible.length ? (
+          <Table>
+            <thead>
+              <tr>
+                <th className="cell-tight">
+                  <span className="sr-only">{t("Sélectionner les passages affichés (200 max)")}</span>
+                </th>
+                <th>{t("Passage")}</th>
+                <th>{t("Section")}</th>
+                <th>{t("Extrait")}</th>
+                <th />
+              </tr>
+            </thead>
+            <tbody>
+              {visible.map((s) => (
+                <tr key={s.id}>
+                  <td className="cell-tight">
+                    <input
+                      type="checkbox"
+                      aria-label={t("Sélectionner le passage {position}", { position: s.position + 1 })}
+                      disabled={!s.eligible || busy}
+                      checked={selected.includes(s.id)}
+                      onChange={(e) =>
+                        setSelected((ids) => (e.target.checked ? [...ids, s.id] : ids.filter((id) => id !== s.id)))
+                      }
+                    />
+                  </td>
+                  <td className="tabular cell-tight">§ {s.position + 1}</td>
+                  <td className="muted">{s.chapter}</td>
+                  <td>
+                    <div className="recovery-excerpt">
+                      <span className="book-excerpt">{s.excerpt}</span>
+                      {s.error && <span className="tone-text-danger">{s.error}</span>}
+                      {!s.eligible && (
+                        <span className="subtle">{t("Choix humain protégé : récupération automatique désactivée.")}</span>
+                      )}
+                    </div>
+                  </td>
+                  <td className="cell-tight">
+                    <StatusPill status={s.status} />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </Table>
+        ) : (
+          <EmptyState compact icon="check" title={t("Aucun passage à récupérer pour ce filtre.")} />
+        )}
+        <div className="card-footer">
+          <Button
+            size="sm"
+            variant="ghost"
+            disabled={busy || !visible.some((s) => s.eligible)}
+            onClick={() =>
+              setSelected(
+                visible
+                  .filter((s) => s.eligible)
+                  .slice(0, 200)
+                  .map((s) => s.id),
+              )
+            }
           >
-            <option value="">{t("Choisir")}</option>
-            {providers.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name} · {p.model}
-              </option>
-            ))}
-          </select>
-        </label>
-      </div>
-      <div className="actions">
-        <button
-          disabled={busy || !visible.some((s) => s.eligible)}
-          onClick={() =>
-            setSelected(
-              visible
-                .filter((s) => s.eligible)
-                .slice(0, 200)
-                .map((s) => s.id),
-            )
-          }
-        >
-          {t("Sélectionner les passages affichés (200 max)")}
-        </button>
-        <button
-          disabled={!selected.length || busy}
-          onClick={() => setSelected([])}
-        >
-          {t("Désélectionner")}
-        </button>
-        <button
-          className="primary"
-          disabled={
-            busy ||
-            report.processing ||
-            !provider ||
-            !selected.length ||
-            selected.length > 200
-          }
-          onClick={() => {
-            setBusy(true);
-            setMessage("");
-            void run(async () => {
-              try {
-                await send(`/projects/${project.id}/jobs`, {
-                  operation: "translate",
-                  segment_ids: selected,
-                  provider_id: provider,
-                  continue_pipeline: true,
-                });
-                setSelected([]);
-                setMessage(
-                  t("Récupération mise en file. Seuls les passages sélectionnés seront traités."),
-                );
-                setReload((x) => x + 1);
-                refresh();
-              } finally {
-                setBusy(false);
-              }
-            });
-          }}
-        >
-          {busy
-            ? t("Mise en file…")
-            : `${t("Relancer la sélection")} (${selected.length})`}
-        </button>
-      </div>
+            {t("Sélectionner les passages affichés (200 max)")}
+          </Button>
+          <Button size="sm" variant="ghost" disabled={!selected.length || busy} onClick={() => setSelected([])}>
+            {t("Désélectionner")}
+          </Button>
+          <span className="grow" />
+          <Button
+            variant="primary"
+            icon="refresh"
+            loading={busy}
+            disabled={report.processing || !provider || !selected.length || selected.length > 200}
+            onClick={() => {
+              setBusy(true);
+              setMessage("");
+              void run(async () => {
+                try {
+                  await send(`/projects/${project.id}/jobs`, {
+                    operation: "translate",
+                    segment_ids: selected,
+                    provider_id: provider,
+                    continue_pipeline: true,
+                  });
+                  setSelected([]);
+                  setMessage(t("Récupération mise en file. Seuls les passages sélectionnés seront traités."));
+                  setReload((x) => x + 1);
+                  refresh();
+                } finally {
+                  setBusy(false);
+                }
+              });
+            }}
+          >
+            {busy ? t("Mise en file…") : t("Relancer la sélection ({count})", { count: selected.length })}
+          </Button>
+        </div>
+      </Card>
       {message && (
-        <p role="status" className="notice">
+        <Callout tone="success" role="status">
           {message}
-        </p>
+        </Callout>
       )}
-      {!visible.length && <p>{t("Aucun passage à récupérer pour ce filtre.")}</p>}
-      {visible.map((s) => (
-        <article key={s.id} className="notice">
-          <label>
-            <input
-              type="checkbox"
-              disabled={!s.eligible || busy}
-              checked={selected.includes(s.id)}
-              onChange={(e) =>
-                setSelected((ids) =>
-                  e.target.checked
-                    ? [...ids, s.id]
-                    : ids.filter((id) => id !== s.id),
-                )
-              }
-            />
-            {t("Passage")} {s.position + 1} · {s.chapter} ·{" "}
-            {labels[s.status] || s.status}
-          </label>
-          {s.error && <p>{s.error}</p>}
-          <p className="muted">{s.excerpt}</p>
-          {!s.eligible && (
-            <small>
-              {t("Choix humain protégé : récupération automatique désactivée.")}
-            </small>
-          )}
-        </article>
-      ))}
     </section>
   );
 }

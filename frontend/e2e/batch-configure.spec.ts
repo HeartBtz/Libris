@@ -69,10 +69,12 @@ test("batch configuration keeps each book's language and quality unless asked", 
   await page.goto(process.env.SHOWCASE_URL || "http://127.0.0.1:4173");
   await page.getByRole("checkbox", { name: "Select German Edition" }).check();
   await page.getByRole("checkbox", { name: "Select Spanish Edition" }).check();
-  await page.getByLabel("Common provider").selectOption("new");
-  await expect(page.getByLabel("Target language")).toHaveValue("");
-  await expect(page.getByLabel("Quality")).toHaveValue("");
-  await page.getByRole("button", { name: "Configure selection" }).click();
+  await page.getByRole("button", { name: "Configure…" }).click();
+  const dialog = page.getByRole("dialog", { name: "Configure the selected books" });
+  await dialog.getByLabel("Common provider").selectOption("new");
+  await expect(dialog.getByLabel("Target language")).toHaveValue("");
+  await expect(dialog.getByLabel("Quality")).toHaveValue("");
+  await dialog.getByRole("button", { name: "Configure selection" }).click();
   await expect(page.getByRole("status").last()).toContainText(
     "Spanish Edition",
   );
@@ -88,9 +90,9 @@ test("batch configuration keeps each book's language and quality unless asked", 
     quality: "normal",
   });
 
-  await page.getByLabel("Target language").fill("it");
-  await page.getByLabel("Quality").selectOption("maximum");
-  await page.getByRole("button", { name: "Configure selection" }).click();
+  await dialog.getByLabel("Target language").fill("it");
+  await dialog.getByLabel("Quality").selectOption("maximum");
+  await dialog.getByRole("button", { name: "Configure selection" }).click();
   await expect.poll(() => saved.spanish.target_language).toBe("it");
   expect(saved.german).toMatchObject({
     target_language: "it",

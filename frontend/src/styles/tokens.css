@@ -1,0 +1,152 @@
+/* Design tokens. Every colour, size and duration used by the interface comes from here. */
+:root {
+  --font-ui: "Inter Variable", "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-book: Charter, "Bitstream Charter", "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+  --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+
+  --text-xs: 12px;
+  --text-sm: 13px;
+  --text-md: 14px;
+  --text-lg: 16px;
+  --text-xl: 20px;
+  --text-2xl: 24px;
+  --text-3xl: 30px;
+  --text-book: 17px;
+  --leading-tight: 1.25;
+  --leading-normal: 1.5;
+  --leading-book: 1.6;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-full: 999px;
+
+  --control-sm: 28px;
+  --control-md: 32px;
+  --control-lg: 40px;
+  --touch-target: 40px;
+
+  --sidebar-width: 232px;
+  --sidebar-collapsed: 60px;
+  --content-max: 1360px;
+
+  --duration-fast: 120ms;
+  --duration-normal: 180ms;
+  --duration-slow: 260ms;
+  --ease: cubic-bezier(0.2, 0, 0, 1);
+
+  --z-sticky: 10;
+  --z-sidebar: 30;
+  --z-menu: 50;
+  --z-dialog: 60;
+  --z-toast: 70;
+}
+
+:root,
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg: #fbfaf8;
+  --surface: #ffffff;
+  --surface-sunken: #f4f2ee;
+  --surface-hover: #f1efeb;
+  --surface-active: #ebe8e3;
+  --overlay: #1c1f2433;
+  --border: #e7e4df;
+  --border-strong: #d6d2cb;
+  --border-input: #8d8983;
+  --text: #1c1f24;
+  --text-muted: #5e636b;
+  --text-subtle: #6b7079;
+  --accent: #4f46e5;
+  --accent-hover: #4338ca;
+  --accent-soft: #eef0ff;
+  --accent-text: #4338ca;
+  --on-accent: #ffffff;
+  --focus: #4f46e5;
+  --success: #166534;
+  --success-soft: #eaf6ee;
+  --success-solid: #22a05a;
+  --warning: #9a4a0b;
+  --warning-soft: #fdf3e4;
+  --warning-solid: #e59a1a;
+  --danger: #b91c1c;
+  --danger-soft: #fcecec;
+  --danger-solid: #c62828;
+  --on-danger: #ffffff;
+  --info: #1d4ed8;
+  --info-soft: #eaf1fd;
+  --marker-bg: #e8e6fb;
+  --marker-text: #5b54c9;
+  --code-0: #6d64d8;
+  --code-0-soft: #eeedfb;
+  --code-1: #b0617a;
+  --code-1-soft: #f8ecf0;
+  --code-2: #3f8a82;
+  --code-2-soft: #e7f3f1;
+  --code-3: #a0762a;
+  --code-3-soft: #f6efe0;
+  --selection: #d9dcff;
+  --paper: #ffffff;
+  --shadow-sm: 0 1px 2px #1c1f240d;
+  --shadow-md: 0 2px 6px #1c1f240f, 0 1px 2px #1c1f240a;
+  --shadow-lg: 0 12px 32px #1c1f241f, 0 2px 6px #1c1f240f;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #161618;
+  --surface: #1e1e21;
+  --surface-sunken: #19191b;
+  --surface-hover: #26262a;
+  --surface-active: #2d2d32;
+  --overlay: #00000080;
+  --border: #2e2e33;
+  --border-strong: #3a3a40;
+  --border-input: #6e6e78;
+  --text: #ececee;
+  --text-muted: #a1a1aa;
+  --text-subtle: #8b8b94;
+  --accent: #818cf8;
+  --accent-hover: #939cfa;
+  --accent-soft: #25254a;
+  --accent-text: #a5b4fc;
+  --on-accent: #111118;
+  --focus: #a5b4fc;
+  --success: #6bd69a;
+  --success-soft: #1b2a21;
+  --success-solid: #3fb877;
+  --warning: #f2c25b;
+  --warning-soft: #2c2517;
+  --warning-solid: #d9a23a;
+  --danger: #f28b82;
+  --danger-soft: #2e1d1c;
+  --danger-solid: #f28b82;
+  --on-danger: #1c1f24;
+  --info: #7fb2f5;
+  --info-soft: #1a2434;
+  --marker-bg: #2c2c52;
+  --marker-text: #b4bcfb;
+  --code-0: #9c96f0;
+  --code-0-soft: #26253c;
+  --code-1: #d88fa6;
+  --code-1-soft: #33242a;
+  --code-2: #7cc3b9;
+  --code-2-soft: #1d2d2b;
+  --code-3: #d3ab62;
+  --code-3-soft: #302a1e;
+  --selection: #3b3f7a;
+  --paper: #ffffff;
+  --shadow-sm: 0 1px 2px #00000040;
+  --shadow-md: 0 2px 8px #00000059;
+  --shadow-lg: 0 16px 40px #00000080, 0 2px 8px #00000059;
+}

@@ -15,7 +15,7 @@ Le provider est figé pendant une exécution afin de préserver les limites et l
 - **Analyse & mémoire** : proportion des passages analysés et sections synthétisées dans la Book Bible parmi ces unités de travail. La synthèse compte dans la progression ; 100 % exige que les deux étapes soient terminées. Ce pourcentage représente la couverture, pas une estimation du temps restant.
 - **Traduction** : passages disposant d’une traduction, hors passages explicitement conservés en langue source.
 
-Les détails sont disponibles au survol. Chaque livre possède aussi un bouton **Actualiser**, qui recharge statistiques, jobs et panneaux sans remplacer un brouillon de traduction en cours.
+Les détails sont disponibles au survol. Chaque livre possède aussi un bouton **Actualiser les données du livre** (icône à côté d’**Exporter**), qui recharge statistiques, jobs et panneaux sans remplacer un brouillon de traduction en cours.
 
 Cliquer **Analyser** sur un livre entièrement analysé est une opération sans recalcul. Une réanalyse complète est une action distincte, confirmée ; les analyses humaines sont conservées.
 
@@ -57,7 +57,7 @@ L’export EPUB normal demande une traduction complète. **EPUB partiel · origi
 
 ## Personnages et OpenViking
 
-L’onglet **Personnages & liens** propose recherche, déplacement, zoom, fusion d’identités, alias et liens dirigés. Les liens IA ou tirés d’anciennes fiches sont en pointillés ; les validations humaines sont identifiées. Les fusions conservent leurs fiches historiques et leurs snapshots.
+L’onglet **Personnages** propose recherche, déplacement, zoom, fusion d’identités, alias et liens dirigés. Chaque lien est aussi listé sous le graphe, ce qui permet de le sélectionner au clavier. Les liens IA ou tirés d’anciennes fiches sont en pointillés ; les validations humaines sont identifiées. Les fusions conservent leurs fiches historiques et leurs snapshots.
 
 Les alias confirmés humainement restent prioritaires. Pronoms et descriptions relationnelles ne deviennent pas automatiquement des alias globaux. Les variantes incertaines sont stockées comme propositions.
 

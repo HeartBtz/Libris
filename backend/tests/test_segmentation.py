@@ -48,7 +48,9 @@ def test_cjk_text_without_punctuation_is_still_bounded():
 
 
 def test_ruby_readings_are_kept_out_of_the_translation():
-    text = units_of("<p><ruby>漢字<rt>かんじ</rt></ruby>と<ruby>東京<rp>(</rp><rt>とうきょう</rt><rp>)</rp></ruby></p>")[0]
+    text = units_of(
+        "<p><ruby>漢字<rt>かんじ</rt></ruby>と<ruby>東京<rp>(</rp><rt>とうきょう</rt><rp>)</rp></ruby></p>"
+    )[0]
     assert "かんじ" not in text["text"] and "とうきょう" not in text["text"] and "(" not in text["text"]
     _, out = roundtrip(epub_bytes("<p><ruby>Kanji<rt>kan</rt></ruby> text.</p>"))
     assert "<ruby>KANJI<rt>kan</rt></ruby> TEXT." in chapter(out)
@@ -62,7 +64,10 @@ def test_mixed_content_is_one_unit_per_run_of_text():
         "Bob",
     ]
     _, out = roundtrip(epub_bytes(body))
-    assert '<div class="letter">DEAR <b>ALICE</b>, I WRITE IN HASTE<br/>AND WITH SORROW. <div class="sig">BOB</div></div>' in chapter(out)
+    assert (
+        '<div class="letter">DEAR <b>ALICE</b>, I WRITE IN HASTE<br/>AND WITH SORROW. <div class="sig">BOB</div></div>'
+        in chapter(out)
+    )
 
 
 def test_text_after_a_comment_or_between_blocks_is_translated_in_order():

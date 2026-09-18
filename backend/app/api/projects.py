@@ -33,6 +33,8 @@ from app.schemas import InstructionInput, JobInput, ProjectConfig, SeriesBatchIn
 from app.security import DB, CurrentUser, access
 
 router = APIRouter(prefix="/api/projects")
+# The table of contents and the package metadata are translated but are not sections of the book.
+COUNTED = ("narrative", "auxiliary")
 
 
 def stats(db, project: Project) -> dict:
@@ -80,7 +82,9 @@ def stats(db, project: Project) -> dict:
             )
         ),
         "synthesized_chapters": db.scalar(
-            select(func.count(Chapter.id)).where(Chapter.project_id == project.id, Chapter.analyzed.is_(True))
+            select(func.count(Chapter.id)).where(
+                Chapter.project_id == project.id, Chapter.analyzed.is_(True), Chapter.kind.in_(COUNTED)
+            )
         ),
         "total": total,
         "retained_source": db.scalar(
@@ -94,7 +98,9 @@ def stats(db, project: Project) -> dict:
         "errors": errors,
         "refused": refused,
         "chapters": db.scalar(
-            select(func.count()).select_from(Chapter).where(Chapter.project_id == project.id)
+            select(func.count())
+            .select_from(Chapter)
+            .where(Chapter.project_id == project.id, Chapter.kind.in_(COUNTED))
         ),
         "glossary": db.scalar(
             select(func.count()).select_from(Glossary).where(Glossary.project_id == project.id)
@@ -151,7 +157,11 @@ def import_book(db, owner_id: str, data: bytes) -> Project:
     position = 0
     for number, item in enumerate(parsed["chapters"]):
         chapter = Chapter(
-            project_id=project.id, position=number, title=item["title"], resource=item["resource"]
+            project_id=project.id,
+            position=number,
+            title=item["title"],
+            resource=item["resource"],
+            kind=item["kind"],
         )
         db.add(chapter)
         db.flush()

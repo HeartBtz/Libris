@@ -46,6 +46,10 @@ EPUB_TYPE = "{http://www.idpf.org/2007/ops}type"
 NAVIGATION = {"nav", "navMap", "navPoint", "navList", "navTarget", "docTitle", "docAuthor"}
 
 
+def navigation(node: etree._Element) -> bool:
+    return any(tag(n) in NAVIGATION for n in [node, *node.iterancestors()])
+
+
 def page_list(node: etree._Element) -> bool:
     # Page numbers are anchors for print pagination, not text: translating "1", "2", "3" buys nothing.
     # Extraction only: books imported earlier keep rebuilding from the units they already have.
@@ -290,7 +294,7 @@ def extract_units(root: etree._Element, resource: str) -> list[dict]:
                     "section": "0",
                     "tag": tag(node),
                     **extra,
-                    **({"nav": True} if any(tag(n) in NAVIGATION for n in [node, *node.iterancestors()]) else {}),
+                    **({"nav": True} if navigation(node) else {}),
                 },
             )
         )
@@ -335,7 +339,9 @@ def extract_units(root: etree._Element, resource: str) -> list[dict]:
     found.sort(key=lambda item: item[0])
     # A heading starts a section; everything after it, in document order, belongs to it.
     headings = sorted(
-        (at(n), tree.getpath(n)) for n in nodes if isinstance(n.tag, str) and tag(n) in {"h1", "h2", "h3", "hr"}
+        (at(n), tree.getpath(n))
+        for n in nodes
+        if isinstance(n.tag, str) and tag(n) in {"h1", "h2", "h3", "hr"}
     )
     units, section, index = [], "0", 0
     for key, unit in found:
@@ -351,7 +357,8 @@ def skipped_text(root: etree._Element) -> dict[str, int]:
     counts: dict[str, int] = {}
     for node in root.iter():
         name = tag(node)
-        if name not in {"pre", "math", "svg"} or any(tag(a) in {"pre", "math", "svg"} for a in node.iterancestors()):
+        kept_kinds = {"pre", "math", "svg"}
+        if name not in kept_kinds or any(tag(a) in kept_kinds for a in node.iterancestors()):
             continue
         kept = "".join(
             "".join(n.itertext()) for n in node.iter() if tag(n) in {"title", "desc"}
@@ -364,7 +371,9 @@ def skipped_text(root: etree._Element) -> dict[str, int]:
 SENTENCE_END = re.compile(
     # Latin scripts end a sentence before a space; CJK ones end it on the mark itself, closing quotes
     # and brackets included, since no space follows.
-    r"(?<=[.!?…])(?=\s)|(?<=[。！？｡…][」』）〕】》〉”’)\]])(?![」』）〕】》〉”’)\]])|(?<=[。！？｡])(?![」』）〕】》〉”’)\]。！？｡…])"
+    r"(?<=[.!?…])(?=\s)"
+    r"|(?<=[。！？｡…][」』）〕】》〉”’)\]])(?![」』）〕】》〉”’)\]])"
+    r"|(?<=[。！？｡])(?![」』）〕】》〉”’)\]。！？｡…])"
 )
 CLAUSE = re.compile(r"⟦/?[tx]\d+⟧|\s+|[^\s⟦、，,；;]+[、，,；;]?|[、，,；;]")
 
@@ -421,8 +430,9 @@ def group_units(units: list[dict], max_chars: int = 3500) -> list[list[dict]]:
     return groups
 
 
-def apply_unit(root: etree._Element, unit: dict, translation: str) -> None:
-    matches = root.getroottree().xpath(unit["path"], namespaces={k: v for k, v in root.nsmap.items() if k})
+def apply_unit(root: etree._Element, unit: dict, translation: str, namespaces: dict | None = None) -> None:
+    prefixes = namespaces if namespaces is not None else {k: v for k, v in root.nsmap.items() if k}
+    matches = root.getroottree().xpath(unit["path"], namespaces=prefixes)
     if len(matches) != 1:
         raise ValueError("Ancre DOM source introuvable ou ambiguë.")
     node = matches[0]

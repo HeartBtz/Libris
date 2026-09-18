@@ -1,3 +1,4 @@
+import hashlib
 import io
 import re
 import zipfile
@@ -214,6 +215,41 @@ def _normalize_inherited_defects(
             entries[path] = etree.tostring(root.getroottree(), encoding="utf-8", xml_declaration=True)
 
 
+def metadata_units(package: etree._Element, opf_path: str) -> list[dict]:
+    """The blurb (and short subjects) readers display: translated like any passage, never lost."""
+    tree = package.getroottree()
+    units = []
+    for key, limit in (("description", 20000), ("subject", 200)):
+        for node in package.xpath(f"//o:metadata/dc:{key}", namespaces=NS):
+            value = node.text or ""
+            if not value.strip() or len(node) or len(value) > limit or "⟦" in value or "⟧" in value:
+                continue
+            path = tree.getpath(node)
+            units.append(
+                {
+                    "id": hashlib.sha256(f"{opf_path}:{path}:text:".encode()).hexdigest()[:20],
+                    "text": value,
+                    "resource": opf_path,
+                    "path": path,
+                    "kind": "text",
+                    "attribute": "",
+                    "section": "metadata",
+                    "tag": key,
+                }
+            )
+    return units
+
+
+def namespaces_of(root: etree._Element) -> dict[str, str]:
+    return {
+        prefix: uri
+        for node in root.iter()
+        if isinstance(node.tag, str)
+        for prefix, uri in node.nsmap.items()
+        if prefix
+    }
+
+
 def structure(entries: dict[str, bytes]) -> tuple[str, etree._Element, list[str]]:
     container = xml(entries["META-INF/container.xml"])
     roots = container.xpath("//c:rootfile/@full-path", namespaces=NS)
@@ -252,12 +288,26 @@ def parse_book(data: bytes, max_chars: int = 3500) -> dict:
         # entry missing from the archive, for three strings.
         return package.xpath(f"string(//dc:{key}[1])", namespaces=NS).strip() or fallback
 
+    items = package.xpath("//o:manifest/o:item", namespaces=NS)
     extra = [
         relative_resource(opf_path, n.get("href", ""))
-        for n in package.xpath("//o:manifest/o:item", namespaces=NS)
+        for n in items
         if n.get("media-type") in {"application/xhtml+xml", "application/x-dtbncx+xml"}
     ]
-    resources = list(dict.fromkeys([*spine, *extra]))
+    navigation = {
+        relative_resource(opf_path, n.get("href", ""))
+        for n in items
+        if "nav" in n.get("properties", "").split() or n.get("media-type") == "application/x-dtbncx+xml"
+    }
+    manifest = {n.get("id"): relative_resource(opf_path, n.get("href", "")) for n in items}
+    # linear="no" documents (notes, cover pages) sit outside the reading order: after the story, so
+    # that they neither interrupt nor seed its narrative context.
+    auxiliary = {
+        manifest.get(ref.get("idref"), "")
+        for ref in package.xpath("//o:spine/o:itemref[@linear='no']", namespaces=NS)
+    }
+    story = [path for path in spine if path not in auxiliary and path not in navigation]
+    resources = list(dict.fromkeys([*story, *spine, *extra]))
     chapters = []
     word_count = 0
     untranslated: dict[str, dict] = {}
@@ -278,8 +328,26 @@ def parse_book(data: bytes, max_chars: int = 3500) -> dict:
         if not groups:
             continue
         word_count += sum(len(plain(u["text"]).split()) for u in units)
+        kind = "navigation" if path in navigation else "auxiliary" if path not in story else "narrative"
         chapters.append(
-            {"title": title[:500], "resource": path, "groups": groups, "narrative": path in spine}
+            {
+                "title": title[:500],
+                "resource": path,
+                "groups": groups,
+                "narrative": kind == "narrative",
+                "kind": kind,
+            }
+        )
+    described = metadata_units(package, opf_path)
+    if described:
+        chapters.append(
+            {
+                "title": "Métadonnées du livre",
+                "resource": opf_path,
+                "groups": group_units(described, max_chars),
+                "narrative": False,
+                "kind": "metadata",
+            }
         )
     return {
         "title": metadata("title", "Sans titre"),
@@ -320,7 +388,8 @@ def rebuild(
             if unit["id"] not in translations:
                 raise ValueError("Export incomplet : des passages ne sont pas traduits.")
             fragments[unit["original_id"]].append((unit, translations[unit["id"]]))
-    roots: dict[str, etree._Element] = {}
+    roots: dict[str, etree._Element] = {opf_path: package}
+    prefixes = {opf_path: namespaces_of(package)}
     for parts in fragments.values():
         parts.sort(key=lambda p: p[0]["part"])
         unit = dict(parts[0][0])
@@ -330,8 +399,10 @@ def rebuild(
         resource = unit["resource"]
         if resource not in roots:
             roots[resource] = xml(entries[resource])
-        apply_unit(roots[resource], unit, "".join(p[1] for p in parts))
+        apply_unit(roots[resource], unit, "".join(p[1] for p in parts), prefixes.get(resource))
     for path, root in roots.items():
+        if path == opf_path:
+            continue  # the package is written once, after the metadata below
         if etree.QName(root).localname == "html":
             root.set("lang", language)
             root.set("{http://www.w3.org/XML/1998/namespace}lang", language)

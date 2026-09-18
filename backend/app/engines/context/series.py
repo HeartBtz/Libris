@@ -128,7 +128,9 @@ def human_choices(source_units: list[dict], before: list[dict], after: list[dict
         if not old or old == new:
             continue
         old_tokens, new_tokens = tokens(old), tokens(new)
-        matcher = SequenceMatcher(None, [t[0] for t in old_tokens], [t[0] for t in new_tokens], autojunk=False)
+        matcher = SequenceMatcher(
+            None, [t[0] for t in old_tokens], [t[0] for t in new_tokens], autojunk=False
+        )
         for tag, i1, i2, j1, j2 in matcher.get_opcodes():
             if tag != "replace" or i2 - i1 > 8 or j2 - j1 > 8:
                 continue

@@ -17,7 +17,9 @@ def xhtml(body: str, head: str = "<title>Doc title</title>", attrs: str = "") ->
     )
 
 
-NAV = xhtml('<nav epub:type="toc"><h1>Contents</h1><ol><li><a href="c1.xhtml">Chapter One</a></li></ol></nav>')
+NAV = xhtml(
+    '<nav epub:type="toc"><h1>Contents</h1><ol><li><a href="c1.xhtml">Chapter One</a></li></ol></nav>'
+)
 NCX = (
     '<?xml version="1.0"?><ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1"><head>'
     '<meta name="dtb:uid" content="urn:{uid}"/></head><docTitle><text>Source Title</text></docTitle>'
@@ -50,7 +52,7 @@ def epub_files(
         f'<dc:identifier id="uid">urn:{uid}</dc:identifier><dc:title>Source Title</dc:title>'
         f"<dc:language>{language}</dc:language><dc:creator>Au Thor</dc:creator>{metadata}"
         '<meta property="dcterms:modified">2020-01-01T00:00:00Z</meta></metadata>'
-        f"<manifest>{items}</manifest><spine{' toc=\"ncx\"' if ncx else ''}>{refs}</spine></package>"
+        f"<manifest>{items}</manifest><spine{' toc="ncx"' if ncx else ''}>{refs}</spine></package>"
     )
     out = io.BytesIO()
     with zipfile.ZipFile(out, "w") as archive:

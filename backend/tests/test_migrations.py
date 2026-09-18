@@ -28,3 +28,36 @@ def test_migrations_run_both_ways_on_sqlite_the_default_database(tmp_path):
     alembic(database, "downgrade", "b752316870c4")
     alembic(database, "upgrade", "head")
     assert "No new upgrade operations detected" in alembic(database, "check")
+
+
+def test_existing_navigation_chapters_are_recognised_by_name(tmp_path):
+    import sqlite3
+
+    database = tmp_path / "chapters.db"
+    alembic(database, "upgrade", "a7c2e9d41f05")
+    with sqlite3.connect(database) as connection:
+        connection.execute(
+            "INSERT INTO users (id, username, password_hash, admin, created_at) VALUES ('u', 'u', 'x', 0, 0)"
+        )
+        connection.execute(
+            "INSERT INTO projects (id, owner_id, title, author, source_language, target_language, quality, "
+            "context_backend, status, original_hash, original_path, book_info, config, instructions, bible, "
+            "bible_validated, memory_revision, updated_at, created_at, series_name) VALUES ('p', 'u', 't', '', "
+            "'en', 'fr', 'normal', 'internal', 'pending', 'h', '/x', '{}', '{}', '', '{}', 0, 0, 0, 0, '')"
+        )
+        for number, resource in enumerate(
+            ("OEBPS/nav.xhtml", "OEBPS/toc.ncx", "OEBPS/c1.xhtml", "OEBPS/navy.xhtml")
+        ):
+            connection.execute(
+                "INSERT INTO chapters (id, project_id, position, title, resource, summary, instructions, analyzed, "
+                f"created_at) VALUES ('c{number}', 'p', {number}, 't', '{resource}', '{{}}', '', 0, 0)"
+            )
+    alembic(database, "upgrade", "head")
+    with sqlite3.connect(database) as connection:
+        kinds = dict(connection.execute("SELECT resource, kind FROM chapters"))
+    assert kinds == {
+        "OEBPS/nav.xhtml": "navigation",
+        "OEBPS/toc.ncx": "navigation",
+        "OEBPS/c1.xhtml": "narrative",
+        "OEBPS/navy.xhtml": "narrative",
+    }

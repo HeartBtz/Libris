@@ -45,6 +45,8 @@ class Chapter(Identified, Base):
     position: Mapped[int] = mapped_column(Integer)
     title: Mapped[str] = mapped_column(String(500))
     resource: Mapped[str] = mapped_column(Text)
+    # narrative | auxiliary (linear="no") | navigation (nav, NCX) | metadata (OPF description)
+    kind: Mapped[str] = mapped_column(String(20), default="narrative", server_default="narrative")
     summary: Mapped[dict] = mapped_column(JSON, default=dict)
     instructions: Mapped[str] = mapped_column(Text, default="")
     analyzed: Mapped[bool] = mapped_column(Boolean, default=False)

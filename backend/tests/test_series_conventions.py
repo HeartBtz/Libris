@@ -28,7 +28,9 @@ def volume(db, user, provider, tag, series, number, language="en"):
 
 
 def term(db, project, source, translation, locked=False):
-    db.add(Glossary(project_id=project.id, source=source, translation=translation, locked=locked, accepted=True))
+    db.add(
+        Glossary(project_id=project.id, source=source, translation=translation, locked=locked, accepted=True)
+    )
     db.flush()
 
 
@@ -36,7 +38,9 @@ def setup_series():
     with SessionLocal() as db:
         user = User(username="u1", password_hash=password_hash("test-password-123456789"), admin=True)
         other = User(username="u2", password_hash=password_hash("test-password-123456789"))
-        provider = Provider(name="Mock", base_url="https://llm.test/v1", model="m", capabilities={}, context_window=64000)
+        provider = Provider(
+            name="Mock", base_url="https://llm.test/v1", model="m", capabilities={}, context_window=64000
+        )
         db.add_all([user, other, provider])
         db.flush()
         v1 = volume(db, user, provider, "V1", "Saga", 1)
@@ -93,18 +97,28 @@ async def test_local_lock_overrides_the_series_and_hides_it():
         term(db, db.get(Project, ids["V3"]), "Silver Tower", "Tour Argent", locked=True)
         db.commit()
     built = await build_context(ids["V3"], passage(ids["V3"]), "translation")
-    assert "Silver Tower" not in {t["source"] for t in built.inspector["mandatory"]["SERIES_CONVENTIONS"]["terms"]}
-    assert {"source": "Silver Tower", "translation": "Tour Argent"} in built.inspector["mandatory"]["LOCKED_GLOSSARY"]
+    assert "Silver Tower" not in {
+        t["source"] for t in built.inspector["mandatory"]["SERIES_CONVENTIONS"]["terms"]
+    }
+    assert {"source": "Silver Tower", "translation": "Tour Argent"} in built.inspector["mandatory"][
+        "LOCKED_GLOSSARY"
+    ]
 
 
 async def test_human_corrections_of_an_earlier_volume_become_reusable_choices():
     ids = setup_series()
     with SessionLocal() as db:
         segment = db.get(Segment, passage(ids["V1"]))
-        machine = [{"id": u["id"], "text": "Alice entra dans la Tour Argentée avec la Pierre."} for u in segment.units]
+        machine = [
+            {"id": u["id"], "text": "Alice entra dans la Tour Argentée avec la Pierre."}
+            for u in segment.units
+        ]
         save_version(db, segment.id, machine, "translation", segment.revision)
         db.refresh(segment)
-        human = [{"id": u["id"], "text": "Alice entra dans la Tour d’Argent avec la Pierre."} for u in segment.units]
+        human = [
+            {"id": u["id"], "text": "Alice entra dans la Tour d’Argent avec la Pierre."}
+            for u in segment.units
+        ]
         assert save_version(db, segment.id, human, "human", segment.revision, validated=True)
         db.commit()
         memory = db.scalar(select(Memory).where(Memory.kind == "human_decision"))
@@ -122,6 +136,8 @@ async def test_human_corrections_of_an_earlier_volume_become_reusable_choices():
 def test_human_choices_ignore_rewritten_sentences():
     units = [{"id": "a", "text": "The Silver Tower fell."}]
     before = [{"id": "a", "text": "La Tour Argentée tomba."}]
-    after = [{"id": "a", "text": "La Tour d’Argent s’effondra dans un fracas terrible et définitif, sans témoin."}]
+    after = [
+        {"id": "a", "text": "La Tour d’Argent s’effondra dans un fracas terrible et définitif, sans témoin."}
+    ]
     result = human_choices(units, before, after)
     assert all(len(c["before"]) < 60 for c in result.get("choices", []))

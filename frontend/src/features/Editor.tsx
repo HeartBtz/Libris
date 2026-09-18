@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { KeyboardEvent } from "react";
 import { api, date, labels, send } from "../api";
 import { formatNumber, registerTranslations, useI18n } from "../i18n";
@@ -488,6 +488,8 @@ export function SegmentRow({
   const [base, setBase] = useState(segment.revision);
   const [dirty, setDirty] = useState(false);
   const [busy, setBusy] = useState(false);
+  const latest = useRef(units);
+  latest.current = units;
   useUnsavedDraft(`segment-${segment.id}`, dirty);
   useLayoutEffect(() => {
     if (!dirty) {
@@ -508,11 +510,15 @@ export function SegmentRow({
   async function save(validated: boolean) {
     if (busy || !complete) return;
     setBusy(true);
+    const sent = units;
     await run(async () => {
-      const saved = await send<Segment>(`/segments/${segment.id}`, { revision: base, units, validated }, "PUT");
-      setUnits(saved.translated_units);
+      const saved = await send<Segment>(`/segments/${segment.id}`, { revision: base, units: sent, validated }, "PUT");
       setBase(saved.revision);
-      setDirty(false);
+      // Text typed while the request was in flight stays as a draft instead of being overwritten.
+      if (latest.current === sent) {
+        setUnits(saved.translated_units);
+        setDirty(false);
+      }
       refresh();
     });
     setBusy(false);
@@ -721,7 +727,10 @@ export function SegmentRow({
           </details>
         )}
         <div className="segment-actions" role="group" aria-label={t("Actions du passage {position}", { position: segment.position + 1 })}>
-          <Button size="sm" disabled={busy || !complete || !dirty} onClick={() => void save(false)} shortcut={`${mod} S`}>
+          <Button size="sm" disabled={busy || !complete || !dirty} onClick={() => void save(false)}
+            shortcut={`${mod}+S`}
+            aria-keyshortcuts="Control+S Meta+S"
+          >
             {t("Enregistrer")}
           </Button>
           <Button
@@ -730,7 +739,8 @@ export function SegmentRow({
             icon="check"
             disabled={busy || !complete}
             onClick={() => void save(true)}
-            shortcut={`${mod} ↵`}
+            shortcut={`${mod}+Enter`}
+            aria-keyshortcuts="Control+Enter Meta+Enter"
           >
             {t("Valider")}
           </Button>

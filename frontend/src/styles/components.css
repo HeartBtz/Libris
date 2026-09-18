@@ -111,17 +111,6 @@
   padding: 0;
 }
 
-.btn-kbd {
-  margin-left: 2px;
-  padding: 1px 4px;
-  border-radius: 4px;
-  background: color-mix(in srgb, currentColor 14%, transparent);
-  font-family: var(--font-ui);
-  font-size: 11px;
-  font-weight: 500;
-  opacity: 0.85;
-}
-
 .link-button {
   padding: 0;
   border: 0;
@@ -697,7 +686,8 @@ input[type="radio"] {
 
 .segmented {
   display: inline-flex;
-  flex: none;
+  flex: 0 1 auto;
+  min-width: 0;
   max-width: 100%;
   padding: 2px;
   overflow-x: auto;
@@ -1238,6 +1228,18 @@ input[type="radio"] {
   top: calc(100% + 6px);
   left: 50%;
   transform: translateX(-50%);
+}
+
+/* Action groups sit at the right edge: their tooltips open leftwards so they never widen the page. */
+.page-actions .tooltip-top,
+.workspace-actions .tooltip-top,
+.panel-actions .tooltip-top,
+.editor-toolbar-actions .tooltip-top,
+.card-actions .tooltip-top,
+.batch-actions .tooltip-top {
+  right: 0;
+  left: auto;
+  transform: none;
 }
 
 .tooltip-right {

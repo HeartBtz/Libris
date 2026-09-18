@@ -22,11 +22,22 @@
 }
 
 .ai-review {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-start;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: start;
   gap: var(--space-3);
   font-size: var(--text-sm);
+}
+
+@media (max-width: 720px) {
+  .ai-review {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .ai-review > .btn {
+    grid-column: 2;
+    justify-self: start;
+  }
 }
 
 .ai-review-icon {

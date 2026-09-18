@@ -388,4 +388,9 @@
   .workspace-overall strong {
     font-size: var(--text-xl);
   }
+
+  .workspace-overall {
+    flex-basis: 100%;
+    justify-content: start;
+  }
 }

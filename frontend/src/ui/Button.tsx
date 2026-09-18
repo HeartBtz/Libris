@@ -17,6 +17,7 @@ type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
   icon?: IconName;
   iconAfter?: IconName;
   loading?: boolean;
+  /** Shown as the button's hint, e.g. "Ctrl+S"; the key handling itself belongs to the caller. */
   shortcut?: string;
 };
 
@@ -43,11 +44,11 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
       className={cx("btn", `btn-${variant}`, `btn-${size}`, loading && "is-loading", className)}
       disabled={disabled || loading}
       aria-busy={loading || undefined}
+      title={shortcut}
       {...rest}
     >
       {loading ? <span className="spinner" aria-hidden="true" /> : icon && <Icon name={icon} />}
       {children != null && children !== false && <span className="btn-label">{children}</span>}
-      {shortcut && <kbd className="btn-kbd" aria-hidden="true">{shortcut}</kbd>}
       {iconAfter && <Icon name={iconAfter} />}
     </button>
   );

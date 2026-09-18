@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { DragEvent, KeyboardEvent, ReactNode } from "react";
 import { api, labels, send } from "../api";
-import { formatDateTime, formatNumber, registerTranslations, useI18n } from "../i18n";
+import { formatDateTime, registerTranslations, useI18n } from "../i18n";
 import type { Project, Run, User } from "../types";
 import {
   Badge,
@@ -342,6 +342,7 @@ export function Library({ run, user }: { run: Run; user: User }) {
                 multiple
                 disabled={busy}
                 primary
+                inputId="epub-input"
                 onFiles={(files) => void upload(files)}
               />
               <Menu
@@ -477,15 +478,14 @@ export function Library({ run, user }: { run: Run; user: User }) {
                 </>
               }
               action={
-                <FileButton
-                  label={t("Importer des EPUB")}
-                  accept=".epub"
-                  multiple
+                <Button
+                  variant="primary"
+                  icon="upload"
                   disabled={busy}
-                  primary
-                  onFiles={(files) => void upload(files)}
-                  inputHidden
-                />
+                  onClick={() => document.getElementById("epub-input")?.click()}
+                >
+                  {t("Importer des EPUB")}
+                </Button>
               }
             />
             <p className="subtle">{t("EPUB 2 et 3 · images et balises préservées · endpoint compatible OpenAI")}</p>
@@ -760,7 +760,7 @@ export function FileButton({
   primary = false,
   icon = "upload",
   onFiles,
-  inputHidden = false,
+  inputId,
 }: {
   label: ReactNode;
   accept: string;
@@ -769,7 +769,7 @@ export function FileButton({
   primary?: boolean;
   icon?: "upload" | "plus";
   onFiles: (files: File[]) => void;
-  inputHidden?: boolean;
+  inputId?: string;
 }) {
   const input = useRef<HTMLInputElement>(null);
   return (
@@ -794,7 +794,7 @@ export function FileButton({
         multiple={multiple}
         hidden
         disabled={disabled}
-        data-secondary={inputHidden || undefined}
+        id={inputId}
         onChange={(e) => {
           const files = Array.from(e.target.files || []);
           e.target.value = ""; // Let the same files be chosen again after a failed import.
@@ -803,8 +803,4 @@ export function FileButton({
       />
     </label>
   );
-}
-
-export function numberLabel(value: number) {
-  return formatNumber(value);
 }

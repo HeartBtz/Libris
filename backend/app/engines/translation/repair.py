@@ -1,29 +1,71 @@
-"""Recover a structurally invalid response with bounded, checkpointed four-unit batches."""
+"""Translate a passage in bounded, checkpointed batches: after invalid answers, or for small windows."""
 
 from app.db import SessionLocal
-from app.engines.context.builder import build_context
+from app.engines.context.builder import ContextTooLarge, build_context
+from app.engines.epub.text import split_unit
 from app.engines.quality.checks import checks, locked_term_error, validate_translation
 from app.jobs.execution import execution
 from app.jobs.queue import checkpoint, fence
 from app.models import Segment
 from app.providers.llm import InvalidResponseExhausted, llm
-from app.schemas import TranslationResult
+from app.schemas import TextUnit, TranslationResult
+
+MINIMUM_PART = 400  # tokens: below this, a part is too short to be translated with any context
 
 
 async def repair_translation(project, segment, operation, job, extra, terms):
-    scope = execution.get()
-    if not scope or len(segment.units) <= 1 or len(segment.units) > 128:
+    if not execution.get() or len(segment.units) <= 1 or len(segment.units) > 128:
         raise InvalidResponseExhausted("Réparation par petits groupes impossible pour ce passage.")
-    jid, owner = scope
-    key = f"{segment.id}:{segment.revision}:{operation}"
+    groups = [segment.units[start : start + 4] for start in range(0, len(segment.units), 4)]
+    return await translate_groups(project, segment, operation, job, extra, terms, groups, "")
+
+
+async def translate_in_parts(project, segment, operation, job, extra, terms, too_large: ContextTooLarge):
+    """A passage too long for a small window is translated in consecutive parts, then reassembled.
+
+    Half of what the window leaves after the fixed rules goes to the text, the other half to its
+    neighbourhood. Only a first translation may cut inside a paragraph: a revision compares whole units.
+    """
+    allowance = (too_large.available - too_large.fixed) // 2
+    ratio = too_large.target / max(1, sum(len(u["text"]) for u in segment.units))
+    limit = int(allowance / max(ratio, 1))
+    if not execution.get() or allowance < MINIMUM_PART or limit < MINIMUM_PART // 4:
+        raise too_large
+    if operation == "translation":
+        parts = [
+            dict(part, of=unit["id"]) for unit in segment.units for part in split_unit(dict(unit), limit)
+        ]
+    elif all(len(unit["text"]) <= limit for unit in segment.units):
+        parts = [dict(unit, of=unit["id"]) for unit in segment.units]
+    else:
+        raise too_large
+    groups, size = [[]], 0
+    for part in parts:
+        if groups[-1] and size + len(part["text"]) > limit:
+            groups.append([])
+            size = 0
+        groups[-1].append(part)
+        size += len(part["text"])
+    result = await translate_groups(project, segment, operation, job, extra, terms, groups, ":parts")
+    joined: dict[str, str] = {}
+    for part, translated in zip(parts, result.units, strict=True):
+        joined[part["of"]] = joined.get(part["of"], "") + translated.text
+    result.units = [TextUnit(id=unit["id"], text=joined[unit["id"]]) for unit in segment.units]
+    validate_translation(segment.units, result)
+    return result
+
+
+async def translate_groups(project, segment, operation, job, extra, terms, groups, suffix):
+    jid, owner = execution.get()
+    key = f"{segment.id}:{segment.revision}:{operation}{suffix}"
     completed = checkpoint(jid, owner).checkpoint.get("repair", {})
     completed = completed.get(key, {})
     merged, uncertainties, events, new_terms = [], [], [], []
-    for start in range(0, len(segment.units), 4):
-        group = segment.units[start : start + 4]
+    done = 0
+    for group in groups:
         allowed = {unit["id"] for unit in group}
 
-        def validate(result):
+        def validate(result, group=group):
             validate_translation(group, result)
             findings = checks(
                 group,
@@ -35,7 +77,7 @@ async def repair_translation(project, segment, operation, job, extra, terms):
             if error := locked_term_error(findings):
                 raise ValueError(error)
 
-        data = completed.get(str(start))
+        data = completed.get(str(done))  # unit offset: stable across versions
         if data:
             result = TranslationResult.model_validate(data)
             validate(result)
@@ -71,24 +113,23 @@ async def repair_translation(project, segment, operation, job, extra, terms):
                 current_job = fence(db, jid, owner)
                 repair = dict(current_job.checkpoint.get("repair", {}))
                 batches = dict(repair.get(key, {}))
-                batches[str(start)] = result.model_dump()
+                batches[str(done)] = result.model_dump()
                 repair[key] = batches
                 current_job.checkpoint = {
                     **current_job.checkpoint,
                     "repair": repair,
                     "repair_progress": {
                         "segment_id": segment.id,
-                        "units_done": min(start + 4, len(segment.units)),
-                        "units_total": len(segment.units),
+                        "units_done": done + len(group),
+                        "units_total": sum(len(g) for g in groups),
                     },
                 }
                 db.commit()
+        done += len(group)
         merged.extend(result.units)
         uncertainties.extend(result.uncertainties)
         events.extend(result.events)
         new_terms.extend(result.new_terms)
-    result = TranslationResult(
+    return TranslationResult(
         units=merged, uncertainties=list(dict.fromkeys(uncertainties)), events=events, new_terms=new_terms
     )
-    validate_translation(segment.units, result)
-    return result

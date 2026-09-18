@@ -4,7 +4,7 @@ import json
 from sqlalchemy import delete, func, or_, select
 
 from app.db import SessionLocal
-from app.engines.context.builder import build_context
+from app.engines.context.builder import ContextTooLarge, build_context
 from app.engines.context.series import enforced_glossary
 from app.engines.memory.store import propose_terms, remember
 from app.engines.quality.checks import checks, locked_term_error, validate_translation
@@ -44,18 +44,23 @@ async def translation_call(
     extra: dict | None = None,
     needs: list[str] | None = None,
 ) -> TranslationResult:
-    built = await build_context(
-        project.id,
-        segment.id,
-        operation,
-        deep=job.options.get("deep", False),
-        instruction=job.options.get("instruction", ""),
-        extra=extra,
-        needs=needs,
-        provider_id=job.provider_id,
-    )
     with SessionLocal() as db:
         glossary = enforced_glossary(db, db.get(Project, project.id))
+    try:
+        built = await build_context(
+            project.id,
+            segment.id,
+            operation,
+            deep=job.options.get("deep", False),
+            instruction=job.options.get("instruction", ""),
+            extra=extra,
+            needs=needs,
+            provider_id=job.provider_id,
+        )
+    except ContextTooLarge as too_large:
+        from app.engines.translation.repair import translate_in_parts
+
+        return await translate_in_parts(project, segment, operation, job, extra, glossary, too_large)
 
     def validate(result: TranslationResult):
         validate_translation(segment.units, result)

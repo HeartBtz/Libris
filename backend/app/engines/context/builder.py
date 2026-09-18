@@ -10,7 +10,15 @@ from app.engines.context.providers import ContextItem, HybridContextProvider
 from app.engines.context.series import prior_volumes, series_decisions, series_terms
 from app.engines.memory.identities import effective_names, plausible_name
 from app.models import Chapter, CharacterRelation, Entity, Glossary, Memory, Project, Provider, Segment
-from app.providers.llm import LLMError, estimate_tokens, load_prompt
+from app.providers.llm import LLMError, estimate_tokens, json_schema, load_prompt
+from app.schemas import (
+    AskResult,
+    ChapterAnalysis,
+    ContextNeeds,
+    FinalReviewResult,
+    ReviewResult,
+    TranslationResult,
+)
 
 
 def mentioned(name: str, text: str) -> bool:
@@ -41,11 +49,47 @@ def section(name: str, content: str) -> str:
     return f"<{name}>\n{escaped}\n</{name}>"
 
 
-def fit_neighbors(values: list[dict], limit: int, previous: bool) -> list[dict]:
+def cost(name: str, content: str) -> int:
+    """Tokens a section costs once serialized in the request, escapes included."""
+    return estimate_tokens(json.dumps(section(name, content), ensure_ascii=False))
+
+
+RESPONSE_MODELS = {
+    "translation": TranslationResult,
+    "translation_revision": TranslationResult,
+    "polishing": TranslationResult,
+    "translation_review": ReviewResult,
+    "final_review": FinalReviewResult,
+    "chapter_analysis": ChapterAnalysis,
+    "context_planner": ContextNeeds,
+    "ask": AskResult,
+}
+
+
+def schema_size(operation: str) -> int:
+    model = RESPONSE_MODELS.get(operation, ChapterAnalysis)
+    return estimate_tokens(json.dumps(json_schema(model), ensure_ascii=False))
+
+
+def response_reserve(operation: str) -> int:
+    """What llm.complete adds around the prompt: the response schema, its margin and the envelope."""
+    return schema_size(operation) + 512 + 64
+
+
+class ContextTooLarge(LLMError):
+    """The passage and its mandatory rules do not fit the provider window, whatever the optional context."""
+
+    def __init__(self, message: str, *, available: int, fixed: int, target: int):
+        super().__init__(message)
+        self.available, self.fixed, self.target = available, fixed, target
+
+
+def fit_neighbors(values: list[dict], limit: int, previous: bool, name: str = "") -> list[dict]:
     """Keep the passages closest to the target; shorten the last one rather than lose the neighbourhood."""
 
     def size(items):
-        return estimate_tokens(json.dumps(items, ensure_ascii=False))
+        content = json.dumps(items, ensure_ascii=False)
+        return cost(name, content) if name else estimate_tokens(content)
 
     values = [dict(value) for value in values]
     while len(values) > 1 and size(values) > limit:
@@ -57,7 +101,7 @@ def fit_neighbors(values: list[dict], limit: int, previous: bool) -> list[dict]:
         while fields and size(values) > limit:
             longest = max(fields, key=lambda key: len(item[key]))
             keep = len(item[longest]) * 3 // 4
-            if keep < 120:
+            if keep < 40:
                 return []
             # The end of what precedes and the start of what follows are the useful halves.
             item[longest] = item[longest][-keep:] if previous else item[longest][:keep]
@@ -337,13 +381,26 @@ async def build_context(
             query += "\nSpecific information needs:\n" + "\n".join(needs[:4])
     memory = HybridContextProvider()
     candidates += await memory.retrieve(project, query, segment.position, deep)
-    # Schema and message-envelope reserve is separate from output reservation.
-    budget = provider.context_window - provider.max_output_tokens - 6000
-    mandatory_size = estimate_tokens(system) + estimate_tokens(json.dumps(mandatory, ensure_ascii=False))
+    # The response schema and the margin llm.complete checks are reserved besides the output itself.
+    reserve = response_reserve(operation)
+    budget = provider.context_window - provider.max_output_tokens - reserve
+    sizes = {key: cost(key, json.dumps(value, ensure_ascii=False)) for key, value in mandatory.items()}
+    target_size = sizes["TARGET_TEXT"]
+    system_size = estimate_tokens(json.dumps(system, ensure_ascii=False))
+    mandatory_size = system_size + sum(sizes.values())
     if mandatory_size > budget:
-        raise LLMError(
-            "La cible et les règles obligatoires dépassent le budget conservateur. "
-            "Augmentez la fenêtre ou réduisez les instructions ; aucun texte n’a été retiré."
+        fixed = mandatory_size - target_size
+        raise ContextTooLarge(
+            f"Fenêtre de {provider.context_window} tokens trop petite pour ce passage : après "
+            f"{provider.max_output_tokens} tokens réservés à la réponse et {reserve} au format de réponse, "
+            f"il reste {max(budget, 0)} tokens, alors que le prompt système ({system_size}), le texte du "
+            f"passage ({target_size}) et les règles obligatoires ({fixed - system_size}) en demandent "
+            f"{mandatory_size} (estimation prudente : 1 token par octet). Choisissez un fournisseur avec "
+            f"une fenêtre d’au moins {mandatory_size + provider.max_output_tokens + reserve + 2000} tokens "
+            "ou réduisez sa sortie maximale ; aucun texte n’a été retiré.",
+            available=budget,
+            fixed=fixed,
+            target=target_size,
         )
     remaining = optional_budget = min(budget - mandatory_size, memory_config()["context_budget"])
     retrieval_remaining = memory_config()["retrieval_budget"]
@@ -361,17 +418,17 @@ async def build_context(
             reason = "duplicate_or_empty"
         elif item.relevance < 0.05:
             reason = "low_relevance"
-        length = estimate_tokens(item.content)
+        length = cost(item.source, item.content)
         if item.source.startswith("OPENVIKING_") and length > retrieval_remaining:
             reason = "retrieval_budget"
         if not reason and item.source in NEIGHBORS:
             before = item.source == "PREVIOUS_CONTEXT"
             allowance = min(remaining, previous_share if before else neighbor_remaining)
             if length > allowance:
-                values = fit_neighbors(json.loads(item.content), allowance, before)
+                values = fit_neighbors(json.loads(item.content), allowance, before, item.source)
                 if values:
                     item.content = json.dumps(values, ensure_ascii=False)
-                    length = estimate_tokens(item.content)
+                    length = cost(item.source, item.content)
                 else:
                     reason = "budget"
             if not reason:
@@ -388,7 +445,12 @@ async def build_context(
             seen.add(normalized)
             kept.append(detail)
     if (previous or following) and not any(i["source"] in {"PREVIOUS_CONTEXT", "NEXT_CONTEXT"} for i in kept):
-        raise LLMError("Fenêtre trop petite pour conserver le voisinage du passage. Augmentez le contexte.")
+        raise LLMError(
+            f"Fenêtre de {provider.context_window} tokens trop petite pour garder le voisinage du passage : "
+            f"une fois le passage et les règles placés, il reste {optional_budget} tokens de contexte, "
+            "moins qu’un extrait des passages voisins. Choisissez un fournisseur avec une fenêtre plus "
+            "grande ou réduisez sa sortie maximale."
+        )
     sections = [section(item["source"], item["content"]) for item in kept]
     sections += [section(key, json.dumps(value, ensure_ascii=False)) for key, value in mandatory.items()]
     messages = [{"role": "system", "content": system}, {"role": "user", "content": "\n\n".join(sections)}]
@@ -402,7 +464,8 @@ async def build_context(
             "discarded": dropped,
             "mandatory": mandatory,
             "tokenizer": "conservative_utf8_bytes",
-            "input_estimate": mandatory_size + optional_budget - remaining,
+            # What llm.complete counts before sending: the serialized messages and the schema.
+            "input_estimate": estimate_tokens(json.dumps(messages, ensure_ascii=False)) + schema_size(operation),
             "output_reservation": provider.max_output_tokens,
             "context_window": provider.context_window,
         },

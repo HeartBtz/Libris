@@ -173,6 +173,18 @@ def fence(db: Session, job_id: str, owner: str) -> Job:
     return job
 
 
+def lock_live_jobs(db: Session, project_id: str, *, analysis: bool = True) -> list[str]:
+    """Locks the book's held jobs before any passage row, in the worker's order (job, then passage).
+
+    The worker holds its job row (`fence`) while it writes a passage; an API action that locked the
+    passage first and then touched the job (recording the passage as settled) could deadlock with it.
+    """
+    query = select(Job.id).where(Job.project_id == project_id, Job.status.in_(HELD))
+    if not analysis:
+        query = query.where(Job.operation != "analyze")
+    return list(db.scalars(query.order_by(Job.id).with_for_update()))
+
+
 def finish_segment(job_id: str, owner: str, segment_id: str) -> None:
     with SessionLocal() as db:
         job = fence(db, job_id, owner)

@@ -8,7 +8,7 @@ import time
 import httpx
 import pytest
 import respx
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 
 from app.api.projects import control, jobs, project_view
 from app.config import settings
@@ -366,3 +366,70 @@ async def test_the_first_failure_stops_the_other_passages():
         await asyncio.wait_for(in_parallel(range(10), width, launch), 5)
     assert started == [0, 1, 2]
     assert sorted(cancelled) == [0, 1]
+
+
+@pytest.mark.parametrize("action", ["edit", "retain_source"])
+def test_a_human_action_during_a_worker_write_cannot_deadlock(seeded, action):
+    """The worker holds its job row while it writes a passage; the API must take the job row first too."""
+    import threading
+
+    from fastapi import HTTPException
+
+    from app.api.coverage import RevisionInput, retain_source
+    from app.api.segments import edit
+    from app.db import engine
+    from app.engines.translation.versions import save_version
+    from app.jobs.queue import fence
+    from app.schemas import EditInput
+
+    WAITING = text(
+        "SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'"
+    )
+    if engine.dialect.name != "postgresql":
+        pytest.skip("row locks and deadlock detection need PostgreSQL")
+    pid, user_id, _ = seeded
+    jid = start(pid)
+    _, owner = claim()
+    with SessionLocal() as db:
+        segment = db.scalar(select(Segment).where(Segment.project_id == pid).order_by(Segment.position))
+        sid, units = segment.id, [{"id": u["id"], "text": u["text"]} for u in segment.units]
+    job_locked, outcome = threading.Event(), {}
+
+    def worker_write():
+        try:
+            with SessionLocal() as db:
+                fence(db, jid, owner)  # job row locked, as in persist()
+                job_locked.set()
+                deadline = time.monotonic() + 5
+                with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as probe:
+                    while time.monotonic() < deadline and not probe.scalar(WAITING):
+                        time.sleep(0.05)
+                assert time.monotonic() < deadline, "the API request never waited for the job row"
+                save_version(db, sid, [{**u, "text": "Traduit"} for u in units], "translation", 0)
+                db.commit()
+            outcome["worker"] = "ok"
+        except Exception as exc:  # noqa: BLE001 - the assertion below reports it
+            outcome["worker"] = repr(exc)
+
+    def human_write():
+        job_locked.wait(5)
+        try:
+            with SessionLocal() as db:
+                user = db.get(User, user_id)
+                if action == "edit":
+                    edit(sid, EditInput(revision=0, units=[{**u, "text": "Humain"} for u in units]), user, db)
+                else:
+                    retain_source(sid, RevisionInput(revision=0), user, db)
+            outcome["api"] = "ok"
+        except HTTPException as exc:
+            outcome["api"] = exc.status_code
+        except Exception as exc:  # noqa: BLE001
+            outcome["api"] = repr(exc)
+
+    threads = [threading.Thread(target=worker_write), threading.Thread(target=human_write)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(15)
+    # The API waited for the worker's transaction, then saw the new revision: a clean conflict.
+    assert outcome == {"worker": "ok", "api": 409}

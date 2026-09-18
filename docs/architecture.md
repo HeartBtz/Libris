@@ -63,6 +63,7 @@ Reprise et sûreté :
 - Un passage n’est marqué `finished` qu’une fois toutes ses étapes enregistrées. Chaque écriture vérifie le bail (`fence`) et la révision du passage ; une version déjà appliquée n’est pas réappliquée.
 - Une pause, une annulation, la perte du bail ou l’arrêt du worker annulent tous les appels en vol (leur requête passe à `interrupted`) ; la première erreur d’un passage (panne du provider, authentification) arrête aussi les autres. Les passages interrompus ne sont pas marqués : la reprise les recommence à partir de ce qu’ils avaient enregistré, sans refaire ceux qui étaient terminés ni émettre d’événement pour eux.
 - Le compteur des dix passages consécutifs en échec suit l’ordre d’achèvement des passages.
+- Ordre des verrous : le worker verrouille la ligne de son job (`fence`) avant toute ligne de passage. Les actions de l’API qui touchent un passage et les jobs actifs du livre (correction humaine, original conservé, mise en file d’une proposition IA) verrouillent d’abord ces jobs (`lock_live_jobs`, par identifiant croissant), puis le passage ; l’interblocage passage/job avec le worker est donc impossible sous PostgreSQL. L’action attend au plus la fin de la courte transaction d’écriture du worker.
 
 ## Sélection contextuelle
 

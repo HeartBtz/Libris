@@ -7,7 +7,7 @@ from app.api.common import row
 from app.engines.context.builder import build_context
 from app.engines.translation.versions import save_version
 from app.jobs import segment_state as state
-from app.jobs.queue import HELD, emit, enqueue
+from app.jobs.queue import HELD, emit, enqueue, lock_live_jobs
 from app.models import Issue, Job, RequestLog, Segment, TranslationVersion
 from app.providers.llm import llm
 from app.schemas import (
@@ -43,6 +43,8 @@ def queue_critique(db, project, segment, critique, author_id):
         "suggestion": str(critique.get("suggestion", "")),
         "author_id": author_id,
     }
+    # Job row first, then the passage's critique: the worker's order (see lock_live_jobs).
+    lock_live_jobs(db, project.id)
     active = db.scalar(
         select(Job)
         .where(Job.project_id == project.id, Job.status.in_(HELD))
@@ -102,6 +104,7 @@ def edit(sid: str, body: EditInput, user: CurrentUser, db: DB):
     segment, _ = get_segment(db, sid, user, write=True)
     if segment.revision != body.revision:
         raise HTTPException(409, "Le passage a été modifié. Rechargez sa version avant d’enregistrer.")
+    live_jobs = lock_live_jobs(db, segment.project_id, analysis=False)
     if not save_version(
         db,
         sid,
@@ -118,11 +121,7 @@ def edit(sid: str, body: EditInput, user: CurrentUser, db: DB):
     for issue in db.scalars(select(Issue).where(Issue.segment_id == sid, Issue.code == "content_refusal")):
         if not issue.message.startswith("analyze"):
             issue.resolved = True
-    for job_id in db.scalars(
-        select(Job.id).where(
-            Job.project_id == segment.project_id, Job.status.in_(HELD), Job.operation != "analyze"
-        )
-    ):
+    for job_id in live_jobs:
         state.mark(db, job_id, state.FINISHED, sid)
     db.commit()
     db.refresh(segment)

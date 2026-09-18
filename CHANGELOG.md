@@ -7,6 +7,7 @@ All notable changes are documented here. Libris follows [Semantic Versioning](ht
 ### Fixed
 
 - **Release pipeline.** The production deployment only waited for the release images to be tagged, so it started while the container runtime test and the vulnerability scan were still running: a failed gate could not stop it. It now waits for the runtime test, the scan and the GitLab publication, and a test keeps those gates in place. The release guides describe the deployment as automatic, consistently (#30).
+- **Locked glossary.** A correct translation was rejected when it differed from the locked term only by typography or grammar — a curly or straight apostrophe, a no-break space, unaccented capitals, a simple plural, or a contracted article ("du Conseil" for "le Conseil") — and a capitalised term such as "Will" was triggered by the ordinary word "will". Each false alarm cost up to thirteen model calls and left the passage in error. The check now ignores those differences, still reports a term that is really missing, and its message names the expected terms (#31).
 
 ## [0.4.1] - 2026-09-18
 

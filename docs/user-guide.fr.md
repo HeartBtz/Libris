@@ -120,7 +120,17 @@ Le budget actuel utilise une estimation **conservatrice en octets UTF-8**, affic
 
 La réponse complète est validée par schéma, identifiants, marqueurs et contrôles de texte. JSON Schema est utilisé si déclaré, avec repli JSON simple lorsqu’un endpoint rejette explicitement ce format. Une réponse tronquée ou polluée par du texte hors JSON est rejetée.
 
-Les métriques distinguent le cache, les tentatives, les tokens rapportés par le provider, la durée et le débit moyen global. Les coûts par million sont facultatifs et valent zéro par défaut. Les tokens d’entrée des requêtes en erreur, refusées ou interrompues sont comptés à part (`wasted_input_tokens`, et leur part `wasted_share` dans `GET /api/projects/{id}/metrics` et, par modèle, dans `GET /api/statistics/models`) : c’est la dépense qui n’a produit aucun résultat appliqué. Les traces complètes de prompts/réponses sont privées au projet ; les logs de service ne contiennent pas le livre.
+Les métriques distinguent le cache, les tentatives, les tokens rapportés par le provider, la durée et le débit moyen global. Les coûts par million sont facultatifs et valent zéro par défaut. Les tokens d’entrée des requêtes en erreur, refusées ou interrompues sont comptés à part (`wasted_input_tokens`, et leur part `wasted_share` dans `GET /api/projects/{id}/metrics` et, par modèle, dans `GET /api/statistics/models`) : c’est la dépense qui n’a produit aucun résultat appliqué.
+
+#### Estimer avant de lancer
+
+`GET /api/projects/{id}/estimate?operation=analyze|translate|review` (lecture seule, accessible à tout membre du livre) annonce ce qu’un travail coûterait, sans jamais appeler le modèle : `input_tokens`, `output_tokens`, `requests`, `passages` à traiter, `cost` et le détail par étape (`breakdown`).
+
+- **Seuls les passages restant à traiter comptent** : l’analyse ignore les passages déjà analysés (et la synthèse si la Book Bible est validée) ; la traduction ignore les passages terminés ou corrigés à la main ; la relecture reprend tous les passages sauf ceux validés.
+- **Base de calcul (`basis`, `basis_kind`)** : si le propriétaire du livre a déjà traité au moins 5 passages avec le même fournisseur (ce livre compris), chaque étape reprend les moyennes observées : appels par passage (nouvelles tentatives et erreurs comprises), tokens d’entrée et de sortie par appel, part des passages qui reçoivent une révision ou une revue finale (`history`, avec le nombre de livres). Sinon, estimation par défaut (`default`) : 12 500 tokens de consignes et de contexte par appel plus le passage (4 caractères par token), 15 % de nouvelles tentatives, révision sur 60 % et revue finale sur 50 % des passages, étapes selon la qualité du livre. Une étape jamais observée utilise la valeur par défaut (`mixed`). Les réponses servies par le cache ne comptent pas.
+- **Coût** : prix actuels du fournisseur du livre (`currency_note` rappelle lesquels) ; 0 si aucun prix n’est saisi. Les remises de cache des fournisseurs et les forfaits d’abonnement (Codex/ChatGPT) ne sont pas pris en compte.
+
+C’est un ordre de grandeur : les contrôles de cohérence (qualité haute et maximum) sont comptés à un appel par terme ou personnage connu, et l’option de contexte approfondi (`deep`) n’est pas incluse. Les traces complètes de prompts/réponses sont privées au projet ; les logs de service ne contiennent pas le livre.
 
 ## Tests et développement
 

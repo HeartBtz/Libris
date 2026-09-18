@@ -2,31 +2,29 @@
 
 All notable changes are documented here. Libris follows [Semantic Versioning](https://semver.org/); while the project is below 1.0, minor versions may include breaking operational changes that are called out explicitly.
 
-## [Unreleased]
+## [0.4.1] - 2026-09-18
+
+Follow-up to 0.4.0: the remaining findings of the audit. No database migration and no configuration change is required; behind a reverse proxy, consider setting `FORWARDED_ALLOW_IPS` (see *Security*).
+
+### Security
+
+- **Login throttling.** The brute-force protection counted every login — successful ones included — in a single bucket per client address. Behind a reverse proxy all visitors share the proxy's address, so twenty logins in five minutes locked everybody out, and anyone could do it on purpose. Only failed attempts now count, per client address *and* account name (with a higher overall ceiling per address), a successful login clears the counter, and expired entries are purged. Set `FORWARDED_ALLOW_IPS` to your proxy's address so that real client addresses are used (#22).
 
 ### Fixed
 
 - **Edit conflicts in the editor.** When a running job delivered a new version of a passage while you were typing, every save was refused (HTTP 409) and nothing let you get out of it short of reloading the page. The notice now offers two explicit choices: reload the server version, or keep your text and save it over the latest version (#23).
 - **No more out-of-date answers on screen.** Switching chapter, filter or page quickly while the server was slow could show the previous chapter's passages under the new chapter title, and overlapping refreshes could leave the book header in a past state. Only the most recent request now updates the screen. The completion report also follows the job's progress and no longer needs a manual "Actualiser le bilan" to re-enable "Relancer la sélection" (#24).
+- **Data consistency.** Restoring a "source kept" version (or re-importing a project archive containing one) now brings back the dedicated "Original conservé" status, so the passage stays listed among those still needing a translation; conversely, replacing a kept original with a real translation settles its standing alert. Importing a glossary whose JSON root is an object (`{"terms": [...]}`) is refused with an explicit message where it used to answer "0 imported" and swallow the mistake. Saving a character sheet now refuses an empty or over-long name and a name or alias that already belongs to another confirmed character, like the dedicated alias action already did (#25).
+- Database migrations now run on SQLite, the default `DATABASE_URL`: `alembic upgrade head` used to stop on the job/provider migration with "No support for ALTER of constraints in SQLite dialect". PostgreSQL installations are unaffected (#26).
+- `WORKER_HEARTBEAT_SECONDS` and `MEMORY_CATALOG_INTERVAL_SECONDS` are now honoured by the worker (they were declared but ignored); out-of-range values are refused at start-up (#27).
+- **Applying accepted suggestions.** The step that applies the AI suggestions you accepted kept a database connection open for the whole duration of each model call — minutes with a slow provider — which could exhaust the connection pool when several books were in that step. It now reads, calls the model, then writes, without holding anything in between; and a result that arrives after you paused or cancelled the job is no longer applied (#28).
+- **"Retranslate" really asks the model again.** A forced retranslation of a passage whose context had not changed was silently answered from the request cache, so it returned the very same text without calling the provider. Forced jobs now bypass the cache lookup; the fresh answer is stored and reused as usual (#29).
 
 ### Changed
 
 - Operations guide: `docs/ci-cd.md` now lists what lives outside Git on the production target and gives a verified procedure to re-provision `/opt/libris-production` if it is lost, with a warning to free disk space inside `backups/` and never by deleting the directory (#21).
 - CI: the image build job now removes this project's own unused images older than three days from the shared runner (they remain in the registry); per-commit images had been accumulating there indefinitely (#20).
-### Security
-
-- **Login throttling.** The brute-force protection counted every login — successful ones included — in a single bucket per client address. Behind a reverse proxy all visitors share the proxy's address, so twenty logins in five minutes locked everybody out, and anyone could do it on purpose. Only failed attempts now count, per client address *and* account name (with a higher overall ceiling per address), a successful login clears the counter, and expired entries are purged. Set `FORWARDED_ALLOW_IPS` to your proxy's address so that real client addresses are used (#22).
-- **Data consistency.** Restoring a "source kept" version (or re-importing a project archive containing one) now brings back the dedicated "Original conservé" status, so the passage stays listed among those still needing a translation; conversely, replacing a kept original with a real translation settles its standing alert. Importing a glossary whose JSON root is an object (`{"terms": [...]}`) is refused with an explicit message where it used to answer "0 imported" and swallow the mistake. Saving a character sheet now refuses an empty or over-long name and a name or alias that already belongs to another confirmed character, like the dedicated alias action already did (#25).
-- Database migrations now run on SQLite, the default `DATABASE_URL`: `alembic upgrade head` used to stop on the job/provider migration with "No support for ALTER of constraints in SQLite dialect". PostgreSQL installations are unaffected (#26).
-### Changed
-
 - Removed the unused "structured error codes" module and circuit-breaker helpers announced in 0.3.4: nothing ever called them and their retry tables contradicted the real behaviour, which is the one described under *Automatic provider recovery* in 0.4.0 (#27).
-
-### Fixed
-
-- `WORKER_HEARTBEAT_SECONDS` and `MEMORY_CATALOG_INTERVAL_SECONDS` are now honoured by the worker (they were declared but ignored); out-of-range values are refused at start-up (#27).
-- **Applying accepted suggestions.** The step that applies the AI suggestions you accepted kept a database connection open for the whole duration of each model call — minutes with a slow provider — which could exhaust the connection pool when several books were in that step. It now reads, calls the model, then writes, without holding anything in between; and a result that arrives after you paused or cancelled the job is no longer applied (#28).
-- **"Retranslate" really asks the model again.** A forced retranslation of a passage whose context had not changed was silently answered from the request cache, so it returned the very same text without calling the provider. Forced jobs now bypass the cache lookup; the fresh answer is stored and reused as usual (#29).
 
 ## [0.4.0] - 2026-09-18
 

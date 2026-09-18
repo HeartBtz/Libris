@@ -45,6 +45,7 @@ const translations: Record<string, string> = {
   "Aucun passage à récupérer pour ce filtre.": "No segments to recover for this filter.",
   "Passage": "Segment",
   "Choix humain protégé : récupération automatique désactivée.": "Protected human choice: automatic recovery disabled.",
+  "passages à récupérer ; seuls les premiers sont listés. Relancez-les, puis actualisez le bilan pour voir les suivants.": "passages to recover; only the first ones are listed. Rerun them, then refresh the summary to see the next ones.",
 };
 
 registerTranslations(translations);
@@ -60,6 +61,7 @@ interface Report {
   protected: number;
   processing: boolean;
   last_job_status: string;
+  recovery_total?: number;
   recovery: {
     id: string;
     position: number;
@@ -136,6 +138,11 @@ export function CompletionPanel({
         {!!report.recovery.length && !report.processing && (
           <p>
             {t("Sélectionnez les passages ci-dessous puis relancez-les avec le provider du livre ou un provider de remplacement.")}
+          </p>
+        )}
+        {(report.recovery_total ?? 0) > report.recovery.length && (
+          <p>
+            {report.recovery_total} {t("passages à récupérer ; seuls les premiers sont listés. Relancez-les, puis actualisez le bilan pour voir les suivants.")}
           </p>
         )}
         <p>

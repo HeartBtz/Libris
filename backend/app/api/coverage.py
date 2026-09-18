@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import and_, case, func, or_, select
 
 from app.api.common import row
 from app.api.segments import get_segment
@@ -16,39 +16,79 @@ from app.security import DB, CurrentUser, access
 router = APIRouter(prefix="/api")
 
 
+RECOVERY_LIMIT = 500
+
+
 @router.get("/projects/{pid}/completion")
 def completion(pid: str, user: CurrentUser, db: DB):
     access(db, pid, user)
-    segments = list(db.scalars(select(Segment).where(Segment.project_id == pid).order_by(Segment.position)))
+    # Counted by the database: this report refreshes with every burst of job events, and loading each
+    # passage of a long book (units, translations, critiques) to count them cost close to 1 MB a call.
+    owned = Segment.project_id == pid
+
+    def count(*conditions):
+        return func.coalesce(func.sum(case((and_(*conditions), 1), else_=0)), 0)
+
+    untranslated = Segment.translation == ""
+    total, translated, missing, retained, flagged, protected = db.execute(
+        select(
+            func.count(),
+            count(~untranslated, Segment.retained_source.is_(False)),
+            count(untranslated),
+            count(Segment.retained_source.is_(True)),
+            count(Segment.status == "check"),
+            count(or_(Segment.human.is_(True), Segment.validated.is_(True))),
+        ).where(owned)
+    ).one()
+    issues = db.scalar(
+        select(func.count()).select_from(Issue).where(Issue.project_id == pid, Issue.resolved.is_(False))
+    )
+    last_status = db.scalar(
+        select(Job.status).where(Job.project_id == pid).order_by(Job.created_at.desc()).limit(1)
+    )
+    processing = db.scalar(select(Job.id).where(Job.project_id == pid, Job.status.in_(HELD)).limit(1))
+    stuck = (owned, or_(untranslated, Segment.status.in_(("error", "refused", "blocked"))))
     chapters = {c.id: c.title for c in db.scalars(select(Chapter).where(Chapter.project_id == pid))}
-    unresolved = list(db.scalars(select(Issue).where(Issue.project_id == pid, Issue.resolved.is_(False))))
-    jobs = list(db.scalars(select(Job).where(Job.project_id == pid).order_by(Job.created_at.desc())))
-    missing = sum(not s.translation for s in segments)
-    retained = sum(s.retained_source for s in segments)
+    rows = db.execute(
+        select(
+            Segment.id,
+            Segment.position,
+            Segment.chapter_id,
+            Segment.status,
+            Segment.error,
+            func.substr(Segment.source, 1, 260),
+            Segment.human,
+            Segment.validated,
+            Segment.retained_source,
+        )
+        .where(*stuck)
+        .order_by(Segment.position)
+        .limit(RECOVERY_LIMIT)
+    ).all()
     return {
-        "total": len(segments),
-        "translated": sum(bool(s.translation) and not s.retained_source for s in segments),
+        "total": total,
+        "translated": translated,
         "missing": missing,
         "retained": retained,
-        "coverage_complete": bool(segments) and not missing and not retained,
-        "flagged": sum(s.status == "check" for s in segments),
-        "issues": len(unresolved),
-        "protected": sum(s.human or s.validated for s in segments),
-        "processing": any(j.status in HELD for j in jobs),
-        "last_job_status": jobs[0].status if jobs else "none",
+        "coverage_complete": bool(total) and not missing and not retained,
+        "flagged": flagged,
+        "issues": issues,
+        "protected": protected,
+        "processing": processing is not None,
+        "last_job_status": last_status or "none",
         "epubcheck": "checked_on_export",
+        "recovery_total": db.scalar(select(func.count()).select_from(Segment).where(*stuck)),
         "recovery": [
             {
-                "id": s.id,
-                "position": s.position,
-                "chapter": chapters.get(s.chapter_id, ""),
-                "status": s.status,
-                "error": s.error,
-                "excerpt": s.source[:260],
-                "eligible": not (s.human or s.validated or s.retained_source),
+                "id": sid,
+                "position": position,
+                "chapter": chapters.get(chapter_id, ""),
+                "status": status,
+                "error": error,
+                "excerpt": excerpt,
+                "eligible": not (human or validated or retained_source),
             }
-            for s in segments
-            if not s.translation or s.status in {"error", "refused", "blocked"}
+            for sid, position, chapter_id, status, error, excerpt, human, validated, retained_source in rows
         ],
     }
 

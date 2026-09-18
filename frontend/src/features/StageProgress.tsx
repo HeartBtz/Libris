@@ -1,62 +1,63 @@
 import { useState } from "react";
-import { registerTranslations, useI18n } from "../i18n";
+import type { ReactNode } from "react";
+import { formatNumber, formatPercent, registerTranslations, useI18n } from "../i18n";
 import type { Job, Project } from "../types";
+import { Icon, ProgressBar, cx } from "../ui";
 import { duration, projectProgress } from "./progress";
 
-const translations: Record<string, string> = {
-  "Import": "Import",
+registerTranslations({
+  Import: "Import",
   "Analyse & mémoire": "Analysis & memory",
-  "Traduction": "Translation",
-  "Relecture": "Review",
-  "Export": "Export",
+  Traduction: "Translation",
+  Relecture: "Review",
+  Export: "Export",
   "EPUB importé et structure chargée.": "EPUB imported and structure loaded.",
-  "passages analysés": "segments analyzed",
-  "sections synthétisées.": "sections synthesized.",
-  "passage(s) doivent être récupérés avant la revue finale.": "segments must be recovered before the final review.",
-  "passages traduits": "segments translated",
-  "conservés en original.": "retained in the original.",
-  "passages examinés": "segments reviewed",
-  "propositions IA traitées": "AI proposals processed",
-  "résolus": "resolved",
-  "à vérifier.": "to review.",
+  "{analyzed}/{total} passages analysés · {synthesized}/{chapters} sections synthétisées.":
+    "{analyzed}/{total} passages analyzed · {synthesized}/{chapters} sections synthesized.",
+  "{count} passage doit être récupéré avant la revue finale.": "{count} passage must be recovered before the final review.",
+  "{count} passages doivent être récupérés avant la revue finale.": "{count} passages must be recovered before the final review.",
+  "{translated}/{total} passages traduits · {retained} conservés en original.":
+    "{translated}/{total} passages translated · {retained} retained in the original.",
+  "{done}/{total} propositions IA traitées": "{done}/{total} AI proposals processed",
+  "{done}/{total} passages examinés · {resolved} résolus · {remaining} à vérifier.":
+    "{done}/{total} passages reviewed · {resolved} resolved · {remaining} to review.",
   "Génération et réception du fichier en cours…": "Generating and receiving the file…",
   "Fichier reçu ; téléchargement transmis au navigateur.": "File received; download sent to the browser.",
   "Export échoué. Consultez le message d’erreur et réessayez.": "Export failed. Check the error message and try again.",
   "Livre prêt à exporter.": "Book ready to export.",
   "Terminez les alertes restantes avant l’export final.": "Resolve the remaining alerts before the final export.",
   "Avancement par étape": "Progress by stage",
-  "Choisir une étape": "Choose a stage",
+  "Étape {number} : {stage}": "Stage {number}: {stage}",
   "En cours": "In progress",
-  "Progression": "Progress",
-  "coût restant estimé": "estimated remaining cost",
-  "confiance": "confidence",
-  "Traitement terminé et alertes résolues sont deux mesures distinctes.": "Completed processing and resolved alerts are separate measures.",
+  "Progression {stage}": "{stage} progress",
+  "coût restant estimé {cost}": "estimated remaining cost {cost}",
+  "confiance {level}": "confidence {level}",
+  "Traitement terminé et alertes résolues sont deux mesures distinctes.":
+    "Completed processing and resolved alerts are separate measures.",
   "Suivre l’étape active": "Follow the active stage",
-};
-
-registerTranslations(translations);
+});
 
 export type ExportState = "idle" | "running" | "done" | "error";
 
 export function StageProgress({
   project,
-  job: _job,
+  job,
   exportState,
+  status,
+  counters,
 }: {
   project: Project;
   job?: Job;
   exportState: ExportState;
+  status?: ReactNode;
+  counters?: ReactNode;
 }) {
-  const { t } = useI18n();
+  const { t, tp } = useI18n();
   const [selected, setSelected] = useState<number | null>(null);
   const progress = projectProgress(project);
   const stages = progress.stages.map((stage) =>
     stage.key === "export" && exportState !== "idle"
-      ? {
-          ...stage,
-          done: exportState === "done" ? 1 : 0,
-          percent: exportState === "done" ? 100 : 0,
-        }
+      ? { ...stage, done: exportState === "done" ? 1 : 0, percent: exportState === "done" ? 100 : 0 }
       : stage,
   );
   const active =
@@ -66,19 +67,39 @@ export function StageProgress({
   const index = selected ?? active;
   const stage = stages[index];
   const busy = stage.key === "export" && exportState === "running";
+  const stats = project.stats;
+  const recovery = Number(job?.checkpoint.recovery_required) || 0;
   const detail =
     stage.key === "import"
       ? t("EPUB importé et structure chargée.")
       : stage.key === "analysis"
-        ? `${project.stats.analyzed_segments}/${project.stats.total} ${t("passages analysés")} · ${project.stats.synthesized_chapters}/${project.stats.chapters} ${t("sections synthétisées.")}`
+        ? t("{analyzed}/{total} passages analysés · {synthesized}/{chapters} sections synthétisées.", {
+            analyzed: stats.analyzed_segments,
+            total: stats.total,
+            synthesized: stats.synthesized_chapters,
+            chapters: stats.chapters,
+          })
         : stage.key === "translation"
-          ? _job?.checkpoint.step === "recovery_required"
-            ? `${Number(_job.checkpoint.recovery_required) || 0} ${t("passage(s) doivent être récupérés avant la revue finale.").replace("segment(s)", Number(_job.checkpoint.recovery_required) === 1 ? "segment" : "segments")}`
-            : `${project.stats.translated}/${project.stats.total} ${t("passages traduits")} · ${project.stats.retained_source} ${t("conservés en original.")}`
+          ? job?.checkpoint.step === "recovery_required"
+            ? tp(
+                recovery,
+                "{count} passage doit être récupéré avant la revue finale.",
+                "{count} passages doivent être récupérés avant la revue finale.",
+              )
+            : t("{translated}/{total} passages traduits · {retained} conservés en original.", {
+                translated: stats.translated,
+                total: stats.total,
+                retained: stats.retained_source,
+              })
           : stage.key === "review"
             ? progress.operation === "accept_critiques" && progress.state !== "completed"
-              ? `${stage.done}/${stage.total} ${t("propositions IA traitées")}`
-              : `${stage.done}/${stage.total} ${t("passages examinés")} · ${progress.review.resolved} ${t("résolus")} · ${progress.review.remaining} ${t("à vérifier.")}`
+              ? t("{done}/{total} propositions IA traitées", { done: stage.done, total: stage.total })
+              : t("{done}/{total} passages examinés · {resolved} résolus · {remaining} à vérifier.", {
+                  done: stage.done,
+                  total: stage.total,
+                  resolved: progress.review.resolved,
+                  remaining: progress.review.remaining,
+                })
             : exportState === "running"
               ? t("Génération et réception du fichier en cours…")
               : exportState === "done"
@@ -89,51 +110,71 @@ export function StageProgress({
                     ? t("Livre prêt à exporter.")
                     : t("Terminez les alertes restantes avant l’export final.");
   return (
-    <section className="stage-progress" aria-label={t("Avancement par étape")}>
-      <div
-        className="stage-selectors"
-        role="group"
-        aria-label={t("Choisir une étape")}
-      >
-        {stages.map((item, i) => (
-          <button
-            key={item.key}
-            aria-pressed={index === i}
-            aria-controls="stage-progress-detail"
-            onClick={() => setSelected(i)}
-          >
-            {i + 1} · {t(item.label)}
-          </button>
-        ))}
-      </div>
-      <div id="stage-progress-detail">
-        <div className="stage-progress-heading">
+    <section className="stepper" aria-label={t("Avancement par étape")}>
+      <ol className="stepper-steps">
+        {stages.map((item, i) => {
+          const complete = item.percent === 100;
+          return (
+            <li key={item.key} className={cx("step", complete && "is-complete", i === active && "is-active")}>
+              <button
+                type="button"
+                className="step-button"
+                aria-pressed={index === i}
+                aria-controls="stage-progress-detail"
+                aria-label={t("Étape {number} : {stage}", { number: i + 1, stage: t(item.label) })}
+                onClick={() => setSelected(i === active ? null : i)}
+              >
+                <span className="step-marker" aria-hidden="true">
+                  {complete ? <Icon name="check" size={12} /> : i + 1}
+                </span>
+                <span className="step-text">
+                  <span className="step-label">{t(item.label)}</span>
+                  <span className="step-percent tabular">{formatPercent(item.percent)}</span>
+                </span>
+              </button>
+              <span className="step-track" aria-hidden="true">
+                <span style={{ width: `${item.percent}%` }} />
+              </span>
+            </li>
+          );
+        })}
+      </ol>
+      <div id="stage-progress-detail" className="stepper-detail">
+        <div className="stepper-detail-main">
           <strong>{t(stage.label)}</strong>
-          <span>{busy ? t("En cours") : `${stage.percent} %`}</span>
-        </div>
-        <progress
-          aria-label={`${t("Progression")} ${t(stage.label)}`}
-          value={busy ? undefined : stage.percent}
-          max={100}
-        />
-        <p>{detail}</p>
-        {index === active &&
-          progress.estimate.remaining_seconds !== null &&
-          stage.percent < 100 && (
-            <small>
-              {duration(progress.estimate.remaining_seconds)} · {t("coût restant estimé")} {progress.estimate.remaining_cost?.toFixed(3) ?? "—"} · {t("confiance")} {progress.estimate.confidence}
-            </small>
+          <span className="muted">{detail}</span>
+          {index === active && progress.estimate.remaining_seconds !== null && stage.percent < 100 && (
+            <span className="subtle">
+              {duration(progress.estimate.remaining_seconds)}
+              {progress.estimate.remaining_cost !== null &&
+                ` · ${t("coût restant estimé {cost}", {
+                  cost: formatNumber(progress.estimate.remaining_cost, { maximumFractionDigits: 3 }),
+                })}`}
+              {` · ${t("confiance {level}", { level: progress.estimate.confidence })}`}
+            </span>
           )}
-        {stage.key === "review" && (
-          <small>
-            {t("Traitement terminé et alertes résolues sont deux mesures distinctes.")}
-          </small>
-        )}
-        {selected !== null && (
-          <button className="quiet" onClick={() => setSelected(null)}>
-            {t("Suivre l’étape active")}
-          </button>
-        )}
+          {stage.key === "review" && (
+            <span className="subtle">{t("Traitement terminé et alertes résolues sont deux mesures distinctes.")}</span>
+          )}
+          {selected !== null && (
+            <button type="button" className="link-button" onClick={() => setSelected(null)}>
+              {t("Suivre l’étape active")}
+            </button>
+          )}
+        </div>
+        <div className="stepper-detail-side">
+          <ProgressBar
+            size="sm"
+            label={t("Progression {stage}", { stage: t(stage.label) })}
+            value={stage.percent}
+            indeterminate={busy}
+            tone={stage.percent === 100 ? "success" : "accent"}
+          />
+          <div className="stepper-status">
+            {status}
+            {counters}
+          </div>
+        </div>
       </div>
     </section>
   );

@@ -1,22 +1,37 @@
-import {
-  lazy,
-  Suspense,
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-} from "react";
-import { api, date, labels, responseError, send } from "../api";
-import { getLocale, registerTranslations, useI18n } from "../i18n";
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { api, date, downloadGet, send } from "../api";
+import { formatPercent, getLocale, registerTranslations, useI18n } from "../i18n";
 import type { Chapter, Job, Project, Run, Segment, User } from "../types";
+import { useLeaveGuard } from "../unsaved";
+import {
+  Button,
+  Callout,
+  Icon,
+  IconButton,
+  LoadingBlock,
+  Menu,
+  Page,
+  StatusPill,
+  TabPanel,
+  Tabs,
+  cx,
+  useDialogs,
+} from "../ui";
+import type { MenuEntry } from "../ui";
 import { Editor } from "./Editor";
+import { EstimateNote } from "./Estimate";
+import type { EstimatedOperation } from "./Estimate";
 import { ValidationPanel } from "./ValidationPanel";
 import { CompletionPanel } from "./CompletionPanel";
-import { StageProgress, type ExportState } from "./StageProgress";
+import { StageProgress } from "./StageProgress";
+import type { ExportState } from "./StageProgress";
 import { duration, projectProgress } from "./progress";
+import { Bible, Glossary, Observability, ProjectSettings, Quality } from "./panels";
+
 const CharacterGraph = lazy(() => import("./CharacterGraph"));
-const translations: Record<string, string> = {
-  "Analyse des passages": "Segment analysis",
+
+registerTranslations({
+  "Analyse des passages": "Passage analysis",
   "Synthèse de la Book Bible": "Book Bible synthesis",
   Traduction: "Translation",
   "Seconde passe ciblée": "Targeted second pass",
@@ -31,73 +46,73 @@ const translations: Record<string, string> = {
   "Reconnexion du suivi…": "Reconnecting progress tracking…",
   "Ouverture du livre…": "Opening book…",
   "Actualiser les données du livre": "Refresh book data",
-  "Actualisation…": "Refreshing…",
-  Actualiser: "Refresh",
-  "Mis à jour à": "Updated at",
-  "Bibliothèque /": "Library /",
-  volume: "volume",
-  lot: "batch",
+  "Mis à jour à {time}": "Updated at {time}",
+  Bibliothèque: "Library",
+  "volume {volume}": "volume {volume}",
+  "lot {current}/{total}": "batch {current}/{total}",
   "Reprendre le travail annulé": "Resume cancelled work",
   "Reprendre après connexion": "Resume after signing in",
   Reprendre: "Resume",
   Pause: "Pause",
   "Réessayer maintenant": "Retry now",
-  Annuler: "Cancel",
-  "Analyse terminée": "Analysis complete",
+  "Annuler le travail": "Cancel job",
   "Analyser le livre": "Analyze book",
-  "Relancer une analyse complète des résultats automatiques ? Les analyses et décisions humaines sont conservées. Cette opération rappellera le modèle.":
-    "Rerun a full analysis of the automatic results? Analyses and human decisions will be preserved. This operation will call the model again.",
+  "Analyser le livre ?": "Analyze the book?",
+  "L’analyse lit chaque passage, construit la Book Bible et la mémoire du livre. Elle appelle le modèle configuré.":
+    "Analysis reads every passage and builds the Book Bible and the book memory. It calls the configured model.",
+  "Relancer une analyse complète ?": "Rerun a full analysis?",
+  "Les résultats automatiques seront recalculés ; les analyses et décisions humaines sont conservées. Cette opération rappellera le modèle.":
+    "Automatic results will be recomputed; human analyses and decisions are kept. This operation will call the model again.",
   "Réanalyse complète": "Full reanalysis",
   Traduire: "Translate",
-  Récupérer: "Recover",
-  passage: "segment",
-  passages: "segments",
-  "Exporter ↓": "Export ↓",
+  "Traduire le livre ?": "Translate the book?",
+  "Les passages non traduits seront envoyés au modèle configuré, dans l’ordre du livre. Les corrections humaines sont protégées.":
+    "Untranslated passages will be sent to the configured model, in book order. Human corrections are protected.",
+  Lancer: "Start",
+  "Récupérer {count} passage": "Recover {count} passage",
+  "Récupérer {count} passages": "Recover {count} passages",
+  "Relire ({count})": "Review ({count})",
+  "Exporter l’EPUB": "Export EPUB",
+  "Configurer le livre": "Configure the book",
+  Exporter: "Export",
+  "Formats d’export": "Export formats",
   "EPUB traduit": "Translated EPUB",
   Texte: "Text",
-  "Projet complet": "Complete project",
+  "Projet complet (.zip)": "Complete project (.zip)",
   "EPUB partiel · originaux conservés": "Partial EPUB · originals retained",
   "Rapport de couverture": "Coverage report",
-  "Configurez le provider et les langues dans":
-    "Configure the provider and languages in",
-  Configuration: "Settings",
-  "Gérer les providers →": "Manage providers →",
+  "Autres actions": "More actions",
+  "Aucun provider n’est configuré pour ce livre.": "No provider is configured for this book.",
+  "Choisissez le modèle et les langues dans les réglages du livre.": "Choose the model and languages in the book settings.",
+  "Ouvrir les réglages": "Open settings",
+  "Gérer les providers": "Manage providers",
   "Voir les requêtes": "View requests",
   "Le provider a refusé le traitement. Le texte source est conservé ; ce passage n’est pas compté comme analysé ou traduit automatiquement.":
-    "The provider declined processing. The source text is retained; this segment is not counted as automatically analyzed or translated.",
-  "Ouvrir le passage à traiter": "Open the segment to process",
+    "The provider declined processing. The source text is retained; this passage is not counted as automatically analyzed or translated.",
+  "Ouvrir le passage à traiter": "Open the passage to process",
   "Compléter la Book Bible manuellement": "Complete the Book Bible manually",
-  "Reprise automatique prévue :": "Automatic retry scheduled:",
-  "interruption(s) consécutive(s). Les étapes enregistrées sont conservées. Utilisez Pause pour suspendre les tentatives automatiques.":
-    "consecutive interruption(s). Completed stages are retained. Use Pause to suspend automatic retries.",
-  "Pause volontaire — utilisez Reprendre pour continuer.":
-    "Paused manually — use Resume to continue.",
-  "Ouvrir les paramètres de connexion du provider →":
-    "Open provider connection settings →",
-  "validés humainement": "human-validated",
-  "à vérifier": "to review",
-  erreurs: "errors",
-  Mémoire: "Memory",
-  "passage(s) conservé(s) en original": "segment(s) retained in the original",
+  "Reprise automatique prévue le {date}.": "Automatic retry scheduled on {date}.",
+  "{count} interruption consécutive. Les étapes enregistrées sont conservées ; Pause suspend les tentatives automatiques.":
+    "{count} consecutive interruption. Completed stages are kept; Pause suspends automatic retries.",
+  "{count} interruptions consécutives. Les étapes enregistrées sont conservées ; Pause suspend les tentatives automatiques.":
+    "{count} consecutive interruptions. Completed stages are kept; Pause suspends automatic retries.",
+  "Pause volontaire — utilisez Reprendre pour continuer.": "Paused manually — use Resume to continue.",
+  "Ouvrir les paramètres de connexion du provider": "Open provider connection settings",
   "Navigation du livre": "Book navigation",
   Validations: "Validations",
   "Bilan & récupération": "Summary & recovery",
   Qualité: "Quality",
-  "Mémoire du livre": "Book memory",
-  "Personnages & liens": "Characters & relationships",
+  Personnages: "Characters",
   Glossaire: "Glossary",
-  "Réglages & suivi": "Settings & tracking",
+  Réglages: "Settings",
   Observabilité: "Observability",
-  "Sections du livre": "Book sections",
-  Analysé: "Analyzed",
   "Chargement du graphe…": "Loading graph…",
-  "Navigation rapide du livre": "Book quick navigation",
-  Relire: "Review",
-  Finaliser: "Finish",
-  Régler: "Settings",
-};
-
-registerTranslations(translations);
+  "{validated} validés · {flagged} à vérifier · {errors} erreurs · mémoire {memory}":
+    "{validated} validated · {flagged} to review · {errors} errors · {memory} memory",
+  "{count} conservé en original": "{count} retained in the original",
+  "{count} conservés en original": "{count} retained in the original",
+  "Progression globale": "Overall progress",
+});
 
 const stageLabels: Record<string, string> = {
   chapter_analysis: "Analyse des passages",
@@ -111,24 +126,13 @@ const stageLabels: Record<string, string> = {
   already_analyzed: "Analyse déjà terminée",
   parsing: "Lecture de l’EPUB",
 };
-import {
-  Bible,
-  Glossary,
-  Observability,
-  ProjectSettings,
-  Quality,
-} from "./panels";
 
-export function Workspace({
-  id,
-  user,
-  run,
-}: {
-  id: string;
-  user: User;
-  run: Run;
-}) {
-  const { t } = useI18n();
+const HELD = ["pending", "waiting", "blocked", "analyzing", "translating", "reviewing", "syncing", "paused"];
+
+export function Workspace({ id, user, run }: { id: string; user: User; run: Run }) {
+  const { t, tp } = useI18n();
+  const { confirm } = useDialogs();
+  const confirmLeave = useLeaveGuard();
   const [project, setProject] = useState<Project | null>(null);
   const [chapters, setChapters] = useState<Chapter[]>([]);
   const [jobs, setJobs] = useState<Job[]>([]);
@@ -139,16 +143,13 @@ export function Workspace({
   useEffect(() => {
     // The export outcome is a transient notice: hand the indicator back to the live pipeline stage.
     if (exportState !== "done" && exportState !== "error") return;
-    const timer = setTimeout(
-      () => setExportState("idle"),
-      exportState === "done" ? 4000 : 10000,
-    );
+    const timer = setTimeout(() => setExportState("idle"), exportState === "done" ? 4000 : 10000);
     return () => clearTimeout(timer);
   }, [exportState]);
   const [tick, setTick] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
   const [refreshedAt, setRefreshedAt] = useState("");
-  const [streamState, setStreamState] = useState(t("Connexion au suivi…"));
+  const [streamState, setStreamState] = useState<"connecting" | "connected" | "reconnecting">("connecting");
   const loadSequence = useRef(0);
   const load = useCallback(async () => {
     // Loads overlap while a job emits events: only the most recent request may update the screen.
@@ -165,7 +166,7 @@ export function Workspace({
       setChapters(c);
       setJobs(j);
       setChapter((previous) => previous || c[0]?.id || "");
-      setRefreshedAt(new Date().toLocaleTimeString(getLocale()));
+      setRefreshedAt(new Date().toLocaleTimeString(getLocale(), { hour: "2-digit", minute: "2-digit", second: "2-digit" }));
     } finally {
       if (sequence === loadSequence.current) setRefreshing(false);
     }
@@ -181,13 +182,13 @@ export function Workspace({
       pending = setTimeout(() => setTick((v) => v + 1), 300);
     };
     stream.onopen = () => {
-      setStreamState(t("Suivi connecté"));
+      setStreamState("connected");
       // The stream only carries what happens from now on: catch up once on anything
       // that changed between the initial load and the connection.
       reload();
     };
     stream.onerror = () => {
-      setStreamState(t("Reconnexion du suivi…"));
+      setStreamState("reconnecting");
       // The stream cannot report why it failed; a reload reveals an expired session (401).
       reload();
     };
@@ -196,524 +197,400 @@ export function Workspace({
       clearTimeout(pending);
       stream.close();
     };
-  }, [id, t]);
-  const refresh = () => setTick((t) => t + 1);
+  }, [id]);
+  const refresh = () => setTick((value) => value + 1);
   if (!project)
-    return <main className="loading">{t("Ouverture du livre…")}</main>;
-  const runningJob = jobs.find((j) =>
-    [
-      "pending",
-      "waiting",
-      "blocked",
-      "analyzing",
-      "translating",
-      "reviewing",
-      "syncing",
-      "paused",
-    ].includes(j.status),
-  );
+    return (
+      <Page>
+        <LoadingBlock label={t("Ouverture du livre…")} lines={4} />
+      </Page>
+    );
+  const stats = project.stats;
+  const runningJob = jobs.find((j) => HELD.includes(j.status));
   const job =
     runningJob ||
-    (["failed", "cancelled"].includes(project.status)
-      ? jobs.find((j) => j.status === project.status)
-      : undefined);
-  const sourceDone = project.stats.analyzed_segments || 0;
-  const bibleDone = project.stats.synthesized_chapters || 0;
+    (["failed", "cancelled"].includes(project.status) ? jobs.find((j) => j.status === project.status) : undefined);
   const analysisReady =
-    sourceDone === project.stats.total && bibleDone === project.stats.chapters;
-  async function start(operation: string, force = false) {
-    await send(`/projects/${id}/jobs`, { operation, force });
-    refresh();
-  }
-  const canonicalProgress = projectProgress(project);
-  const navigationGroups = [
-    {
-      title: t("Traduire"),
-      items: [
-        ["editor", t("Traduction")],
-        [
-          "validations",
-          `${t("Validations")}${project.stats.flagged + project.stats.refused ? ` (${project.stats.flagged + project.stats.refused})` : ""}`,
-        ],
-        ["completion", t("Bilan & récupération")],
-        ["quality", t("Qualité")],
-      ],
-    },
-    {
-      title: t("Mémoire du livre"),
-      items: [
-        ["bible", "Book Bible"],
-        ["characters", t("Personnages & liens")],
-        ["glossary", t("Glossaire")],
-      ],
-    },
-    {
-      title: t("Réglages & suivi"),
-      items: [
-        ["config", t("Configuration")],
-        ["requests", t("Observabilité")],
-      ],
-    },
-  ];
-  const openTab = (nextTab: string) => {
-    setTab(nextTab);
-    requestAnimationFrame(() => {
-      const content = document.getElementById("workspace-content");
-      content?.scrollIntoView({ block: "start" });
-      content?.focus({ preventScroll: true });
-    });
+    (stats.analyzed_segments || 0) === stats.total && (stats.synthesized_chapters || 0) === stats.chapters;
+  const canTranslate = !!project.provider_id && !!Object.keys(project.bible).length;
+  const recoverable = stats.errors + stats.refused;
+  const progress = projectProgress(project);
+  const openTab = async (next: string) => {
+    if (next === tab || !(await confirmLeave())) return;
+    setTab(next);
+    requestAnimationFrame(() => document.getElementById("workspace-panel")?.focus({ preventScroll: true }));
   };
+  async function launch(operation: "analyze" | "translate", force = false) {
+    const estimated: EstimatedOperation = operation;
+    const accepted = await confirm(
+      operation === "analyze"
+        ? force
+          ? {
+              title: t("Relancer une analyse complète ?"),
+              message: t(
+                "Les résultats automatiques seront recalculés ; les analyses et décisions humaines sont conservées. Cette opération rappellera le modèle.",
+              ),
+              details: <EstimateNote projectId={id} operation={estimated} />,
+              confirmLabel: t("Réanalyse complète"),
+            }
+          : {
+              title: t("Analyser le livre ?"),
+              message: t(
+                "L’analyse lit chaque passage, construit la Book Bible et la mémoire du livre. Elle appelle le modèle configuré.",
+              ),
+              details: <EstimateNote projectId={id} operation={estimated} />,
+              confirmLabel: t("Lancer"),
+            }
+        : {
+            title: t("Traduire le livre ?"),
+            message: t(
+              "Les passages non traduits seront envoyés au modèle configuré, dans l’ordre du livre. Les corrections humaines sont protégées.",
+            ),
+            details: <EstimateNote projectId={id} operation={estimated} />,
+            confirmLabel: t("Lancer"),
+          },
+    );
+    if (!accepted) return;
+    await run(async () => {
+      await send(`/projects/${id}/jobs`, { operation, force });
+      refresh();
+    });
+  }
   async function exportFile(format: string, allowSource = false) {
     if (exportState === "running") return;
     setExportState("running");
     try {
-      const response = await fetch(
-        `/api/projects/${id}/export/${format}${allowSource ? "?allow_source=true" : ""}`,
+      await downloadGet(
+        `/projects/${id}/export/${format}${allowSource ? "?allow_source=true" : ""}`,
+        `${project!.title}.${format === "project" ? "zip" : format === "bible" ? "json" : format}`,
       );
-      if (!response.ok) throw await responseError(response);
-      const url = URL.createObjectURL(await response.blob());
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = `${project!.title}.${format === "project" ? "zip" : format === "bible" ? "json" : format}`;
-      link.click();
-      setTimeout(() => URL.revokeObjectURL(url), 60000);
       setExportState("done");
     } catch (error) {
       setExportState("error");
       throw error;
     }
   }
+  const jobAction = (action: "resume" | "pause" | "retry" | "cancel") =>
+    void run(async () => {
+      await send(`/projects/${id}/jobs/${job!.id}/${action}`);
+      refresh();
+    });
+  const primary = job ? null : !project.provider_id ? (
+    <Button variant="primary" icon="settings" onClick={() => void openTab("config")}>
+      {t("Configurer le livre")}
+    </Button>
+  ) : !analysisReady ? (
+    <Button variant="primary" icon="sparkles" onClick={() => void launch("analyze")}>
+      {t("Analyser le livre")}
+    </Button>
+  ) : recoverable ? (
+    <Button variant="primary" icon="refresh" onClick={() => void openTab("completion")}>
+      {tp(recoverable, "Récupérer {count} passage", "Récupérer {count} passages")}
+    </Button>
+  ) : stats.translated < stats.total ? (
+    <Button variant="primary" icon="languages" disabled={!canTranslate} onClick={() => void launch("translate")}>
+      {t("Traduire")}
+    </Button>
+  ) : stats.flagged ? (
+    <Button variant="primary" icon="check" onClick={() => void openTab("validations")}>
+      {t("Relire ({count})", { count: stats.flagged })}
+    </Button>
+  ) : (
+    <Button
+      variant="primary"
+      icon="download"
+      loading={exportState === "running"}
+      onClick={() => void run(() => exportFile("epub"))}
+    >
+      {t("Exporter l’EPUB")}
+    </Button>
+  );
+  const moreItems: MenuEntry[] = [
+    ...(analysisReady
+      ? [{ label: t("Réanalyse complète"), icon: "sparkles" as const, disabled: !!job || !project.provider_id, onSelect: () => void launch("analyze", true) }]
+      : [{ label: t("Analyser le livre"), icon: "sparkles" as const, disabled: !!job || !project.provider_id, onSelect: () => void launch("analyze") }]),
+    { label: t("Traduire"), icon: "languages", disabled: !!job || !canTranslate, onSelect: () => void launch("translate") },
+    { kind: "separator" },
+    { label: t("Réglages"), icon: "settings", onSelect: () => void openTab("config") },
+    { label: t("Observabilité"), icon: "chart", onSelect: () => void openTab("requests") },
+  ];
+  const validationCount = stats.flagged + stats.refused;
+  const tabs = [
+    { id: "editor", label: t("Traduction") },
+    { id: "validations", label: t("Validations"), count: validationCount },
+    { id: "completion", label: t("Bilan & récupération") },
+    { id: "quality", label: t("Qualité") },
+    { id: "bible", label: "Book Bible", groupStart: true },
+    { id: "characters", label: t("Personnages") },
+    { id: "glossary", label: t("Glossaire") },
+    { id: "config", label: t("Réglages"), groupStart: true },
+    { id: "requests", label: t("Observabilité") },
+  ];
+  const checkpoint = job?.checkpoint || {};
+  const liveDetail = [
+    checkpoint.step ? t(stageLabels[String(checkpoint.step)] || String(checkpoint.step)) : "",
+    checkpoint.current ? `${String(checkpoint.current)} / ${String(checkpoint.total)}` : "",
+    checkpoint.step === "book_bible" && checkpoint.batch_current
+      ? t("lot {current}/{total}", { current: String(checkpoint.batch_current), total: String(checkpoint.batch_total) })
+      : "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
   return (
-    <main className="workspace">
-      <div className="workspace-heading">
-        <div className="refresh-control">
-          <button
-            aria-label={t("Actualiser les données du livre")}
-            aria-busy={refreshing}
-            disabled={refreshing}
-            onClick={refresh}
-          >
-            {refreshing ? t("Actualisation…") : t("Actualiser")}
-          </button>
-          <small>{refreshedAt && `${t("Mis à jour à")} ${refreshedAt}`}</small>
-        </div>
-        <div>
-          <a className="breadcrumb" href="#library">
-            {t("Bibliothèque /")}
-          </a>
-          <h1>{project.title}</h1>
-          <span className="muted">
-            {project.author} · {project.source_language} →{" "}
-            {project.target_language}
-          </span>
-          {project.series_name && (
-            <span className="series-meta">
-              {project.series_name}
-              {project.volume_number &&
-                ` · ${t("volume")} ${project.volume_number}`}
+    <Page className="workspace" width="full">
+      <header className="workspace-header">
+        <div className="workspace-heading">
+          <div className="breadcrumb">
+            <a href="#library">{t("Bibliothèque")}</a>
+            <Icon name="chevronRight" size={12} />
+            <span className="breadcrumb-current">{project.title}</span>
+          </div>
+          <h1 className="page-title">{project.title}</h1>
+          <p className="workspace-meta">
+            <span>{project.author}</span>
+            <span className="language-pair">
+              <span>{project.source_language.toUpperCase()}</span>
+              <Icon name="arrowRight" size={12} />
+              <span>{project.target_language.toUpperCase()}</span>
             </span>
-          )}
-        </div>
-        <div className="workspace-progress">
-          <strong>{canonicalProgress.current.percent}%</strong>
-          <span>{t(canonicalProgress.current.label)}</span>
-          {canonicalProgress.estimate.remaining_seconds !== null &&
-            canonicalProgress.current.percent < 100 && (
-              <small>
-                {duration(canonicalProgress.estimate.remaining_seconds)}
-              </small>
-            )}
-        </div>
-      </div>
-      <div className="pipeline-bar">
-        <StageProgress project={project} job={job} exportState={exportState} />
-        <div className="actions">
-          {job ? (
-            <>
-              <span className={`badge ${job.status}`}>
-                {labels[job.status]}
+            {project.series_name && (
+              <span className="book-series">
+                {project.series_name}
+                {project.volume_number && ` · ${t("volume {volume}", { volume: project.volume_number })}`}
               </span>
-              {["paused", "failed", "blocked", "cancelled"].includes(
-                job.status,
-              ) ? (
-                <button
-                  className="primary"
-                  onClick={() =>
-                    void run(async () => {
-                      await send(`/projects/${id}/jobs/${job.id}/resume`);
-                      refresh();
-                    })
-                  }
-                >
+            )}
+          </p>
+        </div>
+        <div className="workspace-actions">
+          <div className="workspace-overall" aria-label={t("Progression globale")}>
+            <strong className="tabular">{formatPercent(progress.current.percent)}</strong>
+            <span>{t(progress.current.label)}</span>
+            {progress.estimate.remaining_seconds !== null && progress.current.percent < 100 && (
+              <small>{duration(progress.estimate.remaining_seconds)}</small>
+            )}
+          </div>
+          {job && (
+            <div className="job-controls">
+              <StatusPill status={job.status} />
+              {["paused", "failed", "blocked", "cancelled"].includes(job.status) ? (
+                <Button variant="primary" icon="play" onClick={() => jobAction("resume")}>
                   {job.status === "cancelled"
                     ? t("Reprendre le travail annulé")
-                    : job.status === "blocked" &&
-                        job.stop_reason === "authentication_required"
+                    : job.status === "blocked" && job.stop_reason === "authentication_required"
                       ? t("Reprendre après connexion")
                       : t("Reprendre")}
-                </button>
+                </Button>
               ) : (
-                <button
-                  onClick={() =>
-                    void run(async () => {
-                      await send(`/projects/${id}/jobs/${job.id}/pause`);
-                      refresh();
-                    })
-                  }
-                >
+                <Button icon="pause" onClick={() => jobAction("pause")}>
                   {t("Pause")}
-                </button>
+                </Button>
               )}
               {job.status === "waiting" && (
-                <button
-                  onClick={() =>
-                    void run(async () => {
-                      await send(`/projects/${id}/jobs/${job.id}/retry`);
-                      refresh();
-                    })
-                  }
-                >
+                <Button icon="refresh" onClick={() => jobAction("retry")}>
                   {t("Réessayer maintenant")}
-                </button>
+                </Button>
               )}
               {job.status !== "cancelled" && (
-                <button
-                  onClick={() =>
-                    void run(async () => {
-                      await send(`/projects/${id}/jobs/${job.id}/cancel`);
-                      refresh();
-                    })
-                  }
-                >
-                  {t("Annuler")}
-                </button>
+                <Button variant="ghost" icon="stop" onClick={() => jobAction("cancel")}>
+                  {t("Annuler le travail")}
+                </Button>
               )}
-            </>
-          ) : (
-            <>
-              <button
-                disabled={!project.provider_id || analysisReady}
-                onClick={() => void run(() => start("analyze"))}
-              >
-                {analysisReady ? t("Analyse terminée") : t("Analyser le livre")}
-              </button>
-              {analysisReady && (
-                <button
-                  onClick={() => {
-                    if (
-                      confirm(
-                        t(
-                          "Relancer une analyse complète des résultats automatiques ? Les analyses et décisions humaines sont conservées. Cette opération rappellera le modèle.",
-                        ),
-                      )
-                    )
-                      void run(() => start("analyze", true));
-                  }}
-                >
-                  {t("Réanalyse complète")}
-                </button>
-              )}
-              <button
-                className="primary"
-                disabled={
-                  !project.provider_id || !Object.keys(project.bible).length
-                }
-                onClick={() => void run(() => start("translate"))}
-              >
-                {t("Traduire")}
-              </button>
-              {!!(project.stats.errors || project.stats.refused) && (
-                <button
-                  className="primary"
-                  onClick={() => setTab("completion")}
-                >
-                  {t("Récupérer")}{" "}
-                  {project.stats.errors + project.stats.refused}{" "}
-                  {project.stats.errors + project.stats.refused === 1
-                    ? t("passage")
-                    : t("passages")}
-                </button>
-              )}
-            </>
+            </div>
           )}
-          <details className="export-menu">
-            <summary className="button">{t("Exporter ↓")}</summary>
-            <div>
-              {[
+          {primary}
+          <Menu
+            label={t("Formats d’export")}
+            trigger={(props) => (
+              <Button {...props} icon="download" iconAfter="chevronDown" loading={exportState === "running"}>
+                {t("Exporter")}
+              </Button>
+            )}
+            items={[
+              ...[
                 ["epub", t("EPUB traduit")],
                 ["txt", t("Texte")],
                 ["md", "Markdown"],
                 ["bible", "Book Bible JSON"],
-                ["project", t("Projet complet")],
-              ].map(([format, label]) => (
-                <a
-                  key={format}
-                  href={`/api/projects/${id}/export/${format}`}
-                  onClick={(e) => {
-                    e.preventDefault();
-                    void run(() => exportFile(format));
-                  }}
-                >
-                  {label}
-                </a>
-              ))}
-              <a
-                href={`/api/projects/${id}/export/epub?allow_source=true`}
-                onClick={(e) => {
-                  e.preventDefault();
-                  void run(() => exportFile("epub", true));
-                }}
-              >
-                {t("EPUB partiel · originaux conservés")}
-              </a>
-              <a
-                href={`/api/projects/${id}/coverage`}
-                target="_blank"
-                rel="noreferrer"
-              >
-                {t("Rapport de couverture")}
-              </a>
-            </div>
-          </details>
+                ["project", t("Projet complet (.zip)")],
+              ].map(([format, label]) => ({
+                label,
+                icon: "file" as const,
+                onSelect: () => void run(() => exportFile(format)),
+              })),
+              { label: t("EPUB partiel · originaux conservés"), icon: "file", onSelect: () => void run(() => exportFile("epub", true)) },
+              { kind: "separator" },
+              { label: t("Rapport de couverture"), icon: "external", href: `/api/projects/${id}/coverage`, target: "_blank" },
+            ]}
+          />
+          <IconButton
+            icon="refresh"
+            variant="secondary"
+            label={t("Actualiser les données du livre")}
+            aria-busy={refreshing}
+            disabled={refreshing}
+            className={cx(refreshing && "is-spinning")}
+            onClick={refresh}
+          />
+          <Menu
+            label={t("Autres actions")}
+            trigger={(props) => <IconButton {...props} icon="more" variant="secondary" label={t("Autres actions")} />}
+            items={moreItems}
+          />
         </div>
-      </div>
-      {!project.provider_id && (
-        <div className="notice">
-          {t("Configurez le provider et les langues dans")}{" "}
-          <button className="link" onClick={() => setTab("config")}>
-            {t("Configuration")}
-          </button>
-          . {user.admin && <a href="#settings">{t("Gérer les providers →")}</a>}
-        </div>
-      )}
-      {job?.error && (
-        <div
-          className={job.status === "waiting" ? "notice" : "error-banner"}
-          role="alert"
-        >
-          {job.error}{" "}
-          <button onClick={() => setTab("requests")}>
-            {t("Voir les requêtes")}
-          </button>
-        </div>
-      )}
-      {job?.stop_reason === "content_refusal" && (
-        <div className="notice" role="status">
-          {t(
-            "Le provider a refusé le traitement. Le texte source est conservé ; ce passage n’est pas compté comme analysé ou traduit automatiquement.",
-          )}
-          {job.checkpoint.segment_id ? (
-            <button
-              onClick={() =>
-                void run(async () => {
-                  const segment = await api<Segment>(
-                    `/segments/${job.checkpoint.segment_id}`,
-                  );
-                  setChapter(segment.chapter_id);
-                  setFocusRefusal(segment.id);
-                  setTab("editor");
-                })
-              }
-            >
-              {t("Ouvrir le passage à traiter")}
-            </button>
-          ) : (
-            <button onClick={() => setTab("bible")}>
-              {t("Compléter la Book Bible manuellement")}
-            </button>
-          )}
-        </div>
-      )}
-      {job?.status === "waiting" && (
-        <div className="notice" role="status">
-          {t("Reprise automatique prévue :")} {date(job.next_attempt)} ·{" "}
-          {job.outage_count}{" "}
-          {t(
-            "interruption(s) consécutive(s). Les étapes enregistrées sont conservées. Utilisez Pause pour suspendre les tentatives automatiques.",
-          ).replace(
-            "interruption(s)",
-            job.outage_count === 1 ? "interruption" : "interruptions",
-          )}
-        </div>
-      )}
-      {job?.status === "paused" && (
-        <p className="muted">
-          {t("Pause volontaire — utilisez Reprendre pour continuer.")}
-        </p>
-      )}
-      {job?.status === "blocked" &&
-        job.stop_reason === "authentication_required" &&
-        user.admin && (
-          <p>
-            <a href="#settings">
-              {t("Ouvrir les paramètres de connexion du provider →")}
-            </a>
-          </p>
-        )}
-      <div className="workspace-status">
-        <span>
-          {streamState}
-          {job?.checkpoint.step
-            ? ` · ${t(stageLabels[String(job.checkpoint.step)] || String(job.checkpoint.step))}`
-            : ""}
-          {job?.checkpoint.current
-            ? ` · ${String(job.checkpoint.current)} / ${String(job.checkpoint.total)}`
-            : ""}
-          {job?.checkpoint.step === "book_bible" && job.checkpoint.batch_current
-            ? ` · ${t("lot")} ${String(job.checkpoint.batch_current)}/${String(job.checkpoint.batch_total)}`
-            : ""}
+      </header>
+      <StageProgress
+        project={project}
+        job={job}
+        exportState={exportState}
+        status={
+          <span className={cx("live-status", `is-${streamState}`)} title={refreshedAt && t("Mis à jour à {time}", { time: refreshedAt })}>
+            <span className="live-dot" aria-hidden="true" />
+            {streamState === "connected"
+              ? t("Suivi connecté")
+              : streamState === "reconnecting"
+                ? t("Reconnexion du suivi…")
+                : t("Connexion au suivi…")}
+            {liveDetail && ` · ${liveDetail}`}
+          </span>
+        }
+        counters={
+        <span className="workspace-counters">
+          {t("{validated} validés · {flagged} à vérifier · {errors} erreurs · mémoire {memory}", {
+            validated: stats.validated,
+            flagged: stats.flagged,
+            errors: stats.errors,
+            memory: project.context_backend,
+          })}
+          {stats.retained_source > 0 &&
+            ` · ${tp(stats.retained_source, "{count} conservé en original", "{count} conservés en original")}`}
         </span>
-        <span>
-          {project.stats.validated} {t("validés humainement")} ·{" "}
-          {project.stats.flagged} {t("à vérifier")} · {project.stats.errors}{" "}
-          {t("erreurs")} · {t("Mémoire")} {project.context_backend}
-          {project.stats.retained_source > 0
-            ? ` · ${project.stats.retained_source} ${t("passage(s) conservé(s) en original").replace("segment(s)", project.stats.retained_source === 1 ? "segment" : "segments")}`
-            : ""}
-        </span>
-      </div>
-      <div className="workspace-shell">
-        <label className="workspace-nav-select">
-          <span>{t("Navigation du livre")}</span>
-          <select value={tab} onChange={(event) => setTab(event.target.value)}>
-            {navigationGroups.map((group) => (
-              <optgroup key={group.title} label={group.title}>
-                {group.items.map(([key, label]) => (
-                  <option key={key} value={key}>
-                    {label}
-                  </option>
-                ))}
-              </optgroup>
-            ))}
-          </select>
-        </label>
-        <nav className="workspace-nav" aria-label={t("Navigation du livre")}>
-          {navigationGroups.map((group) => (
-            <div className="workspace-nav-group" key={group.title}>
-              <h2>{group.title}</h2>
-              {group.items.map(([key, label]) => (
-                <button
-                  key={key}
-                  aria-current={tab === key ? "page" : undefined}
-                  aria-controls="workspace-content"
-                  onClick={() => openTab(key)}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-          ))}
-        </nav>
-        <div id="workspace-content" className="workspace-content" tabIndex={-1}>
-          {tab === "editor" ? (
-            <div className="workspace-body">
-              <label className="chapter-select">
-                <span>{t("Sections du livre")}</span>
-                <select
-                  value={chapter}
-                  onChange={(event) => setChapter(event.target.value)}
-                >
-                  {chapters.map((item) => (
-                    <option key={item.id} value={item.id}>
-                      {String(item.position + 1).padStart(2, "0")} ·{" "}
-                      {item.title}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <aside className="chapter-list">
-                <h3>
-                  {t("Sections du livre")} <span>{chapters.length}</span>
-                </h3>
-                {chapters.map((c) => (
-                  <button
-                    key={c.id}
-                    className={chapter === c.id ? "active" : ""}
-                    onClick={() => setChapter(c.id)}
-                  >
-                    <small>{String(c.position + 1).padStart(2, "0")}</small>
-                    <span>{c.title}</span>
-                    {c.analyzed && (
-                      <span className="dot" title={t("Analysé")} />
-                    )}
-                  </button>
-                ))}
-              </aside>
-              {chapter && (
-                <Editor
-                  project={project}
-                  chapter={chapters.find((c) => c.id === chapter)!}
-                  tick={tick}
-                  run={run}
-                  refresh={refresh}
-                  focusRefusal={focusRefusal}
-                />
-              )}
-            </div>
-          ) : (
-            <div className="workspace-panel">
-              {tab === "characters" ? (
-                <Suspense fallback={<p>{t("Chargement du graphe…")}</p>}>
-                  <CharacterGraph pid={id} tick={tick} run={run} />
-                </Suspense>
-              ) : tab === "bible" ? (
-                <Bible
-                  project={project}
-                  run={run}
-                  refresh={refresh}
-                  tick={tick}
-                />
-              ) : tab === "glossary" ? (
-                <Glossary project={project} run={run} tick={tick} />
-              ) : tab === "quality" ? (
-                <Quality project={project} run={run} tick={tick} />
-              ) : tab === "completion" ? (
-                <CompletionPanel
-                  project={project}
-                  run={run}
-                  refresh={refresh}
-                  tick={tick}
-                />
-              ) : tab === "validations" ? (
-                <ValidationPanel
-                  project={project}
-                  chapters={chapters}
-                  run={run}
-                  refresh={refresh}
-                />
-              ) : tab === "requests" ? (
-                <Observability project={project} run={run} tick={tick} />
-              ) : (
-                <ProjectSettings
-                  project={project}
-                  run={run}
-                  refresh={refresh}
-                />
-              )}
-            </div>
-          )}
-        </div>
-      </div>
-      <nav
-        className="mobile-nav mobile-project-nav"
-        aria-label={t("Navigation rapide du livre")}
-      >
-        {[
-          ["editor", t("Traduction")],
-          ["validations", t("Relire")],
-          ["completion", t("Finaliser")],
-          ["config", t("Régler")],
-        ].map(([key, label]) => (
-          <button
-            key={key}
-            type="button"
-            aria-current={tab === key ? "page" : undefined}
-            onClick={() => openTab(key)}
+        }
+      />
+      <div className="workspace-notices">
+        {!project.provider_id && (
+          <Callout
+            tone="warning"
+            title={t("Aucun provider n’est configuré pour ce livre.")}
+            actions={
+              <>
+                <Button size="sm" onClick={() => void openTab("config")}>
+                  {t("Ouvrir les réglages")}
+                </Button>
+                {user.admin && (
+                  <a className="btn btn-sm btn-ghost" href="#settings">
+                    {t("Gérer les providers")}
+                  </a>
+                )}
+              </>
+            }
           >
-            {label}
-          </button>
-        ))}
-      </nav>
-    </main>
+            {t("Choisissez le modèle et les langues dans les réglages du livre.")}
+          </Callout>
+        )}
+        {job?.error && (
+          <Callout
+            tone={job.status === "waiting" ? "warning" : "danger"}
+            role="alert"
+            actions={
+              <Button size="sm" onClick={() => void openTab("requests")}>
+                {t("Voir les requêtes")}
+              </Button>
+            }
+          >
+            {job.error}
+          </Callout>
+        )}
+        {job?.stop_reason === "content_refusal" && (
+          <Callout
+            tone="warning"
+            role="status"
+            actions={
+              job.checkpoint.segment_id ? (
+                <Button
+                  size="sm"
+                  onClick={() =>
+                    void run(async () => {
+                      const segment = await api<Segment>(`/segments/${job.checkpoint.segment_id}`);
+                      setChapter(segment.chapter_id);
+                      setFocusRefusal(segment.id);
+                      setTab("editor");
+                    })
+                  }
+                >
+                  {t("Ouvrir le passage à traiter")}
+                </Button>
+              ) : (
+                <Button size="sm" onClick={() => void openTab("bible")}>
+                  {t("Compléter la Book Bible manuellement")}
+                </Button>
+              )
+            }
+          >
+            {t(
+              "Le provider a refusé le traitement. Le texte source est conservé ; ce passage n’est pas compté comme analysé ou traduit automatiquement.",
+            )}
+          </Callout>
+        )}
+        {job?.status === "waiting" && (
+          <Callout tone="warning" role="status">
+            {t("Reprise automatique prévue le {date}.", { date: date(job.next_attempt) })}{" "}
+            {tp(
+              job.outage_count,
+              "{count} interruption consécutive. Les étapes enregistrées sont conservées ; Pause suspend les tentatives automatiques.",
+              "{count} interruptions consécutives. Les étapes enregistrées sont conservées ; Pause suspend les tentatives automatiques.",
+            )}
+          </Callout>
+        )}
+        {job?.status === "paused" && (
+          <Callout tone="neutral">{t("Pause volontaire — utilisez Reprendre pour continuer.")}</Callout>
+        )}
+        {job?.status === "blocked" && job.stop_reason === "authentication_required" && user.admin && (
+          <Callout tone="danger" actions={<a className="btn btn-sm btn-secondary" href="#settings">{t("Ouvrir les paramètres de connexion du provider")}</a>} />
+        )}
+      </div>
+      <div className="workspace-tabs">
+        <Tabs
+          items={tabs}
+          value={tab}
+          onChange={(next) => void openTab(next)}
+          label={t("Navigation du livre")}
+          idPrefix="workspace"
+        />
+      </div>
+      <TabPanel idPrefix="workspace" value={tab} className="workspace-panel">
+        {tab === "editor" ? (
+          <Editor
+            project={project}
+            chapters={chapters}
+            chapterId={chapter}
+            onChapter={async (next) => {
+              if (next !== chapter && (await confirmLeave())) setChapter(next);
+            }}
+            tick={tick}
+            run={run}
+            refresh={refresh}
+            focusRefusal={focusRefusal}
+          />
+        ) : tab === "characters" ? (
+          <Suspense fallback={<LoadingBlock label={t("Chargement du graphe…")} />}>
+            <CharacterGraph pid={id} tick={tick} run={run} />
+          </Suspense>
+        ) : tab === "bible" ? (
+          <Bible project={project} run={run} refresh={refresh} tick={tick} />
+        ) : tab === "glossary" ? (
+          <Glossary project={project} run={run} tick={tick} />
+        ) : tab === "quality" ? (
+          <Quality project={project} run={run} tick={tick} />
+        ) : tab === "completion" ? (
+          <CompletionPanel project={project} run={run} refresh={refresh} tick={tick} />
+        ) : tab === "validations" ? (
+          <ValidationPanel project={project} chapters={chapters} run={run} refresh={refresh} tick={tick} />
+        ) : tab === "requests" ? (
+          <Observability project={project} run={run} tick={tick} />
+        ) : (
+          <ProjectSettings project={project} user={user} run={run} refresh={refresh} />
+        )}
+      </TabPanel>
+    </Page>
   );
 }

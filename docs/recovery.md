@@ -2,7 +2,7 @@
 
 ## Réponse structurellement invalide
 
-Après l'épuisement des cinq tentatives d'une traduction ou révision, Libris tente une réparation par groupes de quatre unités si le passage comporte entre 2 et 128 unités. Chaque groupe conserve son contexte, ses identifiants et ses marqueurs. Les groupes réussis sont sauvegardés dans le checkpoint et réutilisés après une interruption ; seul le résultat intégral réassemblé et validé peut remplacer la traduction du passage.
+Une réponse refusée par la validation (paragraphes manquants, glossaire verrouillé, JSON invalide) est redemandée en indiquant au modèle le motif du rejet, au plus trois fois ; les pannes réseau gardent cinq essais. Après l'épuisement de ces tentatives pour une traduction ou révision, Libris tente une réparation par groupes de quatre unités si le passage comporte entre 2 et 128 unités. Chaque groupe conserve son contexte, ses identifiants et ses marqueurs. Les groupes réussis sont sauvegardés dans le checkpoint et réutilisés après une interruption ; seul le résultat intégral réassemblé et validé peut remplacer la traduction du passage.
 
 La réparation est bornée : une passe de groupes, au plus 32 groupes, avec les tentatives habituelles par groupe. Elle ajoute donc des appels en cas d'échec. Si elle échoue, le passage rejoint les erreurs et le compteur des dix passages consécutifs échoués s'applique. Les indisponibilités restent reprenables. Les choix humains conservent la priorité.
 

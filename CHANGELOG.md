@@ -7,6 +7,7 @@ All notable changes are documented here. Libris follows [Semantic Versioning](ht
 ### Fixed
 
 - **Release pipeline.** The production deployment only waited for the release images to be tagged, so it started while the container runtime test and the vulnerability scan were still running: a failed gate could not stop it. It now waits for the runtime test, the scan and the GitLab publication, and a test keeps those gates in place. The release guides describe the deployment as automatic, consistently (#30).
+- **EPUB import.** Two kinds of ordinary books could not be imported. EPUB 2 files using named HTML entities (`&nbsp;`, `&eacute;`, `&hellip;`…) were refused with "Entité XML non résolue": these entities are now converted from their fixed table, while entity declarations and external DTDs remain refused. A manifest entry whose file is missing from the archive (a deleted font or image) caused an HTTP 500: title, author and language are now read from the package already parsed, the book imports, and the dangling entry is dropped from the exported EPUB; a missing document of the reading order is refused with its file name (#34).
 
 ## [0.4.1] - 2026-09-18
 

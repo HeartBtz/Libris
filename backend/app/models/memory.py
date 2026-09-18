@@ -61,6 +61,8 @@ class Glossary(Identified, Base):
     description: Mapped[str] = mapped_column(Text, default="")
     locked: Mapped[bool] = mapped_column(Boolean, default=False)
     accepted: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Deliberately differs from the series glossary for this volume (audited when set).
+    series_override: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
 
 
 class Memory(Identified, Base):
@@ -92,6 +94,8 @@ class Outbox(Identified, Base):
     session_name: Mapped[str] = mapped_column(String(100))
     payload: Mapped[dict] = mapped_column(JSON)
     status: Mapped[str] = mapped_column(String(20), default="pending")
+    # Where the event was last written; a different layout (series moves, 0.5 paths) is replayed.
+    uri: Mapped[str | None] = mapped_column(Text)
     attempts: Mapped[int] = mapped_column(Integer, default=0)
     next_attempt: Mapped[float] = mapped_column(Float, default=0)
     error: Mapped[str] = mapped_column(Text, default="")

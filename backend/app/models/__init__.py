@@ -12,6 +12,18 @@ from app.models.memory import (
     Prompt,
 )
 from app.models.runs import Event, Issue, Job, JobSegmentState, RequestLog
+from app.models.series import (
+    ApiToken,
+    AuditEntry,
+    Series,
+    SeriesEntity,
+    SeriesEntityLink,
+    SeriesRelation,
+    SeriesTerm,
+    SourceAsset,
+    TranslationRequest,
+)
+from app.models.sync import sync_series  # noqa: F401  (keeps series_name and series_id in step)
 
 __all__ = [
     "CharacterRelation",
@@ -36,4 +48,13 @@ __all__ = [
     "JobSegmentState",
     "RequestLog",
     "AppSetting",
+    "ApiToken",
+    "AuditEntry",
+    "Series",
+    "SeriesEntity",
+    "SeriesEntityLink",
+    "SeriesRelation",
+    "SeriesTerm",
+    "SourceAsset",
+    "TranslationRequest",
 ]

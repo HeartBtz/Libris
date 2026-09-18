@@ -29,6 +29,8 @@ from app.api import (
     recovery,
     segments,
     series,
+    tokens,
+    v1,
 )
 from app.config import settings
 from app.db import SessionLocal
@@ -94,9 +96,38 @@ async def security_headers(request: Request, call_next):
     return response
 
 
+CODES = {
+    400: "bad_request", 401: "unauthorized", 403: "forbidden", 404: "not_found", 405: "method_not_allowed",
+    409: "conflict", 413: "payload_too_large", 415: "unsupported_media_type", 422: "invalid_request",
+    429: "rate_limited", 500: "server_error", 502: "upstream_error",
+}  # fmt: skip
+
+
+def automation(request: Request) -> bool:
+    return request.url.path.startswith("/api/v1/")
+
+
+def structured(detail, status: int) -> dict:
+    """Automation API errors always carry a stable `code` next to their localized `message`."""
+    if isinstance(detail, dict) and "code" in detail:
+        return detail
+    code = CODES.get(status, "error")
+    if isinstance(detail, dict):
+        return {"code": code, **detail}
+    return {"code": code, "message": detail}
+
+
 def error(request: Request, detail, status: int, headers: dict | None = None) -> JSONResponse:
     # Messages are written in French; an interface set to English receives them in English.
     language = preferred_language(request.headers.get("accept-language"))
+    if automation(request):
+        detail = localize(structured(detail, status), language)
+        if language == "en" and isinstance(detail.get("errors"), list):
+            detail["errors"] = [
+                {**item, "msg": english(item["msg"]) or item["msg"]} if isinstance(item, dict) and "msg" in item else item
+                for item in detail["errors"]
+            ]
+        return JSONResponse({"detail": detail}, status_code=status, headers=headers)
     return JSONResponse({"detail": localize(detail, language)}, status_code=status, headers=headers)
 
 
@@ -108,12 +139,17 @@ async def refused(request: Request, exc: HTTPException):
 @app.exception_handler(RequestValidationError)
 async def malformed(request: Request, exc: RequestValidationError):
     errors = jsonable_encoder(exc.errors())
+    if automation(request):
+        # Never echo the submitted values: a chapter can be sent back in an error otherwise.
+        errors = [{key: item.get(key) for key in ("loc", "msg", "type")} for item in errors]
     if preferred_language(request.headers.get("accept-language")) == "en":
         prefix = "Value error, "
         for item in errors:
             message = str(item.get("msg", ""))
             if message.startswith(prefix):
                 item["msg"] = prefix + (english(message[len(prefix) :]) or message[len(prefix) :])
+    if automation(request):
+        return error(request, {"code": "invalid_request", "message": "Requête invalide.", "errors": errors}, 422)
     return JSONResponse({"detail": errors}, status_code=422)
 
 
@@ -166,8 +202,10 @@ async def unexpected(request: Request, exc: Exception):
     )
 
 
+# The automation API first: its paths never fall through to the interface's routes.
+app.include_router(v1.router)
 for module in (
-    identity, providers, recovery, exports, projects, segments, memory, observability, characters, coverage,
+    tokens, identity, providers, recovery, exports, projects, segments, memory, observability, characters, coverage,
     series, imports,
 ):  # fmt: skip
     app.include_router(module.router)

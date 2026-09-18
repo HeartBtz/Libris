@@ -22,15 +22,24 @@ class BodyLimit:
             cookies.load(headers.get("cookie", ""))
         except Exception:  # noqa: BLE001 - a malformed cookie header is simply "no session"
             cookies = SimpleCookie()
-        anonymous = "epub_session" not in cookies
+        # The automation API authenticates with a Bearer token, never with the session cookie.
+        automation = scope["path"].startswith("/api/v1/")
+        if automation:
+            anonymous = not headers.get("authorization", "").casefold().startswith("bearer ")
+            megabytes = settings().api_payload_mb
+        else:
+            anonymous = "epub_session" not in cookies
+            megabytes = settings().max_upload_mb
         # Multipart framing adds a little to the file itself.
-        limit = ANONYMOUS_LIMIT if anonymous else settings().max_upload_mb * 1024**2 + ANONYMOUS_LIMIT
+        limit = ANONYMOUS_LIMIT if anonymous else megabytes * 1024**2 + ANONYMOUS_LIMIT
         status, detail = (
             (401, "Authentification requise.")
             if anonymous
-            else (413, f"Requête trop volumineuse : {settings().max_upload_mb} Mo au maximum.")
+            else (413, f"Requête trop volumineuse : {megabytes} Mo au maximum.")
         )
         detail = localize(detail, preferred_language(headers.get("accept-language")))
+        if automation:
+            detail = {"code": "unauthorized" if anonymous else "payload_too_large", "message": detail}
 
         async def reject():
             body = json.dumps({"detail": detail}).encode()

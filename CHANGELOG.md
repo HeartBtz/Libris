@@ -25,6 +25,7 @@ All notable changes are documented here. Libris follows [Semantic Versioning](ht
 ### Fixed
 
 - `WORKER_HEARTBEAT_SECONDS` and `MEMORY_CATALOG_INTERVAL_SECONDS` are now honoured by the worker (they were declared but ignored); out-of-range values are refused at start-up (#27).
+- **Applying accepted suggestions.** The step that applies the AI suggestions you accepted kept a database connection open for the whole duration of each model call — minutes with a slow provider — which could exhaust the connection pool when several books were in that step. It now reads, calls the model, then writes, without holding anything in between; and a result that arrives after you paused or cancelled the job is no longer applied (#28).
 
 ## [0.4.0] - 2026-09-18
 

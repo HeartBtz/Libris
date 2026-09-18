@@ -299,3 +299,74 @@ async def test_accept_advice_repairs_internal_markers(seeded, monkeypatch, valid
         assert saved.translation == expected
         assert saved.human
         assert not saved.critique
+
+
+def queued_critique_job(seeded):
+    from app.api.segments import queue_critique
+
+    with SessionLocal() as db:
+        project = db.get(Project, seeded[0])
+        segment = db.scalar(select(Segment).where(Segment.project_id == project.id))
+        segment.translated_units = [{"id": u["id"], "text": "Bonjour"} for u in segment.units]
+        segment.translation = "Bonjour"
+        critique = {"unit_id": segment.units[0]["id"], "suggestion": "Improve style"}
+        segment.critique = [critique]
+        job = queue_critique(db, project, segment, critique, seeded[1])
+        db.commit()
+        return job.id, segment.id, segment.units[0]["id"]
+
+
+async def test_critique_queue_holds_no_database_session_during_the_model_call(seeded, monkeypatch):
+    jid, sid, unit_id = queued_critique_job(seeded)
+    opened = {"now": 0, "during_call": None}
+
+    class Tracked:
+        def __init__(self):
+            self.session = SessionLocal()
+
+        def __enter__(self):
+            opened["now"] += 1
+            return self.session.__enter__()
+
+        def __exit__(self, *arguments):
+            opened["now"] -= 1
+            return self.session.__exit__(*arguments)
+
+    async def context(*args, **kwargs):
+        return SimpleNamespace(messages=[], inspector={})
+
+    async def complete(**kwargs):
+        opened["during_call"] = opened["now"]
+        return TranslationResult(units=[{"id": unit_id, "text": "Salut"}])
+
+    monkeypatch.setattr(critique_queue, "SessionLocal", Tracked)
+    monkeypatch.setattr(critique_queue, "build_context", context)
+    monkeypatch.setattr(critique_queue.llm, "complete", complete)
+    await execute(*claim())
+    assert opened["during_call"] == 0
+    with SessionLocal() as db:
+        assert db.get(Job, jid).status == "completed"
+        segment = db.get(Segment, sid)
+        assert segment.translated_units[0]["text"] == "Salut" and segment.critique == []
+
+
+async def test_critique_queue_does_not_apply_a_result_after_a_pause(seeded, monkeypatch):
+    jid, sid, unit_id = queued_critique_job(seeded)
+
+    async def context(*args, **kwargs):
+        return SimpleNamespace(messages=[], inspector={})
+
+    async def complete(**kwargs):
+        with SessionLocal() as db:  # The user pauses the job while the model is answering.
+            db.get(Job, jid).status = "paused"
+            db.commit()
+        return TranslationResult(units=[{"id": unit_id, "text": "Salut"}])
+
+    monkeypatch.setattr(critique_queue, "build_context", context)
+    monkeypatch.setattr(critique_queue.llm, "complete", complete)
+    await execute(*claim())
+    with SessionLocal() as db:
+        assert db.get(Job, jid).status == "paused"
+        segment = db.get(Segment, sid)
+        assert segment.translated_units[0]["text"] == "Bonjour"
+        assert len(segment.critique) == 1

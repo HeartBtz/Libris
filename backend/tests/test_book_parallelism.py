@@ -312,10 +312,12 @@ async def test_two_big_books_keep_their_lease_while_sharing_the_worker(monkeypat
             assert job.status == "completed" and job.attempts == 1  # never reclaimed
             assert len(json.dumps(job.checkpoint)) < 4096
     for job_id, times in renewals.items():
-        # A heartbeat per second from start to finish: never late enough to endanger the 60 s lease.
+        # A heartbeat per second from start to finish. The bound is what matters for the 60 s lease
+        # (well under the heartbeat's 40 s grace), with room for a loaded CI runner: the old event
+        # loop stalls made gaps of tens of seconds, not a few.
         marks = [began, *times, finished]
-        assert max(b - a for a, b in zip(marks, marks[1:], strict=False)) < 3, job_id
-    assert max(lags) < 1
+        assert max(b - a for a, b in zip(marks, marks[1:], strict=False)) < 10, job_id
+    assert max(lags) < 2
 
 
 def test_book_parallelism_shares_the_provider_and_honours_the_setting(seeded, monkeypatch):

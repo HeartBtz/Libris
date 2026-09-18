@@ -556,8 +556,20 @@
 .series-toolbar {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--space-2);
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+}
+
+.card .series-toolbar {
   margin-bottom: var(--space-3);
+}
+
+.series-toolbar-between {
+  justify-content: space-between;
+}
+
+.series-toolbar .library-search {
+  flex: 1 1 240px;
 }
 
 .next-actions,

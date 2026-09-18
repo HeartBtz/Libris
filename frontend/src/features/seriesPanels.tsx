@@ -263,6 +263,7 @@ const AUDIT: Record<string, string> = {
 function show(value: unknown): string {
   if (value === null || value === undefined) return "";
   if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") return String(value);
+  if (Array.isArray(value) && value.every((item) => typeof item !== "object" || item === null)) return value.join(", ");
   return JSON.stringify(value);
 }
 const asList = (value: unknown): unknown[] => (Array.isArray(value) ? value : []);
@@ -345,8 +346,8 @@ export function SeriesBible({
   }
   return (
     <div className="stack">
-      <div className="panel-header">
-        <div className="row wrap">
+      <div className="series-toolbar series-toolbar-between">
+        <div className="row">
           <Badge tone={data.validated ? "success" : "neutral"}>
             {data.validated ? t("Version validée par une personne") : t("Dérivée des volumes")}
           </Badge>
@@ -399,7 +400,7 @@ export function SeriesBible({
                 }}
               />
             </Field>
-            <div className="row wrap">
+            <div className="row">
               <Button variant="primary" icon="check" onClick={() => void save()}>
                 {t("Enregistrer et valider")}
               </Button>
@@ -477,7 +478,7 @@ export function SeriesBible({
               <ul className="bible-cards">
                 {characters.map((entry, index) => (
                   <li key={show(entry.id) || index} className="bible-card">
-                    <div className="row wrap">
+                    <div className="row">
                       <strong>{show(entry.name)}</strong>
                       {entry.first_volume !== null && entry.first_volume !== undefined && (
                         <span className="subtle">{volume(entry.first_volume)}</span>
@@ -786,7 +787,7 @@ export function SeriesIdentities({ series, owner, run }: { series: SeriesDetail;
   }
   return (
     <div className="stack">
-      <div className="panel-header">
+      <div className="series-toolbar">
         <SegmentedControl
           label={t("Catégorie d’identité")}
           value={category}
@@ -859,7 +860,7 @@ export function SeriesIdentities({ series, owner, run }: { series: SeriesDetail;
                 </ul>
               )}
               {owner && (
-                <div className="row wrap">
+                <div className="row">
                   <Button
                     size="sm"
                     icon="edit"
@@ -1117,7 +1118,7 @@ export function SeriesMemory({ series, owner, run }: { series: SeriesDetail; own
         <LoadingBlock label={t("Chargement…")} lines={2} />
       ) : (
         <div className="stack">
-          <div className="row wrap">
+          <div className="row">
             <Badge tone={memory.configured ? "success" : "neutral"}>{memory.configured ? t("Configurée") : t("Non configurée")}</Badge>
             <span className="muted">
               {t("Sources")} : {memory.backends.map(backend).join(", ") || "—"}

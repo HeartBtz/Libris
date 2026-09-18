@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import type { ReactNode } from "react";
 import { api, ApiError, send } from "../api";
 import { formatNumber, formatPercent, registerTranslations, useI18n } from "../i18n";
 import type { Project, Run, SeriesChapter, SeriesDetail, User } from "../types";
@@ -352,7 +353,7 @@ function SeriesDashboard({
     else setStale([]);
   }, [staleCount, run, loadStale]);
   const volumes = series.volume_list.filter((project) => !project.archived_at);
-  const actions: { key: string; tone: "warning" | "danger" | "info"; text: string; action?: React.ReactNode }[] = [];
+  const actions: { key: string; tone: "warning" | "danger" | "info"; text: string; action?: ReactNode }[] = [];
   if (!volumes.length) actions.push({ key: "empty", tone: "info", text: t("Ajoutez un premier volume ou des chapitres.") });
   for (const project of volumes) {
     const open = (

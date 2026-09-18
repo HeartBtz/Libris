@@ -429,7 +429,9 @@ export function ImportWizard({
       if (formatOf(file.name) !== wanted)
         added.push({ ...base, state: "rejected", error: t("Ce fichier n’est pas un {format} : il n’est pas envoyé.", { format: label }) });
       else if (
-        [...uploads, ...added].some((u) => u.state !== "rejected" && u.name === file.name && u.size === file.size)
+        [...uploads, ...added].some(
+          (u) => (u.state === "queued" || u.state === "uploading" || u.state === "done") && u.name === file.name && u.size === file.size,
+        )
       )
         added.push({ ...base, state: "rejected", error: t("Ce fichier est déjà dans la liste.") });
       else {
@@ -437,7 +439,9 @@ export function ImportWizard({
         queue.current.push({ key, file });
       }
     }
-    setUploads((all) => [...all, ...added]);
+    // Choosing a file again after a failed upload is a retry: the failed attempt makes way.
+    const retried = new Set(added.filter((u) => u.state === "queued").map((u) => `${u.name}:${u.size}`));
+    setUploads((all) => [...all.filter((u) => !(u.state === "failed" && retried.has(`${u.name}:${u.size}`))), ...added]);
     // Without a session yet (files dropped on the library), the uploads start once it exists.
     pump();
   }
@@ -568,6 +572,7 @@ export function ImportWizard({
       ),
     [detail],
   );
+  const newVolumeTaken = taken.get(parseNumber(newVolumeNumber) ?? -1);
   const chaptersByNumber = useMemo(
     () =>
       new Map(
@@ -669,7 +674,7 @@ export function ImportWizard({
           : (mode === "new" ? !!seriesName.trim() : mode === "existing" && !!seriesId) &&
             (targetMode === "serial" ||
               (targetMode === "volume" && !!targetProject) ||
-              (targetMode === "new_volume" && (parseNumber(newVolumeNumber) ?? 0) >= 1))
+              (targetMode === "new_volume" && (parseNumber(newVolumeNumber) ?? 0) >= 1 && !newVolumeTaken))
         : step === "files"
           ? !!session && !pending && uploaded.length > 0
           : step === "review"
@@ -1007,7 +1012,17 @@ export function ImportWizard({
                 icon="plus"
               >
                 <FormGrid>
-                  <Field label={t("Numéro du volume")}>
+                  <Field
+                    label={t("Numéro du volume")}
+                    error={
+                      newVolumeTaken
+                        ? t("Le volume {number} existe déjà dans la série : « {title} ».", {
+                            number: newVolumeNumber,
+                            title: newVolumeTaken,
+                          })
+                        : undefined
+                    }
+                  >
                     <Input
                       type="number"
                       min="1"
@@ -1149,7 +1164,7 @@ export function ImportWizard({
             </Callout>
           )}
           {(format === "txt" || seriesMode) && listed.length > 1 && (
-            <div className="row wrap">
+            <div className="row">
               {format === "txt" && (
                 <Button size="sm" icon="list" onClick={sortByNumber}>
                   {t("Trier par numéro")}

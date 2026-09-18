@@ -24,6 +24,7 @@ Run `python3 scripts/setup.py` in the repository root. It generates independent 
 | `MEMORY_CATALOG_INTERVAL_SECONDS`          | Interval of the external-memory catalogue refresh; `60` (10–86400)       |
 | `PROVIDER_RECOVERY_BASE_SECONDS`, `PROVIDER_RECOVERY_MAX_SECONDS` | First and longest wait before retrying an unavailable provider; `60` and `3600` |
 | `RETENTION_REQUEST_BODIES_DAYS`, `RETENTION_EVENTS_DAYS`, `RETENTION_OUTBOX_SENT_DAYS`, `RETENTION_BIBLE_REVISIONS` | Automatic clean-up of diagnostic data (`30`, `7`, `7`, `20`; `0` disables a rule) — see the operations guide |
+| `METRICS_TOKEN`                            | Empty by default: `GET /metrics` answers 404. Set a random value of at least 24 characters (`openssl rand -hex 32`) to let Prometheus scrape it with `Authorization: Bearer <token>` — see the operations guide |
 
 Changing bootstrap credentials does not reset an existing account. Changing the database password in `.env` does not change an initialized PostgreSQL role's password.
 

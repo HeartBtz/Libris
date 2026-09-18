@@ -84,3 +84,39 @@ Le worker borne lui-même la croissance de la base : une passe au démarrage, pu
 `0` désactive une règle. Pour mesurer avant d'appliquer : `docker compose exec api python -m app.maintenance.retention --dry-run`. Conséquence visible : l'inspecteur de requêtes n'affiche plus le prompt des requêtes de plus de 30 jours.
 
 PostgreSQL réutilise l'espace libéré mais ne le rend au système qu'après `VACUUM (FULL, ANALYZE) llm_requests;`, qui verrouille la table : arrêtez le worker avant, et prévoyez autant d'espace disque libre que la taille utile de la table.
+
+## Supervision (Prometheus)
+
+`GET /metrics` expose l'état de l'instance au format texte Prometheus 0.0.4. L'adresse est désactivée par défaut (réponse 404) ; elle s'active en définissant `METRICS_TOKEN` (24 caractères au moins, par exemple `openssl rand -hex 32`) dans `.env`, puis `docker compose up -d`. Chaque collecte doit présenter ce jeton en `Authorization: Bearer …` ; une session de navigateur ne suffit pas (401). Le jeton est comparé en temps constant.
+
+| Métrique | Type | Contenu |
+|---|---|---|
+| `libris_jobs{operation,status}` | gauge | travaux par opération et état, terminés compris |
+| `libris_jobs_oldest_queued_age_seconds` | gauge | attente du plus ancien travail prêt à partir (`pending`, ou `waiting` dont le délai de reprise est échu) ; un travail repris compte depuis sa reprise |
+| `libris_jobs_expired_leases` | gauge | travaux en cours dont le bail de 60 s a expiré (worker arrêté ou bloqué) |
+| `libris_llm_requests_total{operation,status}` | counter | requêtes LLM terminées par opération et issue (`success`, `error`, `refused`, `interrupted`, `abandoned`) ; les réponses servies par le cache comptent en `success` |
+| `libris_llm_input_tokens_total{operation}`, `libris_llm_output_tokens_total{operation}` | counter | tokens rapportés par les fournisseurs |
+| `libris_llm_wasted_input_tokens_total{operation}` | counter | tokens d'entrée des requêtes en erreur, refusées ou interrompues |
+| `libris_llm_cache_hits_total{operation}`, `libris_llm_cache_hit_ratio` | counter, gauge | réponses servies par le cache, et leur part de toutes les requêtes terminées |
+| `libris_llm_requests_in_flight{provider}` | gauge | requêtes en cours par fournisseur (son nom, jamais son adresse) |
+| `libris_segments{status}` | gauge | passages de tous les livres par état |
+| `libris_memory_outbox_pending` | gauge | mises à jour OpenViking pas encore transmises |
+
+Les compteurs sont lus dans la base, où chaque appel laisse une ligne : ils sont cumulés depuis l'installation, identiques pour tous les processus et insensibles aux redémarrages. La rétention ne supprime pas ces lignes (elle vide seulement les corps) ; supprimer un livre supprime ses requêtes, ce que Prometheus traite comme une remise à zéro du compteur. Utilisez `rate()`/`increase()` pour une fenêtre (« tokens par heure »). Aucune étiquette ne contient de titre, de texte, d'identifiant de livre ni d'URL. Le résultat est gardé 10 secondes : un intervalle de collecte de 30 s à 1 min suffit.
+
+```yaml
+scrape_configs:
+  - job_name: libris
+    scrape_interval: 60s
+    metrics_path: /metrics
+    scheme: https
+    authorization:
+      type: Bearer
+      credentials_file: /etc/prometheus/libris-metrics-token
+    static_configs:
+      - targets: ["books.example.com"]
+```
+
+Exemples d'alertes : `libris_jobs_expired_leases > 0` pendant 5 min (worker arrêté), `libris_jobs_oldest_queued_age_seconds > 900` (aucun worker ne prend les travaux ou fournisseur saturé), `sum(rate(libris_llm_wasted_input_tokens_total[1h])) / sum(rate(libris_llm_input_tokens_total[1h])) > 0.2` (plus d'un token sur cinq dépensé pour rien).
+
+Derrière un proxy inverse, exposez `/metrics` seulement au réseau de Prometheus si possible.

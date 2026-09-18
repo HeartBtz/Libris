@@ -9,6 +9,7 @@ from lxml import etree
 
 from app.engines.epub.archive import inspect_archive, relative_resource, xml
 from app.engines.epub.text import apply_unit, extract_units, group_units, plain, skipped_text
+from app.languages import primary, right_to_left
 
 NS = {
     "c": "urn:oasis:names:tc:opendocument:xmlns:container",
@@ -250,6 +251,42 @@ def namespaces_of(root: etree._Element) -> dict[str, str]:
     }
 
 
+XML_LANG = "{http://www.w3.org/XML/1998/namespace}lang"
+
+
+def declared_language(node: etree._Element) -> str | None:
+    return node.get(XML_LANG) or node.get("lang")
+
+
+def orient(root: etree._Element, source: str, target: str) -> None:
+    """Language and direction of a translated document: the source's must not survive on translated text.
+
+    An element declaring the source language now holds target text; one declaring another language
+    (a Latin motto, a German greeting) was left as it is and keeps its language and direction.
+    """
+    source = declared_language(root) or source
+    direction = "rtl" if right_to_left(target) else "ltr"
+    root.set("lang", target)
+    root.set(XML_LANG, target)
+    if direction == "rtl" or root.get("dir"):
+        root.set("dir", direction)
+    own = {primary(source), primary(target)}
+    for node in root.iter():
+        if node is root or not isinstance(node.tag, str):
+            continue
+        language = declared_language(node)
+        if language is not None and primary(language) == primary(source):
+            for attribute in ("lang", XML_LANG):
+                if node.get(attribute) is not None:
+                    node.set(attribute, target)
+        foreign = any(
+            declared_language(n) and primary(declared_language(n)) not in own
+            for n in [node, *node.iterancestors()]
+        )
+        if node.get("dir") in {"ltr", "rtl"} and node.get("dir") != direction and not foreign:
+            node.set("dir", direction)
+
+
 def structure(entries: dict[str, bytes]) -> tuple[str, etree._Element, list[str]]:
     container = xml(entries["META-INF/container.xml"])
     roots = container.xpath("//c:rootfile/@full-path", namespaces=NS)
@@ -400,13 +437,18 @@ def rebuild(
         if resource not in roots:
             roots[resource] = xml(entries[resource])
         apply_unit(roots[resource], unit, "".join(p[1] for p in parts), prefixes.get(resource))
+    source_language = package.xpath("string(//dc:language[1])", namespaces=NS).strip()
     for path, root in roots.items():
         if path == opf_path:
             continue  # the package is written once, after the metadata below
         if etree.QName(root).localname == "html":
-            root.set("lang", language)
-            root.set("{http://www.w3.org/XML/1998/namespace}lang", language)
+            orient(root, source_language, language)
         entries[path] = etree.tostring(root.getroottree(), encoding="utf-8", xml_declaration=True)
+    direction = "rtl" if right_to_left(language) else "ltr"
+    for spine in package.xpath("//o:spine", namespaces=NS):
+        # Reading systems turn pages the way the script runs; EPUB 2 has no such attribute (removed below).
+        if direction == "rtl" or spine.get("page-progression-direction") == "rtl":
+            spine.set("page-progression-direction", direction)
     _normalize_epub2(entries, opf_path, package)
     declared_title = package.xpath("string(//dc:title[1])", namespaces=NS).strip()
     _normalize_inherited_defects(entries, opf_path, package, title or declared_title)

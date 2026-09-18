@@ -119,6 +119,54 @@ frontend:
     paths: [frontend/test-results/]
     expire_in: 7 days
 
+# Full user journey (`@journey` specs) against the real Compose stack with the synthetic LLM of
+# docker-compose.test.yml. Nothing is published on the runner: Playwright joins the API container's
+# network namespace, and the project, volumes, image and secrets are all named after the job.
+e2e:
+  stage: test
+  extends: .code-rules
+  timeout: 40 minutes
+  cache:
+    key:
+      prefix: npm
+      files: [frontend/package-lock.json]
+    paths: [.cache/npm/]
+    policy: pull
+  script:
+    - export COMPOSE_PROJECT_NAME="libris-e2e-$CI_JOB_ID" LIBRIS_IMAGE="libris-e2e:$CI_JOB_ID" LIBRIS_ENV_FILE="$CI_PROJECT_DIR/.e2e-$CI_JOB_ID.env"
+    - export LIBRIS_E2E_PASSWORD="$(python3 -c 'import secrets; print(secrets.token_urlsafe(24))')"
+    - |
+      ( umask 077
+        {
+          printf 'SECRET_KEY=%s\nPOSTGRES_PASSWORD=%s\n' "$(python3 -c 'import secrets; print(secrets.token_urlsafe(48))')" "$(python3 -c 'import secrets; print(secrets.token_hex(24))')"
+          printf 'BOOTSTRAP_USERNAME=admin\nBOOTSTRAP_PASSWORD=%s\n' "$LIBRIS_E2E_PASSWORD"
+          printf 'BIND_ADDRESS=127.0.0.1\nPORT=0\nCOOKIE_SECURE=false\nALLOWED_ORIGINS=http://127.0.0.1:8088\n'
+        } > "$LIBRIS_ENV_FILE" )
+    - docker build --build-arg VCS_REF="$CI_COMMIT_SHA" --tag "$LIBRIS_IMAGE" .
+    - stack() { docker compose --env-file "$LIBRIS_ENV_FILE" --file docker-compose.yml --file docker-compose.test.yml --profile test "$@"; }
+    - stack up --detach --no-build --wait api
+    - stack up --detach --no-build worker mock-llm
+    - API_CONTAINER="$(stack ps --quiet api)"
+    - >-
+      docker run --rm --ipc=host --network "container:$API_CONTAINER"
+      --volume "$CI_PROJECT_DIR:/work" --workdir /work/frontend
+      --env CI=true --env npm_config_cache=/work/.cache/npm --env PLAYWRIGHT_HTML_OPEN=never
+      --env LIBRIS_E2E_URL=http://127.0.0.1:8088 --env LIBRIS_E2E_CONFIRM_DISPOSABLE=1
+      --env LIBRIS_E2E_USERNAME=admin --env LIBRIS_E2E_PASSWORD
+      --env LIBRIS_E2E_MOCK_LLM_URL=http://mock-llm:8091
+      "$PLAYWRIGHT_IMAGE" sh -lc
+      "npm ci --prefer-offline --no-audit --no-fund && npx playwright test --grep @journey --reporter=list,html --trace=retain-on-failure"
+  after_script:
+    - stack() { docker compose --project-name "libris-e2e-$CI_JOB_ID" --env-file "$CI_PROJECT_DIR/.e2e-$CI_JOB_ID.env" --file docker-compose.yml --file docker-compose.test.yml --profile test "$@"; }
+    - if [ "$CI_JOB_STATUS" = failed ]; then stack logs --no-color --tail 300 api worker mock-llm > e2e-services.log 2>&1 || true; fi
+    - stack down --volumes --remove-orphans --timeout 10 || true
+    - docker image rm "libris-e2e:$CI_JOB_ID" >/dev/null 2>&1 || true
+    - rm -f "$CI_PROJECT_DIR/.e2e-$CI_JOB_ID.env"
+  artifacts:
+    when: on_failure
+    paths: [frontend/playwright-report/, frontend/test-results/, e2e-services.log]
+    expire_in: 7 days
+
 # Always runs, documentation-only changes included: version pins live in the README and docs.
 audit:
   stage: test

@@ -74,7 +74,7 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci && npm audit --omit=dev --audit-level=high && npm run build
         working-directory: frontend
-      - run: npx playwright install --with-deps chromium && npx playwright test e2e/accounts.spec.ts e2e/showcase.spec.ts
+      - run: npx playwright install --with-deps chromium && npx playwright test --grep-invert "@integration|@journey"
         working-directory: frontend
 
   security:

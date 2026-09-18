@@ -8,7 +8,7 @@ All jobs run on the CT105 shell runner and start their tools with `docker run`; 
 
 | Pipeline | Jobs |
 | --- | --- |
-| Merge request, branch | `backend` (Ruff + pytest on SQLite), `backend-postgres` (migration round trip + pytest on PostgreSQL), `frontend` (build, `npm audit`, Playwright specs that mock the API), `audit` (version consistency, `pip-audit`, Gitleaks) |
+| Merge request, branch | `backend` (Ruff + pytest on SQLite), `backend-postgres` (migration round trip + pytest on PostgreSQL), `frontend` (build, `npm audit`, Playwright specs that mock the API), `e2e` (user journey against the Compose stack), `audit` (version consistency, `pip-audit`, Gitleaks) |
 | Default branch | the same, then `container-build`, `container-runtime`, `container-epubcheck`, `container-scan`, and `verified-image` once everything passed |
 | Release tag `vX.Y.Z` | `release-policy`, `release-images`, `container-runtime`, `container-scan`, publication, release, `deploy-production` |
 
@@ -29,6 +29,27 @@ A semantic tag such as `v0.3.1` promotes that exact SHA image to three version a
 | GHCR `ghcr.io/heartbtz/libris` | semantic and SHA tags | Mirrored tag and GitHub Actions |
 
 GitLab also creates its release object from the protected tag. The GitHub mirror receives branches and tags; its release workflow verifies the same version, rebuilds independently, publishes GHCR provenance/SBOM metadata and creates the GitHub release.
+
+### Playwright specs
+
+Specs are selected by a tag in their title, never by file name:
+
+| Tag | Needs | Runs in |
+| --- | --- | --- |
+| none | nothing: the spec mocks the API with `page.route` | `frontend`, against `vite preview` |
+| `@integration` | a disposable backend already holding the data of `scripts/smoke.py` | manually (see the user guide) |
+| `@journey` | a disposable backend with the synthetic LLM of `docker-compose.test.yml` | `e2e` |
+
+Without `LIBRIS_E2E_URL`, `playwright.config.ts` filters out `@integration` and `@journey`, so `npx playwright test` stays safe on a workstation. The `e2e` job builds the application image (which serves the built interface), starts `docker-compose.yml` + `docker-compose.test.yml` as the Compose project `libris-e2e-$CI_JOB_ID` with generated secrets and the API published only on a random loopback port (`PORT=0`, never used), then runs `npx playwright test --grep @journey` in the pinned Playwright image joined to the API container's network namespace. The specs receive:
+
+| Variable | Value |
+| --- | --- |
+| `LIBRIS_E2E_URL` | `http://127.0.0.1:8088` (the API, which also serves the interface) |
+| `LIBRIS_E2E_USERNAME`, `LIBRIS_E2E_PASSWORD` | the bootstrap administrator of this throwaway stack |
+| `LIBRIS_E2E_CONFIRM_DISPOSABLE` | `1` |
+| `LIBRIS_E2E_MOCK_LLM_URL` | `http://mock-llm:8091`: provider base URL `…/v1` as seen by the backend, `POST …/control` to simulate an outage or change the answer delay |
+
+The job always removes the stack and its volumes (`down --volumes`) and the image it built. On failure it keeps the HTML report, traces, screenshots and the last service logs as artifacts for seven days.
 
 ## Required GitLab settings
 

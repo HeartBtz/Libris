@@ -55,7 +55,7 @@ jobs:
       - run: pip-audit -r backend/requirements.lock
       - run: npm ci && npm audit --omit=dev --audit-level=high && npm run build
         working-directory: frontend
-      - run: npx playwright install --with-deps chromium && npx playwright test e2e/accounts.spec.ts e2e/showcase.spec.ts
+      - run: npx playwright install --with-deps chromium && npx playwright test --grep-invert "@integration|@journey"
         working-directory: frontend
       - run: docker run --rm -v "$PWD:/repo" ghcr.io/gitleaks/gitleaks:v8.28.0 git /repo --redact --no-banner
       - run: docker build --tag libris:audit .

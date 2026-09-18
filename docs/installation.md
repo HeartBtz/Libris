@@ -12,7 +12,7 @@ Run `python3 scripts/setup.py` in the repository root. It generates independent 
 | `PORT`                                     | Published HTTP port; defaults to `8088`                                  |
 | `ALLOWED_ORIGINS`                          | Comma-separated browser origins including scheme and port, without paths |
 | `COOKIE_SECURE`                            | Use `true` behind HTTPS, `false` for local HTTP                          |
-| `SECRET_KEY`                               | Persistent application encryption key; retain with backups               |
+| `SECRET_KEY`                               | Persistent application encryption key; retain with backups. If it changes, stored provider keys can no longer be read: Libris asks you to enter them again |
 | `BOOTSTRAP_USERNAME`, `BOOTSTRAP_PASSWORD` | First administrator, created only on an empty database                   |
 | `POSTGRES_PASSWORD`                        | PostgreSQL initialization and connection password                        |
 | `CODEX_BRIDGE_TOKEN`                       | Private API-to-bridge authentication secret                              |

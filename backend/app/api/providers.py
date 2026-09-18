@@ -7,7 +7,7 @@ from sqlalchemy import func, select
 from app.api.common import row
 from app.models import Job, Project, Provider, RequestLog
 from app.providers.codex import bridge_call
-from app.providers.llm import llm
+from app.providers.llm import ProviderAuthenticationRequired, llm
 from app.providers.transports import NATIVE
 from app.schemas import ProviderInput
 from app.security import DB, Admin, CurrentUser, encrypt
@@ -66,6 +66,8 @@ async def test(provider_id: str, _admin: Admin, db: DB):
             "models": models,
             "message": "Liste des modèles accessible. Les capacités restent déclaratives.",
         }
+    except ProviderAuthenticationRequired as exc:
+        return {"ok": False, "models": [], "message": str(exc)}
     except Exception as exc:
         return {
             "ok": False,

@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 
 from app.engines.memory.store import remember
 from app.engines.quality.checks import validate_translation
-from app.models import Project, Segment, TranslationVersion
+from app.models import Issue, Project, Segment, TranslationVersion
 from app.schemas import TranslationResult
 
 
@@ -30,6 +30,7 @@ def save_version(
         applied=False,
     )
     db.add(version)
+    was_retained = segment.retained_source  # read before the UPDATE refreshes the loaded row
     permitted = segment.revision == base_revision and (human or not segment.human)
     if permitted:
         changed = db.execute(
@@ -43,11 +44,19 @@ def save_version(
                 retained_source=origin == "source_retained",
                 validated=validated if human and origin != "source_retained" else False,
                 stage=stage,
-                status="ok" if validated else "check",
+                # An untranslated passage kept on purpose is neither "ok" nor merely "to check".
+                status="source_retained" if origin == "source_retained" else "ok" if validated else "check",
                 error="",
             )
         )
         permitted = changed.rowcount == 1
+        if permitted and human and origin != "source_retained" and was_retained:
+            # A real translation replaces the retained original: its standing alert is settled.
+            db.execute(
+                update(Issue)
+                .where(Issue.segment_id == segment_id, Issue.code == "source_retained", Issue.resolved.is_(False))
+                .values(resolved=True)
+            )
     version.applied = permitted
     if permitted and human and validated:
         project = db.get(Project, segment.project_id)

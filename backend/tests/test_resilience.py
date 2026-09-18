@@ -369,3 +369,24 @@ async def test_heartbeat_survives_a_database_blip_but_not_a_lost_lease(monkeypat
     task = Task()
     await worker.heartbeat("job", "owner", task, clock=lambda: now[0])
     assert task.cancelled and 40 < now[0] <= 60
+
+
+def test_a_job_without_provider_is_blocked_with_a_reason_instead_of_waiting_forever(seeded):
+    from app.jobs.queue import enqueue
+
+    pid, _, provider_id = seeded
+    with SessionLocal() as db:
+        project = db.get(Project, pid)
+        project.provider_id = None
+        jid = enqueue(db, project, "translate", {}).id
+        db.commit()
+    assert claim() is None
+    with SessionLocal() as db:
+        job = db.get(Job, jid)
+        assert (job.status, job.stop_reason) == ("blocked", "provider_missing") and "fournisseur" in job.error
+        assert db.get(Project, pid).status == "blocked"
+        # What "resume" does once a provider is chosen again.
+        job.status, job.provider_id = "pending", provider_id
+        db.commit()
+    claimed = claim()
+    assert claimed and claimed[0] == jid

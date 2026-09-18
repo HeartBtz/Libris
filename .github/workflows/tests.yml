@@ -57,7 +57,7 @@ jobs:
           cache: pip
           cache-dependency-path: backend/requirements.lock
       - run: pip install -r backend/requirements.lock && pip install -e './backend[test]'
-      - run: alembic upgrade head && alembic check && alembic downgrade c93b8c242df1 && alembic upgrade head
+      - run: alembic upgrade head && alembic downgrade base && alembic upgrade head && alembic check
         working-directory: backend
       - run: LIBRIS_TEST_DATABASE_URL="$DATABASE_URL" pytest -q
         working-directory: backend

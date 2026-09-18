@@ -95,7 +95,7 @@ backend-postgres:
       --env SECRET_KEY=ci-only-secret-key-with-more-than-32-characters
       --env BOOTSTRAP_PASSWORD=ci-only-password-with-more-than-16-characters
       "$PYTHON_IMAGE" sh -lc
-      "$PYTHON_TEST_DEPS && cd backend && alembic upgrade head && alembic downgrade c93b8c242df1 && alembic upgrade head && pytest -q"
+      "$PYTHON_TEST_DEPS && cd backend && alembic upgrade head && alembic downgrade base && alembic upgrade head && alembic check && pytest -q"
   after_script:
     - docker rm --force --volumes "libris-ci-postgres-$CI_JOB_ID" >/dev/null 2>&1 || true
 

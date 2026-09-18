@@ -48,7 +48,7 @@ jobs:
       - run: python3 scripts/check_version.py "$GITHUB_REF_NAME"
       - run: pytest -q && ruff check app tests
         working-directory: backend
-      - run: alembic upgrade head && alembic check && alembic downgrade c93b8c242df1 && alembic upgrade head
+      - run: alembic upgrade head && alembic downgrade base && alembic upgrade head && alembic check
         working-directory: backend
       - run: LIBRIS_TEST_DATABASE_URL="$DATABASE_URL" pytest -q
         working-directory: backend

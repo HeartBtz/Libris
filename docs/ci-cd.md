@@ -14,6 +14,8 @@ All jobs run on the CT105 shell runner and start their tools with `docker run`; 
 
 A merge request that only changes documentation (nothing under `backend/`, `frontend/`, `codex_bridge/`, `prompts/`, `scripts/`, `deploy/`, the Dockerfile, the Compose files or this pipeline) only runs `audit`: version pins live in the README and docs. pip and npm downloads are cached per lockfile (`.cache/pip`, `.cache/npm` in the runner cache).
 
+`backend-postgres` runs `alembic upgrade head`, `alembic downgrade base`, `alembic upgrade head` and `alembic check` on PostgreSQL 17 before the test suite: every migration must stay reversible down to an empty schema, and the models must match the migrations. `backend` does the same round trip on SQLite through `tests/test_migrations.py`.
+
 Only the protected default branch builds and pushes the commit-addressed application and Codex images (`sha-<commit>`, `codex-sha-<commit>`). The build job records their registry digests as a dotenv artifact; runtime checks, the packaged EPUBCheck smoke test, the HIGH/CRITICAL vulnerability scan, publication and deployment all consume those exact digest references. Trivy analyses each image once: the application report is both the gate and the CycloneDX SBOM artifact (every package, HIGH/CRITICAL findings that have a fix).
 
 When every job of the default-branch pipeline has passed, `verified-image` adds the `verified-sha-<commit>` tag. A release tag must point to a commit contained in the default branch and does not run the tests again: `release-images` waits up to 20 minutes for that marker (the tag is often pushed while the branch pipeline is still running), then promotes the `sha-<commit>` digests. If the branch pipeline failed, make it pass and retry `release-images`.

@@ -71,11 +71,25 @@ def validated_epub(content: bytes, title: str) -> bytes:
     return content
 
 
+def original_bytes(project) -> bytes:
+    # The stored path is absolute; the file name is deterministic, so a data directory restored
+    # elsewhere is still found.
+    for path in (Path(project.original_path), settings().data_dir / "books" / f"{project.id}.epub"):
+        if path.is_file():
+            return path.read_bytes()
+    raise HTTPException(
+        409,
+        f"Le fichier EPUB d’origine de « {project.title} » est introuvable sur le serveur : l’EPUB, "
+        "l’archive de projet et l’aperçu sont indisponibles. Les exports TXT, Markdown et Book Bible "
+        "restent possibles ; restaurez le dossier des livres (DATA_DIR/books) pour retrouver les autres.",
+    )
+
+
 def translated_epub(project, segments: list[Segment]) -> bytes:
     if any(not segment.translation or segment.retained_source for segment in segments):
         raise HTTPException(409, "Export bloqué : des passages n’ont pas encore de traduction.")
     content = rebuild(
-        Path(project.original_path).read_bytes(),
+        original_bytes(project),
         [row(segment) for segment in segments],
         project.target_language,
         project.title,
@@ -140,7 +154,6 @@ def export(
 ):
     project = access(db, pid, user)
     segments = project_segments(db, pid)
-    original = Path(project.original_path).read_bytes()
     if format == "bible":
         content, mime, filename = (
             json.dumps(canonical_bible(db, project), ensure_ascii=False, indent=2),
@@ -173,7 +186,7 @@ def export(
             ],
         }
         with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED) as output:
-            output.writestr("original.epub", original)
+            output.writestr("original.epub", original_bytes(project))
             output.writestr("project.json", json.dumps(payload, ensure_ascii=False))
         content, mime, filename = archive.getvalue(), "application/zip", "translation-project.zip"
     elif format == "epub":
@@ -183,7 +196,13 @@ def export(
                 if not value["translated_units"]:
                     value["translated_units"] = [{"id": u["id"], "text": u["text"]} for u in value["units"]]
             content = validated_epub(
-                rebuild(original, export_rows, project.target_language, project.title, project.author),
+                rebuild(
+                    original_bytes(project),
+                    export_rows,
+                    project.target_language,
+                    project.title,
+                    project.author,
+                ),
                 project.title,
             )
         else:
@@ -321,7 +340,7 @@ def preview(pid: str, chapter_id: str, user: CurrentUser, db: DB, translated: bo
     chapter = db.get(Chapter, chapter_id)
     if not chapter or chapter.project_id != pid:
         raise HTTPException(404, "Chapitre introuvable.")
-    original = Path(project.original_path).read_bytes()
+    original = original_bytes(project)
     if translated:
         rows = []
         for segment in project_segments(db, pid):

@@ -94,6 +94,23 @@ Chaque requête combine les règles utilisateur, les choix humains pertinents, l
 
 Les choix humains validés remplacent leurs anciennes versions dans le retrieval local. Les souvenirs externes ne modifient jamais directement les traductions, fiches validées ou termes verrouillés.
 
+### Séries
+
+Donnez à chaque tome le même nom de série (la casse et les espaces ne comptent pas) et son numéro de volume. Un tome reçoit le glossaire accepté des tomes précédents (jamais des suivants) : un terme verrouillé dans un tome antérieur est imposé et contrôlé comme le glossaire verrouillé du livre, sauf si ce livre verrouille lui-même une autre traduction. Vos corrections validées d’une traduction automatique (« Tour Argentée » → « Tour d’Argent ») sont transmises aux tomes suivants lorsque le passage concerné y est évoqué.
+
+### Mémoire de traduction
+
+Réglage **Mémoire de traduction** (Stratégie du livre, activé par défaut ; `translation_memory` dans `PUT /api/projects/{id}`). Un passage dont la source est identique (formes Unicode et espaces près, mise en forme comprise) à un passage déjà traduit dans un de vos livres, avec la même paire de langues, reprend cette traduction sans appel au modèle ; une traduction validée par vous passe d’abord. Dans une série, seuls ce livre et les tomes antérieurs servent. La version apparaît avec l’origine `translation_memory` dans l’historique, puis la relecture et la revue finale s’appliquent normalement. Le nombre de passages repris s’affiche sous le réglage (`stats.translation_memory_reused`). Une retraduction forcée interroge toujours le modèle.
+
+### Segmentation et contenus particuliers
+
+- Les longs paragraphes japonais, chinois ou coréens sont coupés en fin de phrase (。！？…).
+- Les lectures ruby (furigana) restent telles quelles au-dessus du texte traduit.
+- Le texte préformaté (`pre`), les formules MathML et les titres de dessins SVG sont conservés en original ; ils sont listés dans **Rapport de validation à l’import** (« Conservés tels quels à l’import »). Le texte visible des dessins SVG et les `aria-label` sont traduits.
+- La table des matières et le NCX sont traduits mais ne comptent pas dans le nombre de sections ; les pages hors lecture linéaire (`linear="no"`) viennent après le récit.
+- La quatrième de couverture (`dc:description`) et les sujets courts (`dc:subject`) forment une section **Métadonnées du livre**, traduite et réécrite dans le fichier exporté.
+- Vers l’arabe, l’hébreu, le persan ou l’ourdou, l’export pose `dir="rtl"` et le sens de lecture droite-gauche ; les citations dans une troisième langue gardent leur langue.
+
 ### Modes
 
 | Mode          | Passes                                                        |
@@ -116,7 +133,7 @@ Les contrôles globaux LLM échantillonnent les occurrences dans tout le livre, 
 
 ### Tokens et observabilité
 
-Le budget actuel utilise une estimation **conservatrice en octets UTF-8**, affichée comme estimation, pas un tokenizer exact. La réservation de sortie et une marge sont contrôlées avant envoi. Une entrée qui ne tient pas est refusée avec une erreur explicite, sans tronquer le passage ni les règles obligatoires. Ajuster la fenêtre selon la capacité réelle du serveur d’inférence. Le contexte optionnel (voisinage, personnages, glossaire, mémoire) est plafonné par le réglage **Budget de contexte** des paramètres de mémoire, 12 000 par défaut quelle que soit la fenêtre du modèle : l’augmenter enrichit chaque requête, et augmente d’autant son coût.
+Le budget actuel utilise une estimation **conservatrice en octets UTF-8**, affichée comme estimation, pas un tokenizer exact (un caractère japonais compte trois). La réservation de sortie, le schéma de réponse et une marge sont contrôlés avant envoi. Une entrée qui ne tient pas est refusée avec une erreur chiffrée (fenêtre, sortie réservée, prompt, passage, règles et fenêtre suffisante), sans tronquer le passage ni les règles obligatoires. Avec une petite fenêtre (16k), une première traduction trop longue est faite par parties coupées en fin de phrase puis réassemblées . À 8k, le prompt système et les règles occupent presque toute la fenêtre avec cette estimation prudente : prévoyez au moins 12 000 tokens avec une sortie maximale de 2 048. Ajuster la fenêtre selon la capacité réelle du serveur d’inférence. Le contexte optionnel (voisinage, personnages, glossaire, mémoire) est plafonné par le réglage **Budget de contexte** des paramètres de mémoire, 12 000 par défaut quelle que soit la fenêtre du modèle : l’augmenter enrichit chaque requête, et augmente d’autant son coût.
 
 La réponse complète est validée par schéma, identifiants, marqueurs et contrôles de texte. JSON Schema est utilisé si déclaré, avec repli JSON simple lorsqu’un endpoint rejette explicitement ce format. Une réponse tronquée ou polluée par du texte hors JSON est rejetée.
 

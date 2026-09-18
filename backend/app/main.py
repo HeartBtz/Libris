@@ -1,7 +1,5 @@
 import logging
-import time
 import zipfile
-from collections import defaultdict, deque
 from contextlib import asynccontextmanager
 
 import httpx
@@ -12,7 +10,7 @@ from lxml import etree
 from sqlalchemy import select, text
 from sqlalchemy.exc import IntegrityError
 
-from app import __version__
+from app import __version__, throttle
 from app.api import (
     characters,
     coverage,
@@ -58,7 +56,7 @@ async def lifespan(_app: FastAPI):
 
 
 app = FastAPI(title="Libris", version=__version__, lifespan=lifespan, docs_url=None, redoc_url=None)
-login_attempts: dict[str, deque] = defaultdict(deque)
+login_attempts = throttle.attempts  # kept for callers that reset the throttle
 
 
 @app.middleware("http")
@@ -71,19 +69,6 @@ async def security_headers(request: Request, call_next):
             )
         if request.headers.get("sec-fetch-site") == "cross-site":
             return JSONResponse({"detail": "Requête intersite refusée."}, status_code=403)
-    if (request.url.path, request.method) in {
-        ("/api/auth/login", "POST"), ("/api/auth/password", "PUT"),
-    }:
-        key = (request.client.host if request.client else "local") + request.url.path
-        attempts = login_attempts[key]
-        now = time.monotonic()
-        while attempts and attempts[0] < now - 300:
-            attempts.popleft()
-        if len(attempts) >= 20:
-            return JSONResponse(
-                {"detail": "Trop de tentatives. Réessayez dans cinq minutes."}, status_code=429
-            )
-        attempts.append(now)
     response = await call_next(request)
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["Referrer-Policy"] = "same-origin"

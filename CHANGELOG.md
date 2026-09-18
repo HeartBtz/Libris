@@ -13,6 +13,9 @@ All notable changes are documented here. Libris follows [Semantic Versioning](ht
 
 - Operations guide: `docs/ci-cd.md` now lists what lives outside Git on the production target and gives a verified procedure to re-provision `/opt/libris-production` if it is lost, with a warning to free disk space inside `backups/` and never by deleting the directory (#21).
 - CI: the image build job now removes this project's own unused images older than three days from the shared runner (they remain in the registry); per-commit images had been accumulating there indefinitely (#20).
+### Security
+
+- **Login throttling.** The brute-force protection counted every login — successful ones included — in a single bucket per client address. Behind a reverse proxy all visitors share the proxy's address, so twenty logins in five minutes locked everybody out, and anyone could do it on purpose. Only failed attempts now count, per client address *and* account name (with a higher overall ceiling per address), a successful login clears the counter, and expired entries are purged. Set `FORWARDED_ALLOW_IPS` to your proxy's address so that real client addresses are used (#22).
 
 ## [0.4.0] - 2026-09-18
 

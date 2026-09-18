@@ -61,7 +61,7 @@ ALLOWED_ORIGINS=https://books.example.com
 COOKIE_SECURE=true
 ```
 
-Forward `books.example.com` to `http://127.0.0.1:8088`. Preserve the browser Origin header, allow your chosen upload size (default application limit: 60 MiB), disable buffering for `/api/projects/*/events`, and allow long request timeouts. Set TLS certificates through your proxy's normal mechanism. A containerized proxy must use an accessible host address or a shared Docker network; its own `localhost` is not the Libris host.
+Forward `books.example.com` to `http://127.0.0.1:8088`. Set `FORWARDED_ALLOW_IPS` in `.env` to the address of your proxy (for example `FORWARDED_ALLOW_IPS=172.18.0.1`) so that Libris sees each visitor's real address through `X-Forwarded-For`; the failed-login throttle is keyed on that address and on the account name. Preserve the browser Origin header, allow your chosen upload size (default application limit: 60 MiB), disable buffering for `/api/projects/*/events`, and allow long request timeouts. Set TLS certificates through your proxy's normal mechanism. A containerized proxy must use an accessible host address or a shared Docker network; its own `localhost` is not the Libris host.
 
 ## 5. Connect a model
 

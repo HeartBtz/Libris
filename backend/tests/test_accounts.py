@@ -122,3 +122,28 @@ def test_session_lifetime_follows_the_configured_duration(seeded, monkeypatch):
     with SessionLocal() as db:
         session = db.query(LoginSession).one()
         assert 7100 < session.expires_at - time.time() <= 7200
+
+
+def test_login_throttle_counts_failures_per_account_only(seeded):
+    with TestClient(app) as client:
+        # Successful logins never consume the budget, however many there are.
+        for _ in range(25):
+            assert login(client).status_code == 200
+        # Twenty failures lock that account for that client…
+        for _ in range(20):
+            wrong = client.post("/api/auth/login", json={"username": "tester", "password": "wrong-password-123456"})
+            assert wrong.status_code == 401
+        blocked = client.post("/api/auth/login", json={"username": "tester", "password": "wrong-password-123456"})
+        assert blocked.status_code == 429
+        assert login(client).status_code == 429
+        # …but nobody else is locked out by it.
+        other = client.post("/api/auth/login", json={"username": "someone-else", "password": "wrong-password-123456"})
+        assert other.status_code == 401
+
+
+def test_successful_login_resets_the_failure_count(seeded):
+    with TestClient(app) as client:
+        for _ in range(3):
+            for _ in range(15):
+                client.post("/api/auth/login", json={"username": "tester", "password": "wrong-password-123456"})
+            assert login(client).status_code == 200

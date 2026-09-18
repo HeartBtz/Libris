@@ -27,8 +27,6 @@ export interface Project {
   author: string;
   series_name: string;
   volume_number: number | null;
-  /** Where the volume's text came from: an EPUB, TXT chapter files or a JSON payload. */
-  source_format?: "epub" | "txt" | "json";
   archived_at: number | null;
   source_language: string;
   target_language: string;
@@ -52,6 +50,7 @@ export interface Project {
   progress?: ProjectProgress;
   /** Absent on servers before 0.6; no series means a standalone volume. */
   series_id?: string | null;
+  /** Where the volume's text came from: an EPUB, TXT chapter files or a JSON payload. */
   source_format?: SourceFormat;
   /** `serial` is the continuous chapter container of a webnovel. */
   project_kind?: "volume" | "serial";

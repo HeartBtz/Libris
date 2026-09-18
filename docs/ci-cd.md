@@ -4,7 +4,23 @@ GitLab at `git.hbtz.fr/HeartBtz/libris` is the canonical repository and release 
 
 ## Pipeline flow
 
-Every branch or merge request runs backend, migration, frontend, dependency and secret checks on the separate CT105 runner. Only the protected default branch builds and pushes the commit-addressed application and Codex images. A release tag must point to a commit contained in the default branch and reuses those existing SHA images instead of rebuilding them. The build job records their registry digests as a dotenv artifact; runtime checks, the packaged EPUBCheck smoke test, the HIGH/CRITICAL vulnerability scans, publication and deployment all consume those exact digest references.
+All jobs run on the CT105 shell runner and start their tools with `docker run`; containers, networks and Compose projects are named after `$CI_JOB_ID` so that up to eight concurrent jobs never collide.
+
+Cancelling or killing a job only kills the `docker` client of the shell runner: the container it started keeps running. So every container a job starts is named `libris-ci-<role>-$CI_JOB_ID`, carries the label `libris-ci-job=$CI_JOB_ID` and runs under `--init`; every test command is wrapped in `timeout --signal=TERM --kill-after=30s <limit>` (the TERM reaches the container through `--init`), and every job has its own `timeout:` (5 to 45 minutes). The `after_script` of each job, which GitLab also runs on cancellation, removes every container with the job's label (`docker ps --all --quiet --filter label=libris-ci-job=$CI_JOB_ID | xargs docker rm --force --volumes`); `e2e` also takes its Compose project down. As a last resort, `audit` (which runs in every pipeline) removes any `libris-ci-job` container or `libris-e2e-*` stack older than two hours. To clean by hand: `docker ps --all --filter label=libris-ci-job`.
+
+| Pipeline | Jobs |
+| --- | --- |
+| Merge request, branch | `backend` (Ruff + pytest on SQLite), `backend-postgres` (migration round trip + pytest on PostgreSQL), `frontend` (build, `npm audit`, Playwright specs that mock the API), `e2e` (user journey against the Compose stack), `audit` (version consistency, `pip-audit`, Gitleaks) |
+| Default branch | the same, then `container-build`, `container-runtime`, `container-epubcheck`, `container-scan`, and `verified-image` once everything passed |
+| Release tag `vX.Y.Z` | `release-policy`, `release-images`, `container-runtime`, `container-scan`, publication, release, `deploy-production` |
+
+A merge request that only changes documentation (nothing under `backend/`, `frontend/`, `codex_bridge/`, `prompts/`, `scripts/`, `deploy/`, the Dockerfile, the Compose files or this pipeline) only runs `audit`: version pins live in the README and docs. pip and npm downloads are cached per lockfile (`.cache/pip`, `.cache/npm` in the runner cache).
+
+`backend-postgres` runs `alembic upgrade head`, `alembic downgrade base`, `alembic upgrade head` and `alembic check` on PostgreSQL 17 before the test suite: every migration must stay reversible down to an empty schema, and the models must match the migrations. `backend` does the same round trip on SQLite through `tests/test_migrations.py`.
+
+Only the protected default branch builds and pushes the commit-addressed application and Codex images (`sha-<commit>`, `codex-sha-<commit>`). The build job records their registry digests as a dotenv artifact; runtime checks, the packaged EPUBCheck smoke test, the HIGH/CRITICAL vulnerability scan, publication and deployment all consume those exact digest references. `container-epubcheck` runs the pytest tests marked `epubcheck` inside the built image, against the EPUBCheck 5.3.0 it ships: they export the reference book, an EPUB 2 with named entities and a translated table of contents, and require a valid report (`LIBRIS_REQUIRE_EPUBCHECK=1` turns a missing validator into a failure instead of a skip). Locally, set `EPUBCHECK_JAR` to an EPUBCheck JAR and have `java` on the `PATH` to run them. Trivy analyses each image once: the application report is both the gate and the CycloneDX SBOM artifact (every package, HIGH/CRITICAL findings that have a fix).
+
+When every job of the default-branch pipeline has passed, `verified-image` adds the `verified-sha-<commit>` tag. A release tag must point to a commit contained in the default branch and does not run the tests again: `release-images` waits up to 20 minutes for that marker (the tag is often pushed while the branch pipeline is still running), then promotes the `sha-<commit>` digests. If the branch pipeline failed, make it pass and retry `release-images`.
 
 A semantic tag such as `v0.3.1` promotes that exact SHA image to three version aliases:
 
@@ -14,11 +30,32 @@ A semantic tag such as `v0.3.1` promotes that exact SHA image to three version a
 | Docker Hub `heartbtz/libris` | `0.3.1`, `0.3`, `latest` | GitLab pipeline |
 | GHCR `ghcr.io/heartbtz/libris` | semantic and SHA tags | Mirrored tag and GitHub Actions |
 
-GitLab also creates its release object from the protected tag. The GitHub mirror receives branches and tags; its release workflow verifies the same version, rebuilds independently, publishes GHCR provenance/SBOM metadata and creates the GitHub release.
+GitLab also creates its release object from the protected tag. Its notes are only the `CHANGELOG.md` section of that version (`python3 scripts/release_notes.py vX.Y.Z` prints them; `release-policy` fails the tag pipeline early when the section is missing), and a retried `release-gitlab` job updates the existing release instead of failing. The GitHub release uses the same notes. The GitHub mirror receives branches and tags; its release workflow verifies the same version, rebuilds independently, publishes GHCR provenance/SBOM metadata and creates the GitHub release.
+
+### Playwright specs
+
+Specs are selected by a tag in their title, never by file name:
+
+| Tag | Needs | Runs in |
+| --- | --- | --- |
+| none | nothing: the spec mocks the API with `page.route` | `frontend`, against `vite preview` |
+| `@integration` | a disposable backend already holding the data of `scripts/smoke.py` | manually (see the user guide) |
+| `@journey` | a disposable backend with the synthetic LLM of `docker-compose.test.yml` | `e2e` |
+
+Without `LIBRIS_E2E_URL`, `playwright.config.ts` filters out `@integration` and `@journey`, so `npx playwright test` stays safe on a workstation. The `e2e` job builds the application image (which serves the built interface), starts `docker-compose.yml` + `docker-compose.test.yml` as the Compose project `libris-e2e-$CI_JOB_ID` with generated secrets and the API published only on a random loopback port (`PORT=0`, never used), then runs `npx playwright test --grep @journey` in the pinned Playwright image joined to the API container's network namespace. The specs receive:
+
+| Variable | Value |
+| --- | --- |
+| `LIBRIS_E2E_URL` | `http://127.0.0.1:8088` (the API, which also serves the interface) |
+| `LIBRIS_E2E_USERNAME`, `LIBRIS_E2E_PASSWORD` | the bootstrap administrator of this throwaway stack |
+| `LIBRIS_E2E_CONFIRM_DISPOSABLE` | `1` |
+| `LIBRIS_E2E_MOCK_LLM_URL` | `http://mock-llm:8091`: provider base URL `…/v1` as seen by the backend, `POST …/control` to simulate an outage or change the answer delay |
+
+The job always removes the stack and its volumes (`down --volumes`) and the image it built. On failure it keeps the HTML report, traces, screenshots and the last service logs as artifacts for seven days.
 
 ## Required GitLab settings
 
-Protect `main` and tags matching `v*`. Enable the project Container Registry, protect immutable `sha-*`, `codex-sha-*` and exact-version image tags from overwrites, and keep the existing GitHub push mirror directed from GitLab to GitHub. Enable **Prevent outdated deployment jobs** and disable retries of outdated deployment jobs. Do not push release commits directly to GitHub because the next mirror update can overwrite divergent refs.
+Protect `main` and tags matching `v*`. Enable the project Container Registry, protect immutable `sha-*`, `codex-sha-*`, `verified-sha-*` and exact-version image tags from overwrites, and keep the existing GitHub push mirror directed from GitLab to GitHub. Enable **Prevent outdated deployment jobs** and disable retries of outdated deployment jobs. Do not push release commits directly to GitHub because the next mirror update can overwrite divergent refs.
 
 Add these protected and masked CI/CD variables in **Settings > CI/CD > Variables**:
 
@@ -53,17 +90,18 @@ Scheduled Dependabot version pull requests are disabled on the read-only GitHub 
 
 The protected semver-tag `deploy-production` job is serialized by `resource_group` and runs automatically on CT105. It opens an audited Teleport session to CT116, where the root-owned target pulls the digest-pinned application and Codex images from the GitLab registry using its local read-only identity. The target then passes their commit, version and immutable image IDs to the preinstalled root-owned deployment procedure. That fixed procedure creates a transactionally consistent PostgreSQL dump while the current application remains available, then gracefully stops the old API, worker and Codex bridge for the migration and image switch. It preserves the existing named volumes and private `/opt/epub-translator/.env`, starts the API and Codex bridge, verifies the exact version through `/health`, and only then restarts the worker from its checkpoints. A healthy redeploy of the same commit is a no-op. The procedure also rejects an older version or a reused version number associated with another commit.
 
-The procedure intentionally restarts the worker with checkpoint recovery. If health fails and the schema did not change, it verifies restoration of the previous images. After a schema change it leaves application services stopped and retains the pre-deployment dump rather than attempting an unsafe automatic downgrade. Keep the dedicated runner, fixed Compose file, deployment procedure and protected production environment provisioned outside Git. Never put `.env`, registry credentials or user books in this repository.
+A successful deployment then removes the Libris images that are neither deployed nor retained as `previous-*` (see [Rollback](release.md#rollback)). The manual `rollback-production` job of the same tag pipeline returns to the retained previous version when the schema did not change. The procedure intentionally restarts the worker with checkpoint recovery. If health fails and the schema did not change, it verifies restoration of the previous images. After a schema change it leaves application services stopped and retains the pre-deployment dump rather than attempting an unsafe automatic downgrade. Keep the dedicated runner, fixed Compose file, deployment procedure and protected production environment provisioned outside Git. Never put `.env`, registry credentials or user books in this repository.
 
 ### What lives outside Git on the production target
 
 | Path on CT116 | Purpose | Recreated by |
 |---|---|---|
-| `/usr/local/sbin/libris-production-deploy` | fixed deployment procedure (copy of `deploy/libris-production-deploy`) | operator |
+| `/usr/local/sbin/libris-production-deploy` | fixed deployment, rollback and image-pruning procedure (copy of `deploy/libris-production-deploy`; reinstall it whenever that file changes, `rollback-production` needs the `--rollback` mode) | operator |
 | `/opt/libris-production/docker-compose.yml` | the Compose file the procedure drives; it is the repository `docker-compose.yml`, unmodified | operator |
 | `/opt/libris-production/current-*` | deployed version, commit and image IDs | the procedure, after each successful deployment |
 | `/opt/libris-production/backups/pre-*.dump` | the five most recent pre-deployment PostgreSQL dumps (several GB each) | the procedure |
-| `/opt/epub-translator/.env` | secrets; never stored anywhere else | operator |
+| `/opt/epub-translator/.env` | secrets; never stored anywhere else (the scheduled backup copies it only with `LIBRIS_BACKUP_INCLUDE_ENV=true`) | operator |
+| `/usr/local/sbin/libris-backup`, `libris-restore`, `/etc/systemd/system/libris-backup.{service,timer}`, `/etc/libris-backup.conf` | daily verified backup to another host and restore test ([backup](backup.md)) | operator |
 | `/etc/libris-registry/config.json` | read-only registry credentials | operator |
 
 `/opt/libris-production` holds multi-gigabyte dumps: when disk space is short, delete old files inside `backups/`, never the directory itself. Without `docker-compose.yml` the next `deploy-production` job stops with `Production configuration is not provisioned` (exit 65) before touching anything; the running containers are unaffected.

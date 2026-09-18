@@ -57,7 +57,7 @@ jobs:
           cache: pip
           cache-dependency-path: backend/requirements.lock
       - run: pip install -r backend/requirements.lock && pip install -e './backend[test]'
-      - run: alembic upgrade head && alembic check && alembic downgrade c93b8c242df1 && alembic upgrade head
+      - run: alembic upgrade head && alembic downgrade base && alembic upgrade head && alembic check
         working-directory: backend
       - run: LIBRIS_TEST_DATABASE_URL="$DATABASE_URL" pytest -q
         working-directory: backend
@@ -74,7 +74,7 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci && npm audit --omit=dev --audit-level=high && npm run build
         working-directory: frontend
-      - run: npx playwright install --with-deps chromium && npx playwright test e2e/accounts.spec.ts e2e/showcase.spec.ts
+      - run: npx playwright install --with-deps chromium && npx playwright test --grep-invert "@integration|@journey"
         working-directory: frontend
 
   security:
@@ -99,6 +99,10 @@ jobs:
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
       - run: docker build --tag libris:ci .
       - run: docker run --rm -v "$PWD/scripts/check_epubcheck.py:/tmp/check_epubcheck.py:ro" libris:ci python /tmp/check_epubcheck.py
+      - run: >-
+          docker run --rm --user root --entrypoint sh --env LIBRIS_REQUIRE_EPUBCHECK=1 libris:ci -c
+          "python -m ensurepip >/dev/null && python -m pip install -q --disable-pip-version-check --root-user-action=ignore
+          'pytest>=8' 'pytest-asyncio>=0.25' 'respx>=0.22' && python -m pytest -q -p no:cacheprovider -m epubcheck tests"
       - run: docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy@sha256:62b1e65e8869bc4b4c6aa4fa2b21595256c7c2f6018a9d9ad61caf87187c1969 image --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 libris:ci
       - run: docker build --file codex_bridge/Dockerfile --tag libris-codex:ci .
       - run: docker run --rm --entrypoint python libris:ci -c "from app import __version__; print(__version__)"

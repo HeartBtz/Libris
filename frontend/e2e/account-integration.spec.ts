@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
 
-test("real PostgreSQL account and recovery workflow", async ({ page }) => {
+test("real PostgreSQL account and recovery workflow @integration", async ({ page }) => {
   test.skip(!process.env.LIBRIS_INTEGRATION_URL, "Requires a disposable migrated backend");
   const base = process.env.LIBRIS_INTEGRATION_URL!;
   const errors: string[] = [];

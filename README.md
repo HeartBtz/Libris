@@ -219,6 +219,7 @@ docker compose logs --since=5m api worker
 - [Architecture](docs/architecture.md)
 - [Compatibility matrix](docs/compatibility.md)
 - [Operations](docs/operations.md)
+- [Scheduled backup and restore](docs/backup.md)
 - [Recovery and resumable jobs](docs/recovery.md)
 - [Security audit](docs/security-audit.md)
 - [Release process](docs/release.md)

@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily Libris backup
+
+[Timer]
+OnCalendar=*-*-* 03:30:00
+RandomizedDelaySec=20m
+# A backup missed while the host was down runs at the next boot.
+Persistent=true
+
+[Install]
+WantedBy=timers.target

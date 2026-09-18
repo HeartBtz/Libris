@@ -1,7 +1,9 @@
 import atexit
 import io
 import os
+import shutil
 import tempfile
+from pathlib import Path
 
 import pytest
 from ebooklib import epub
@@ -14,6 +16,9 @@ os.environ["DATABASE_URL"] = os.environ.get(
 os.environ["DATA_DIR"] = temporary.name
 os.environ["SECRET_KEY"] = "test-only-secret-key-with-more-than-32-characters"
 os.environ["BOOTSTRAP_PASSWORD"] = "test-password-123456789"
+# Only tests marked `epubcheck` run the real validator (see the `epubcheck_jar` fixture): one JVM per
+# export would make the whole suite several times slower.
+EPUBCHECK_JAR = os.environ.get("EPUBCHECK_JAR", "")
 os.environ["EPUBCHECK_JAR"] = ""
 
 from app import models  # noqa: E402,F401
@@ -30,6 +35,17 @@ def database():
     Base.metadata.create_all(engine)
     settings().prepare()
     yield
+
+
+@pytest.fixture
+def epubcheck_jar(monkeypatch):
+    available = bool(EPUBCHECK_JAR) and Path(EPUBCHECK_JAR).is_file() and shutil.which("java") is not None
+    if not available:
+        if os.environ.get("LIBRIS_REQUIRE_EPUBCHECK") == "1":
+            pytest.fail("EPUBCHECK_JAR must name an EPUBCheck JAR and java must be installed")
+        pytest.skip("EPUBCheck is not installed (set EPUBCHECK_JAR)")
+    monkeypatch.setattr(settings(), "epubcheck_jar", EPUBCHECK_JAR)
+    return EPUBCHECK_JAR
 
 
 @pytest.fixture

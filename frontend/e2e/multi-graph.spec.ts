@@ -1,7 +1,7 @@
 import { test, expect } from "@playwright/test";
 import { base, password, username } from "./integration-config";
 
-test("multiple EPUB import, batch selection, canonical graph and validated relationship", async ({
+test("multiple EPUB import, batch selection, canonical graph and validated relationship @integration", async ({
   page,
 }) => {
   const errors: string[] = [];

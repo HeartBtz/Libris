@@ -1,0 +1,16 @@
+# /etc/libris-backup.conf (root:root, 0600), read by libris-backup.service.
+# Directory receiving one libris-<UTC timestamp>/ directory per backup. Use a share mounted from
+# another host: a copy on the production disk does not survive the loss of that disk.
+LIBRIS_BACKUP_DESTINATION=/mnt/libris-backup/ct116
+# When set, the backup fails instead of writing to the local disk if this share is not mounted.
+LIBRIS_BACKUP_MOUNTPOINT=/mnt/libris-backup
+# Backups older than this many days are removed after each successful backup.
+LIBRIS_BACKUP_RETENTION_DAYS=14
+# Compose project of the installation, and its books volume (default: <project>_books).
+LIBRIS_BACKUP_PROJECT=epub-translator
+#LIBRIS_BACKUP_BOOKS_VOLUME=epub-translator_books
+# The installation's .env is not copied by default: it holds every secret, and the deployment policy
+# keeps it on this host only. Without its SECRET_KEY, a restore elsewhere asks for the provider keys
+# again. Set to true to copy it into each backup (0600) if the destination is trusted for secrets.
+LIBRIS_BACKUP_SECRET_ENV=/opt/epub-translator/.env
+LIBRIS_BACKUP_INCLUDE_ENV=false

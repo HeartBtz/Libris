@@ -48,14 +48,14 @@ jobs:
       - run: python3 scripts/check_version.py "$GITHUB_REF_NAME"
       - run: pytest -q && ruff check app tests
         working-directory: backend
-      - run: alembic upgrade head && alembic check && alembic downgrade c93b8c242df1 && alembic upgrade head
+      - run: alembic upgrade head && alembic downgrade base && alembic upgrade head && alembic check
         working-directory: backend
       - run: LIBRIS_TEST_DATABASE_URL="$DATABASE_URL" pytest -q
         working-directory: backend
       - run: pip-audit -r backend/requirements.lock
       - run: npm ci && npm audit --omit=dev --audit-level=high && npm run build
         working-directory: frontend
-      - run: npx playwright install --with-deps chromium && npx playwright test e2e/accounts.spec.ts e2e/showcase.spec.ts
+      - run: npx playwright install --with-deps chromium && npx playwright test --grep-invert "@integration|@journey"
         working-directory: frontend
       - run: docker run --rm -v "$PWD:/repo" ghcr.io/gitleaks/gitleaks:v8.28.0 git /repo --redact --no-banner
       - run: docker build --tag libris:audit .
@@ -97,6 +97,7 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           provenance: mode=max
           sbom: true
+      - run: python3 scripts/release_notes.py "${GITHUB_REF_NAME}" > "${RUNNER_TEMP}/release-notes.md"
       - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
-          generate_release_notes: true
+          body_path: ${{ runner.temp }}/release-notes.md

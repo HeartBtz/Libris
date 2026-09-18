@@ -1,0 +1,106 @@
+#!/usr/bin/env bash
+# shellcheck disable=SC2016
+# Restore a libris-backup directory into a separate, throwaway Compose project and check that it
+# works: database, books, configuration, migrations and API health. Never touches the production
+# project. See docs/backup.md.
+set -euo pipefail
+umask 077
+
+usage() {
+	echo "Usage: libris-restore [--dry-run] [--keep] BACKUP_DIRECTORY" >&2
+	exit 64
+}
+
+dry_run=false
+keep=false
+while [[ $# -gt 1 ]]; do
+	case "$1" in
+	--dry-run) dry_run=true ;;
+	--keep) keep=true ;;
+	*) usage ;;
+	esac
+	shift
+done
+[[ $# -eq 1 && "$1" != -* ]] || usage
+backup="$(cd "$1" && pwd)"
+
+base="${LIBRIS_PRODUCTION_BASE:-/opt/libris-production}"
+production_project="${LIBRIS_PRODUCTION_PROJECT:-epub-translator}"
+project="${LIBRIS_RESTORE_PROJECT:-libris-restore-test}"
+compose_file="${LIBRIS_RESTORE_COMPOSE_FILE:-$base/docker-compose.yml}"
+env_file="${LIBRIS_RESTORE_ENV_FILE:-}"
+if [[ -z "$env_file" ]]; then
+	env_file="$backup/config.env"
+	[[ -r "$env_file" ]] || env_file="${LIBRIS_PRODUCTION_SECRET_ENV:-/opt/epub-translator/.env}"
+fi
+app_image_id="${LIBRIS_RESTORE_IMAGE:-$(cat "$base/current-app-image-id" 2>/dev/null || true)}"
+
+fail() {
+	echo "Libris restore test failed: $*" >&2
+	exit 1
+}
+
+[[ "$project" != "$production_project" ]] || fail "refusing to restore into the production project $production_project"
+for file in database.dump books.tar.gz SHA256SUMS; do
+	[[ -s "$backup/$file" ]] || fail "$backup/$file is missing or empty"
+done
+[[ -r "$env_file" ]] || fail "no configuration: $env_file (set LIBRIS_RESTORE_ENV_FILE)"
+[[ -r "$compose_file" ]] || fail "no Compose file: $compose_file (set LIBRIS_RESTORE_COMPOSE_FILE)"
+[[ -n "$app_image_id" ]] || fail "no application image: set LIBRIS_RESTORE_IMAGE"
+(cd "$backup" && sha256sum --check --quiet SHA256SUMS) || fail "checksums do not match: the backup is damaged"
+tar -tzf "$backup/books.tar.gz" > /dev/null || fail "the books archive cannot be read"
+echo "Backup $backup: checksums and books archive verified"
+
+# In dry-run mode every Docker command is printed instead of run.
+run() {
+	if [[ "$dry_run" == true ]]; then
+		echo "+ $*"
+	else
+		"$@"
+	fi
+}
+run_with_input() {
+	local input="$1"
+	shift
+	if [[ "$dry_run" == true ]]; then
+		echo "+ $* < $input"
+	else
+		"$@" < "$input"
+	fi
+}
+
+# The stack must not collide with production: no published port in use, its own volumes, and the
+# worker is never started (it would resume the backed-up jobs and call the model providers).
+export LIBRIS_IMAGE="libris-restore:$project" LIBRIS_ENV_FILE="$env_file" BIND_ADDRESS=127.0.0.1 PORT=0
+compose=(docker compose --project-name "$project" --env-file "$env_file" --file "$compose_file")
+if [[ "$dry_run" == false ]] && [[ -n "$(docker ps --all --quiet --filter "label=com.docker.compose.project=$project")$(docker volume ls --quiet --filter "label=com.docker.compose.project=$project")" ]]; then
+	fail "Compose project $project already exists; remove it first: ${compose[*]} down --volumes"
+fi
+cleanup() {
+	if [[ "$keep" == false ]]; then
+		run "${compose[@]}" down --volumes --remove-orphans --timeout 10 > /dev/null 2>&1 || true
+		run docker image rm "$LIBRIS_IMAGE" > /dev/null 2>&1 || true
+	fi
+}
+trap cleanup EXIT
+
+run docker image tag "$app_image_id" "$LIBRIS_IMAGE"
+run "${compose[@]}" up --detach --no-build --wait database
+run_with_input "$backup/database.dump" "${compose[@]}" exec -T database \
+	sh -c 'pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" --no-owner --exit-on-error'
+run_with_input "$backup/books.tar.gz" "${compose[@]}" run --rm --no-deps -T api tar -C /data -xzf -
+# `migrate` runs first: a backup of an older version is upgraded exactly as a deployment would.
+run "${compose[@]}" up --detach --no-build --wait api
+run "${compose[@]}" exec -T api alembic check
+run "${compose[@]}" exec -T api python -c \
+	"import json, urllib.request; print('Health:', json.load(urllib.request.urlopen('http://127.0.0.1:8088/health', timeout=5)))"
+run "${compose[@]}" exec -T database sh -c \
+	'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Atc "SELECT format(\$\$%s users, %s books, %s passages\$\$, (SELECT count(*) FROM users), (SELECT count(*) FROM projects), (SELECT count(*) FROM segments))"'
+run "${compose[@]}" exec -T api sh -c 'echo "$(find /data/books -type f | wc -l) book files in /data/books"'
+if [[ "$dry_run" == true ]]; then
+	echo "Dry run: nothing was started."
+elif [[ "$keep" == true ]]; then
+	echo "Restore test passed; project $project kept for inspection (${compose[*]} down --volumes to remove it)."
+else
+	echo "Restore test passed; project $project removed."
+fi

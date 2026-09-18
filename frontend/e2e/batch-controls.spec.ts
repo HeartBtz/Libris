@@ -2,7 +2,7 @@ import { test, expect } from "@playwright/test";
 import { readFileSync } from "node:fs";
 import { base, password, username } from "./integration-config";
 
-test("batch pause, resume, cancel by operation and confirmed delete", async ({
+test("batch pause, resume, cancel by operation and confirmed delete @integration", async ({
   page,
 }) => {
   const ids: string[] = [];

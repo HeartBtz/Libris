@@ -26,8 +26,8 @@ def alembic(database: Path, *arguments: str) -> str:
 def test_migrations_run_both_ways_on_sqlite_the_default_database(tmp_path):
     database = tmp_path / "fresh.db"
     alembic(database, "upgrade", "head")
-    # Through the constraint migration that used to be PostgreSQL-only, and back.
-    alembic(database, "downgrade", "b752316870c4")
+    # Every migration must be reversible, including the constraint one that used to be PostgreSQL-only.
+    alembic(database, "downgrade", "base")
     alembic(database, "upgrade", "head")
     assert "No new upgrade operations detected" in alembic(database, "check")
 

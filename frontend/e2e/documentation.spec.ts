@@ -3,7 +3,7 @@ import { mkdirSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { base, password, username } from "./integration-config";
 
-test("capture API-backed public documentation", async ({ page }) => {
+test("capture API-backed public documentation @integration", async ({ page }) => {
   test.setTimeout(180_000);
   test.skip(
     process.env.LIBRIS_DOCS_CAPTURE !== "1",

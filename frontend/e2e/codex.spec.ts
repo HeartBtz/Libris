@@ -1,7 +1,7 @@
 import { test, expect } from "@playwright/test";
 import { base, password, username } from "./integration-config";
 
-test("Codex connection types, model catalog and device-code interface", async ({
+test("Codex connection types, model catalog and device-code interface @integration", async ({
   page,
 }) => {
   const errors: string[] = [];

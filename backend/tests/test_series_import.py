@@ -98,7 +98,8 @@ def test_text_layout_is_kept_and_long_paragraphs_are_cut_at_sentences():
 
 
 def test_epub_series_import_with_correction_and_idempotent_commit(client):
-    session = upload(client, "epub", [(f"Star Saga - Vol. {n}.epub", volume(n)) for n in (1, 2, 4)])
+    books = {n: volume(n) for n in (1, 2, 4)}  # built once: ZIP timestamps would change the hash
+    session = upload(client, "epub", [(f"Star Saga - Vol. {n}.epub", books[n]) for n in (1, 2, 4)])
     proposal = session["proposal"]
     assert proposal["series"]["name"] == "Star Saga"
     assert [item["volume_number"] for item in proposal["items"]] == [1, 2, 4]
@@ -121,7 +122,7 @@ def test_epub_series_import_with_correction_and_idempotent_commit(client):
     listed = client.get("/api/series").json()
     assert [(s["name"], s["volumes"], s["formats"]) for s in listed] == [("Star Saga", 3, ["epub"])]
     # The same file again: reported as already imported, refused if not removed.
-    duplicate = upload(client, "epub", [("Star Saga - Vol. 1.epub", volume(1))])
+    duplicate = upload(client, "epub", [("Star Saga - Vol. 1.epub", books[1])])
     assert duplicate["files"][0]["duplicate"]["kind"] == "library"
 
 

@@ -134,7 +134,8 @@ e2e:
     policy: pull
   script:
     - export COMPOSE_PROJECT_NAME="libris-e2e-$CI_JOB_ID" LIBRIS_IMAGE="libris-e2e:$CI_JOB_ID" LIBRIS_ENV_FILE="$CI_PROJECT_DIR/.e2e-$CI_JOB_ID.env"
-    - export LIBRIS_E2E_PASSWORD="$(python3 -c 'import secrets; print(secrets.token_urlsafe(24))')"
+    - LIBRIS_E2E_PASSWORD="$(python3 -c 'import secrets; print(secrets.token_urlsafe(24))')"
+    - export LIBRIS_E2E_PASSWORD
     - |
       ( umask 077
         {

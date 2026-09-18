@@ -341,7 +341,7 @@ container-epubcheck:
       timeout --signal=TERM --kill-after=30s 10m
       docker run --rm --name "libris-ci-epubcheck-$CI_JOB_ID" --label "libris-ci-job=$CI_JOB_ID" --init --user root --entrypoint sh --env LIBRIS_REQUIRE_EPUBCHECK=1 "$APP_IMAGE_REFERENCE" -c
       "python -m ensurepip >/dev/null && python -m pip install -q --disable-pip-version-check --root-user-action=ignore
-      'pytest>=8' 'pytest-asyncio>=0.25' 'respx>=0.22' && python -m pytest -q -p no:cacheprovider -m epubcheck tests"
+      'pytest>=8' 'pytest-asyncio>=0.25' 'respx>=0.22' && python -m pytest -q -p no:cacheprovider -m epubcheck tests/test_epubcheck_exports.py"
   rules:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
 

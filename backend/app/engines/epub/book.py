@@ -4,7 +4,6 @@ import zipfile
 from collections import defaultdict
 from urllib.parse import unquote, urlsplit, urlunsplit
 
-from ebooklib import epub
 from lxml import etree
 
 from app.engines.epub.archive import inspect_archive, relative_resource, xml
@@ -148,7 +147,17 @@ def _normalize_inherited_defects(
 ) -> None:
     """Repair unambiguous source defects that EPUBCheck rejects, whatever the translation."""
     epub3 = package.get("version", "").startswith("3.")
+    spine_ids = set(package.xpath("//o:spine/o:itemref/@idref", namespaces=NS))
     for item in package.xpath("//o:manifest/o:item", namespaces=NS):
+        if item.get("id") not in spine_ids:
+            # A manifest entry whose file was deleted (fonts, images) is declared but can never load.
+            try:
+                dangling = relative_resource(opf_path, item.get("href", "")) not in entries
+            except ValueError:
+                dangling = False
+            if dangling:
+                _remove_preserving_tail(item)
+                continue
         if item.get("media-type") != "application/xhtml+xml":
             continue
         path = relative_resource(opf_path, item.get("href", ""))
@@ -217,8 +226,10 @@ def structure(entries: dict[str, bytes]) -> tuple[str, etree._Element, list[str]
         for n in package.xpath("//o:manifest/o:item", namespaces=NS)
     }
     spine = [manifest.get(n.get("idref"), "") for n in package.xpath("//o:spine/o:itemref", namespaces=NS)]
-    if not spine or any(path not in entries for path in spine):
-        raise ValueError("Spine EPUB invalide ou ressource manquante.")
+    missing = [path or "(référence inconnue)" for path in spine if path not in entries]
+    if not spine or missing:
+        detail = f" : {', '.join(missing[:5])}" if missing else ""
+        raise ValueError(f"Spine EPUB invalide ou document absent de l’archive{detail}.")
     return opf_path, package, list(dict.fromkeys(spine))
 
 
@@ -236,12 +247,10 @@ def parse_book(data: bytes, max_chars: int = 3500) -> dict:
             for a in algorithms
         ):
             raise ValueError("EPUB protégé par un chiffrement non pris en charge.")
-    # Mature EPUB parser for metadata and format interpretation; never used to round-trip the archive.
-    book = epub.read_epub(io.BytesIO(data), options={"ignore_ncx": False})
-
     def metadata(key: str, fallback: str = "") -> str:
-        values = book.get_metadata("DC", key)
-        return str(values[0][0]) if values else fallback
+        # Read from the package already parsed: a second parser used to fail (HTTP 500) on a manifest
+        # entry missing from the archive, for three strings.
+        return package.xpath(f"string(//dc:{key}[1])", namespaces=NS).strip() or fallback
 
     extra = [
         relative_resource(opf_path, n.get("href", ""))
@@ -253,7 +262,7 @@ def parse_book(data: bytes, max_chars: int = 3500) -> dict:
     word_count = 0
     for path in resources:
         if path not in entries:
-            raise ValueError(f"Ressource du manifest absente : {path}")
+            continue  # Spine documents were checked; a dangling entry elsewhere does not prevent translation.
         root = xml(entries[path])
         units = extract_units(root, path)
         title_nodes = root.xpath("//*[local-name()='h1' or local-name()='h2']") or root.xpath(

@@ -61,3 +61,38 @@ def test_existing_navigation_chapters_are_recognised_by_name(tmp_path):
         "OEBPS/c1.xhtml": "narrative",
         "OEBPS/navy.xhtml": "narrative",
     }
+
+
+def test_existing_passages_join_the_translation_memory(tmp_path):
+    import json
+    import sqlite3
+
+    from app.engines.translation.memory import memory_key
+
+    database = tmp_path / "memory.db"
+    alembic(database, "upgrade", "059d89ae2e77")
+    units = [{"id": "u", "text": "Chapter One ⟦x0⟧"}]
+    with sqlite3.connect(database) as connection:
+        connection.execute(
+            "INSERT INTO users (id, username, password_hash, admin, created_at) VALUES ('u', 'u', 'x', 0, 0)"
+        )
+        connection.execute(
+            "INSERT INTO projects (id, owner_id, title, author, source_language, target_language, quality, "
+            "context_backend, status, original_hash, original_path, book_info, config, instructions, bible, "
+            "bible_validated, memory_revision, updated_at, created_at, series_name) VALUES ('p', 'u', 't', '', "
+            "'en', 'fr', 'normal', 'internal', 'pending', 'h', '/x', '{}', '{}', '', '{}', 0, 0, 0, 0, '')"
+        )
+        connection.execute(
+            "INSERT INTO chapters (id, project_id, position, title, resource, summary, instructions, analyzed, "
+            "created_at) VALUES ('c', 'p', 0, 't', 'c.xhtml', '{}', '', 0, 0)"
+        )
+        connection.execute(
+            "INSERT INTO segments (id, project_id, chapter_id, position, section, source, units, translation, "
+            "translated_units, status, stage, human, retained_source, validated, revision, instructions, "
+            "uncertainties, critique, narrative, error, created_at) VALUES ('s', 'p', 'c', 0, '', 'x', ?, '', "
+            "'[]', 'pending', 'pending', 0, 0, 0, 0, '', '[]', '[]', '{}', '', 0)",
+            (json.dumps(units),),
+        )
+    alembic(database, "upgrade", "head")
+    with sqlite3.connect(database) as connection:
+        assert connection.execute("SELECT source_key FROM segments").fetchone()[0] == memory_key(units)

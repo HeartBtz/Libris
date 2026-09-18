@@ -31,6 +31,12 @@ const translations: Record<string, string> = {
     "Preserve -san, -chan, and -sama suffixes. Use informal address between Alice and Bob…",
   Enregistrer: "Save",
   "Rapport de validation à l’import": "Import validation report",
+  "Mémoire de traduction": "Translation memory",
+  "Réutiliser les passages identiques déjà traduits (vos livres, même paire de langues)":
+    "Reuse identical passages already translated (your books, same language pair)",
+  "{count} passage(s) repris de la mémoire de traduction":
+    "{count} segment(s) reused from the translation memory",
+  "Conservés tels quels à l’import": "Kept as in the original at import",
   "Partager ce projet": "Share this project",
   "Accès accordé.": "Access granted.",
   "Utilisateur à inviter": "User to invite",
@@ -158,6 +164,7 @@ export function ProjectSettings({
               quality,
               context_backend,
               instructions,
+              translation_memory,
             } = value;
             await send(
               `/projects/${project.id}`,
@@ -172,6 +179,7 @@ export function ProjectSettings({
                 quality,
                 context_backend,
                 instructions,
+                translation_memory: translation_memory ?? true,
               },
               "PUT",
             );
@@ -285,6 +293,27 @@ export function ProjectSettings({
           </label>
         </div>
         <label>
+          <input
+            type="checkbox"
+            checked={value.translation_memory ?? true}
+            onChange={(e) =>
+              setValue({ ...value, translation_memory: e.target.checked })
+            }
+          />
+          {t("Mémoire de traduction")} ·{" "}
+          {t(
+            "Réutiliser les passages identiques déjà traduits (vos livres, même paire de langues)",
+          )}
+        </label>
+        {project.stats.translation_memory_reused ? (
+          <p className="muted">
+            {t("{count} passage(s) repris de la mémoire de traduction").replace(
+              "{count}",
+              String(project.stats.translation_memory_reused),
+            )}
+          </p>
+        ) : null}
+        <label>
           {t("Instructions globales")}
           <textarea
             rows={6}
@@ -303,6 +332,13 @@ export function ProjectSettings({
       <details>
         <summary>{t("Rapport de validation à l’import")}</summary>
         <pre>{JSON.stringify(project.book_info.validation, null, 2)}</pre>
+        {project.book_info.untranslated &&
+        Object.keys(project.book_info.untranslated).length ? (
+          <>
+            <h4>{t("Conservés tels quels à l’import")}</h4>
+            <pre>{JSON.stringify(project.book_info.untranslated, null, 2)}</pre>
+          </>
+        ) : null}
       </details>
       <h3>{t("Partager ce projet")}</h3>
       <form

@@ -60,6 +60,8 @@ class Segment(Identified, Base):
     position: Mapped[int] = mapped_column(Integer)
     section: Mapped[str] = mapped_column(String(100), default="")
     source: Mapped[str] = mapped_column(Text)
+    # Hash of the normalized source units: finds identical passages across the owner's books.
+    source_key: Mapped[str | None] = mapped_column(String(64), index=True)
     units: Mapped[list] = mapped_column(JSON)
     translation: Mapped[str] = mapped_column(Text, default="")
     translated_units: Mapped[list] = mapped_column(JSON, default=list)

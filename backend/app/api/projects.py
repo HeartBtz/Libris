@@ -13,6 +13,7 @@ from app.config import settings
 from app.engines.epub import parse_book
 from app.engines.epub.check import epubcheck
 from app.engines.memory.identities import canonical_bible
+from app.engines.translation.memory import memory_key, translation_memory_enabled
 from app.jobs.queue import ACTIVE, HELD, emit, enqueue
 from app.models import (
     Chapter,
@@ -25,6 +26,7 @@ from app.models import (
     Project,
     Provider,
     Segment,
+    TranslationVersion,
     User,
 )
 from app.models.common import uid
@@ -105,6 +107,16 @@ def stats(db, project: Project) -> dict:
         "glossary": db.scalar(
             select(func.count()).select_from(Glossary).where(Glossary.project_id == project.id)
         ),
+        # Passages first translated from the translation memory, without a model call.
+        "translation_memory_reused": db.scalar(
+            select(func.count(func.distinct(TranslationVersion.segment_id)))
+            .join(Segment, Segment.id == TranslationVersion.segment_id)
+            .where(
+                Segment.project_id == project.id,
+                TranslationVersion.origin == "translation_memory",
+                TranslationVersion.applied.is_(True),
+            )
+        ),
     }
 
 
@@ -115,6 +127,7 @@ def project_view(db, project: Project) -> dict:
         stats=values,
         progress=project_progress(db, project, values),
         bible=canonical_bible(db, project),
+        translation_memory=translation_memory_enabled(project),
     )
 
 
@@ -173,6 +186,7 @@ def import_book(db, owner_id: str, data: bytes) -> Project:
                     position=position,
                     units=group,
                     source="\n\n".join(u["text"] for u in group),
+                    source_key=memory_key(group),
                     section=group[0]["section"][:100],
                 )
             )
@@ -258,7 +272,7 @@ def final_review_info(project_id: str, user: CurrentUser, db: DB):
 @router.put("/{project_id}")
 def configure(project_id: str, body: ProjectConfig, user: CurrentUser, db: DB):
     project = access(db, project_id, user, write=True)
-    values = body.model_dump()
+    values = body.model_dump(exclude={"translation_memory"})
     changed = {key for key, value in values.items() if getattr(project, key) != value}
     provider_selected = project.provider_id is None and body.provider_id is not None
     if changed - {"series_name", "volume_number"} and db.scalar(
@@ -269,6 +283,9 @@ def configure(project_id: str, body: ProjectConfig, user: CurrentUser, db: DB):
         raise HTTPException(422, "Provider inconnu.")
     for key, value in values.items():
         setattr(project, key, value)
+    # Clients that predate the setting omit it: the stored choice is then kept.
+    if "translation_memory" in body.model_fields_set:
+        project.config = {**project.config, "translation_memory": body.translation_memory}
     for job in db.scalars(select(Job).where(Job.project_id == project_id, Job.status.in_(HELD))):
         if "provider_id" in changed:
             job.provider_id = body.provider_id

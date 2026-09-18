@@ -8,6 +8,7 @@ from app.engines.context.builder import ContextTooLarge, build_context
 from app.engines.context.series import enforced_glossary
 from app.engines.memory.store import propose_terms, remember
 from app.engines.quality.checks import checks, locked_term_error, validate_translation
+from app.engines.translation.memory import remembered_translation
 from app.engines.translation.versions import save_version
 from app.jobs.queue import checkpoint, fence, finish_segment
 from app.models import Entity, Glossary, Issue, Job, Project, Segment
@@ -207,8 +208,10 @@ async def translate(job: Job, owner: str) -> None:
             if not segment.translation or (
                 force and sid not in job.checkpoint.get("started_ids", [])
             ):
-                result = await translation_call(project, segment, "translation", job, needs=needs)
-                if not persist(job, owner, segment, result, "translation", "translated"):
+                reused = None if force else remembered_translation(project, segment)
+                result = reused or await translation_call(project, segment, "translation", job, needs=needs)
+                origin = "translation_memory" if reused else "translation"
+                if not persist(job, owner, segment, result, origin, "translated"):
                     finish_segment(job.id, owner, sid)
                     continue  # Human/stale version: proposal is in history, never overwrites active text.
             if project.quality != "fast" or job.operation == "review":

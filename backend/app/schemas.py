@@ -74,6 +74,8 @@ class ProjectConfig(StrictModel):
     quality: Literal["fast", "normal", "high", "maximum"] = "normal"
     context_backend: Literal["internal", "openviking", "hybrid"] = "internal"
     instructions: str = Field(default="", max_length=20000)
+    # Stored in Project.config; omitted by clients that predate it, the stored choice is then kept.
+    translation_memory: bool = True
 
 
 class SeriesBatchInput(StrictModel):

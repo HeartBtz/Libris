@@ -2,6 +2,12 @@
 
 All notable changes are documented here. Libris follows [Semantic Versioning](https://semver.org/); while the project is below 1.0, minor versions may include breaking operational changes that are called out explicitly.
 
+## [Unreleased]
+
+### Fixed
+
+- **Applying accepted suggestions.** The step that applies the AI suggestions you accepted kept a database connection open for the whole duration of each model call — minutes with a slow provider — which could exhaust the connection pool when several books were in that step. It now reads, calls the model, then writes, without holding anything in between; and a result that arrives after you paused or cancelled the job is no longer applied (#28).
+
 ## [0.4.0] - 2026-09-18
 
 A maintenance release coming out of a full audit of the application and of its production instance. It fixes the EPUB 3 export failures, makes the worker and provider recovery robust, stops two disk-space leaks, and repairs a number of interface defects. It is a minor version because a few behaviours change on purpose: sessions now last the documented 24 hours by default (`SESSION_DURATION_HOURS`), the live event stream of a book no longer replays its history, starting a job on a busy book answers HTTP 409, and "Configure selection" no longer overrides languages and qualities you did not set. No database migration is included.

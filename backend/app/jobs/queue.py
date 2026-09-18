@@ -83,6 +83,21 @@ def claim(operations: tuple[str, ...] | None = None) -> tuple[str, str] | None:
                     saturated.add(provider_id)
                     continue
             elif operation != "sync_memory":
+                # Its provider was deleted, or never chosen: waiting would last forever and keep the
+                # book locked. Say so; resuming re-reads the book's provider.
+                orphan = db.scalar(
+                    select(Job).where(Job.id == job_id, condition).with_for_update(skip_locked=True)
+                )
+                if orphan:
+                    orphan.status, orphan.stop_reason = "blocked", "provider_missing"
+                    orphan.error = (
+                        "Aucun fournisseur n’est associé à ce travail. Choisissez un fournisseur pour "
+                        "ce livre, puis reprenez le travail."
+                    )
+                    orphan.lease_owner, orphan.lease_until = "", 0
+                    db.get(Project, orphan.project_id).status = "blocked"
+                    emit(db, orphan.project_id, job_id=orphan.id, status="blocked", reason="provider_missing")
+                    db.commit()
                 continue
             job = db.scalar(
                 select(Job)

@@ -1,16 +1,21 @@
-"""The project list as computed up to v0.4.1, kept verbatim as the reference of the list contract.
+"""The project list as computed book by book, kept as the reference of the list contract.
+
+Verbatim from v0.4.1, except that final review state is read from `job_segment_state` rows (one book
+at a time) instead of the lists former checkpoints held.
 
 `GET /api/projects` now aggregates every book in a constant number of queries; its output must stay
 identical to this per-book computation (without the bible, which the list no longer carries).
 """
 
-from sqlalchemy import func, select
+from sqlalchemy import exists, func, select
 
 from app.api.common import row
+from app.jobs import segment_state as state
 from app.models import (
     Chapter,
     Glossary,
     Job,
+    JobSegmentState,
     Memory,
     Project,
     Provider,
@@ -39,19 +44,22 @@ def _percent(done: int, total: int) -> int:
 
 def _estimate(db, project: Project, stage: str, done: int, total: int) -> dict:
     operations = STAGE_OPERATIONS.get(stage, ())
-    spent_cost = db.scalar(
-        select(
-            func.sum(
-                (
-                    RequestLog.prompt_tokens * Provider.input_cost
-                    + RequestLog.completion_tokens * Provider.output_cost
+    spent_cost = (
+        db.scalar(
+            select(
+                func.sum(
+                    (
+                        RequestLog.prompt_tokens * Provider.input_cost
+                        + RequestLog.completion_tokens * Provider.output_cost
+                    )
+                    / 1_000_000
                 )
-                / 1_000_000
             )
+            .join(Provider, RequestLog.provider_id == Provider.id)
+            .where(RequestLog.project_id == project.id, RequestLog.status == "success")
         )
-        .join(Provider, RequestLog.provider_id == Provider.id)
-        .where(RequestLog.project_id == project.id, RequestLog.status == "success")
-    ) or 0
+        or 0
+    )
     if not operations or not done or done >= total:
         return {
             "remaining_seconds": 0 if done >= total else None,
@@ -113,19 +121,26 @@ def project_progress(db, project: Project, stats: dict) -> dict:
     review_targets: set[str] = set()
     review_done_ids: set[str] = set()
     outcomes: dict[str, dict] = {}
-    review_checkpoints = db.scalars(
-        select(Job.checkpoint)
+    review_rows = (
+        select(JobSegmentState.segment_id)
+        .join(Job, Job.id == JobSegmentState.job_id)
         .where(
             Job.project_id == project.id,
             Job.operation.in_(("analyze", "translate", "resolve_validations")),
+            JobSegmentState.step.in_((state.REVIEW_TARGET, state.REVIEWED)),
         )
-        .order_by(Job.created_at.desc())
     )
-    for candidate_checkpoint in review_checkpoints:
-        review_targets.update(candidate_checkpoint.get("final_review_targets", []))
-        review_done_ids.update(candidate_checkpoint.get("final_review_done", []))
-        for sid, value in candidate_checkpoint.get("final_review_outcomes", {}).items():
-            outcomes.setdefault(sid, value)
+    for sid, step, outcome, data in db.execute(
+        review_rows.add_columns(JobSegmentState.step, JobSegmentState.outcome, JobSegmentState.data).order_by(
+            Job.created_at.desc()
+        )
+    ):
+        if step == state.REVIEW_TARGET:
+            review_targets.add(sid)
+            continue
+        review_done_ids.add(sid)
+        if outcome:
+            outcomes.setdefault(sid, {**data, "outcome": outcome})
     if review_targets:
         review_done_ids.intersection_update(review_targets)
     review_done = len(review_done_ids) or stats["reviewed_segments"]
@@ -190,9 +205,7 @@ def project_progress(db, project: Project, stats: dict) -> dict:
         )
     ):
         active = "translation"
-    elif active_job and (
-        active_job.operation == "analyze" or step in {"chapter_analysis", "book_bible"}
-    ):
+    elif active_job and (active_job.operation == "analyze" or step in {"chapter_analysis", "book_bible"}):
         active = "analysis"
     elif not translation_started and analysis_done < analysis_total:
         active = "analysis"
@@ -209,8 +222,7 @@ def project_progress(db, project: Project, stats: dict) -> dict:
         sid: (status, human, validated)
         for sid, status, human, validated in db.execute(
             select(Segment.id, Segment.status, Segment.human, Segment.validated).where(
-                Segment.project_id == project.id,
-                Segment.id.in_(review_targets or review_done_ids),
+                Segment.project_id == project.id, Segment.id.in_(review_rows)
             )
         )
     }
@@ -261,30 +273,37 @@ def stats(db, project: Project) -> dict:
             func.count(Segment.id).filter(Segment.status == "refused"),
         ).where(Segment.project_id == project.id)
     ).one()
+    reviewed = exists().where(
+        JobSegmentState.job_id == Job.id,
+        JobSegmentState.step.in_((state.REVIEW_TARGET, state.REVIEWED)),
+    )
     review_job = next(
         (
             candidate
-            for candidate in db.scalars(
-                select(Job)
+            for candidate, has_review in db.execute(
+                select(Job, reviewed)
                 .where(
                     Job.project_id == project.id,
                     Job.operation.in_(["translate", "resolve_validations"]),
                 )
                 .order_by(Job.created_at.desc())
             )
-            if candidate.checkpoint.get("step") == "final_review"
-            or candidate.checkpoint.get("final_review_targets")
-            or candidate.checkpoint.get("final_review_done")
+            if has_review or candidate.checkpoint.get("step") == "final_review"
         ),
         None,
     )
     review_checkpoint = review_job.checkpoint if review_job else {}
-    review_done = len(set(review_checkpoint.get("final_review_done", [])))
+    review_done = (
+        db.scalar(
+            select(func.count())
+            .select_from(JobSegmentState)
+            .where(JobSegmentState.job_id == review_job.id, JobSegmentState.step == state.REVIEWED)
+        )
+        if review_job
+        else 0
+    )
     review_total = int(
-        review_checkpoint.get("total")
-        or len(review_checkpoint.get("final_review_targets", []))
-        or flagged
-        or total
+        review_checkpoint.get("total") or review_checkpoint.get("review_targets") or flagged or total
     )
     return {
         "reviewed_segments": review_done,

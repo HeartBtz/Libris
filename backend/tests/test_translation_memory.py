@@ -181,3 +181,25 @@ async def test_different_formatting_is_not_reused():
         keys = db.scalars(select(Segment.source_key).where(Segment.project_id == pid)).all()
         assert len(set(keys)) == len(keys)
         assert translation_memory_enabled(db.get(Project, pid))
+
+
+@respx.mock
+async def test_identical_passages_in_flight_together_are_translated_once():
+    respx.post("https://llm.test/v1/chat/completions").mock(side_effect=mock_completion)
+    pid = book(repeated_book("tm-parallel"))
+    with SessionLocal() as db:
+        project = db.get(Project, pid)
+        db.get(Provider, project.provider_id).max_concurrency = 4
+        db.commit()
+    job = await run_job(pid, "translate")
+    assert job.status == "completed", job.error
+    with SessionLocal() as db:
+        interludes = db.scalars(
+            select(Segment).where(Segment.project_id == pid, Segment.source.contains("bells"))
+        ).all()
+        keys = db.scalars(select(Segment.source_key).where(Segment.project_id == pid)).all()
+        assert all(s.stage == "done" for s in interludes)
+        # Four passages wide, the five interludes still share one translation and one model call.
+        assert len({s.translation for s in interludes}) == 1
+    assert translation_calls(pid) == len(set(keys))
+    assert len(reused(pid, "bells")) == 4

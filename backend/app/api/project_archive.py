@@ -1,7 +1,8 @@
 """Project archive: everything a book's work is made of, in a versioned and validated format.
 
 Version 2 carries the whole state of the translation: passage statuses, critiques, uncertainties,
-version history, bible revisions, quality issues, jobs and request statistics. Version 1 archives
+version history, bible revisions, quality issues, jobs with their per-passage state and request
+statistics. Version 1 archives
 are still read. Owners, members, permissions and the provider are never restored: the person who
 restores becomes the owner, shares the book again and chooses a provider of this server.
 """
@@ -23,6 +24,7 @@ from app.engines.epub.archive import safe_name
 from app.engines.memory.archive import restore_graph
 from app.engines.quality.checks import validate_translation
 from app.jobs.queue import HELD
+from app.jobs.segment_state import split_legacy
 from app.models import (
     BibleRevision,
     Chapter,
@@ -32,6 +34,7 @@ from app.models import (
     Glossary,
     Issue,
     Job,
+    JobSegmentState,
     Memory,
     Project,
     RequestLog,
@@ -59,6 +62,7 @@ NOT_ARCHIVED = {
     BibleRevision: {"id", "project_id"},
     Issue: {"id", "project_id"},
     Job: {"project_id", "provider_id", "lease_owner", "lease_until", "next_attempt"},
+    JobSegmentState: set(),
     # Prompts and answers stay on the server that paid for them; the figures travel.
     RequestLog: {
         "id", "project_id", "provider_id", "execution_owner", "fingerprint",
@@ -194,6 +198,20 @@ class ArchivedJob(Archived):
     error: str = ""
     outage_count: int = Field(default=0, ge=0)
     stop_reason: str = Field(default="", max_length=40)
+    finished_at: float | None = None
+
+
+class ArchivedJobState(BaseModel):
+    """What a job had settled per passage: a restored paused job resumes without redoing it, and the
+    book keeps its final review history."""
+
+    model_config = ConfigDict(extra="ignore")
+    job_id: str
+    step: str = Field(max_length=30)
+    segment_id: str = Field(default="", max_length=36)
+    key: str = Field(default="", max_length=100)
+    outcome: str = Field(default="", max_length=30)
+    data: dict = Field(default_factory=dict)
 
 
 class ArchivedRequest(Archived):
@@ -227,6 +245,7 @@ class ProjectArchive(BaseModel):
     bible_revisions: list[ArchivedBibleRevision] = Field(default_factory=list)
     issues: list[ArchivedIssue] = Field(default_factory=list)
     jobs: list[ArchivedJob] = Field(default_factory=list)
+    job_state: list[ArchivedJobState] = Field(default_factory=list)
     requests: list[ArchivedRequest] = Field(default_factory=list)
 
 
@@ -243,6 +262,7 @@ ARCHIVED_FIELDS = {
     BibleRevision: ArchivedBibleRevision,
     Issue: ArchivedIssue,
     Job: ArchivedJob,
+    JobSegmentState: ArchivedJobState,
     RequestLog: ArchivedRequest,
 }
 
@@ -282,6 +302,12 @@ def build_archive(db, project: Project, original: bytes) -> bytes:
         "bible_revisions": _rows(db, BibleRevision, BibleRevision.project_id == pid),
         "issues": _rows(db, Issue, Issue.project_id == pid),
         "jobs": _rows(db, Job, Job.project_id == pid),
+        "job_state": [
+            row(item)
+            for item in db.scalars(
+                select(JobSegmentState).where(JobSegmentState.job_id.in_(select(Job.id).where(Job.project_id == pid)))
+            )
+        ],
         "requests": _rows(db, RequestLog, RequestLog.project_id == pid),
     }
     document = json.dumps(payload, ensure_ascii=False).encode()
@@ -473,7 +499,14 @@ def restore_archive(db, project: Project, archive: ProjectArchive) -> None:
 
 def restore_jobs(db, project: Project, archive: ProjectArchive, ids: dict[str, str]) -> None:
     ids.update({saved.id: uid() for saved in archive.jobs})
+    states: dict[tuple, dict] = {}
+    for saved in archive.job_state:
+        states[(saved.job_id, saved.step, saved.segment_id, saved.key)] = saved.model_dump()
     for saved in archive.jobs:
+        # Archives exported before v0.5 keep this state as lists inside the checkpoint.
+        checkpoint, legacy = split_legacy(saved.checkpoint)
+        for item in legacy:
+            states.setdefault((saved.id, item["step"], item["segment_id"], item["key"]), {**item, "job_id": saved.id})
         status, stop_reason = saved.status, saved.stop_reason
         if status in HELD and status != "paused":
             # Nothing starts by itself after a restore: unfinished work waits for Resume.
@@ -487,11 +520,22 @@ def restore_jobs(db, project: Project, archive: ProjectArchive, ids: dict[str, s
                 stop_reason=stop_reason,
                 # The provider is not restored: a job resumes on the one chosen for the book here.
                 options=remap({k: v for k, v in saved.options.items() if k != "provider_id"}, ids),
-                checkpoint=remap(saved.checkpoint, ids),
+                checkpoint=remap(checkpoint, ids),
                 attempts=saved.attempts,
                 error=saved.error,
                 outage_count=saved.outage_count,
+                finished_at=saved.finished_at,
                 **_dated(saved.model_dump()),
+            )
+        )
+    db.flush()
+    for item in states.values():
+        # Batch rows have no passage; a passage absent from this book is not carried over.
+        if item["job_id"] not in ids or (item["segment_id"] and item["segment_id"] not in ids):
+            continue
+        db.add(
+            JobSegmentState(
+                **item | {"job_id": ids[item["job_id"]], "segment_id": ids.get(item["segment_id"], "")}
             )
         )
     for saved in archive.requests:

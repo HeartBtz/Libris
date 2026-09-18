@@ -8,6 +8,7 @@ from sqlalchemy import event, select
 
 from app.api.projects import import_book
 from app.db import SessionLocal, engine
+from app.jobs import segment_state as state
 from app.main import app
 from app.models import (
     Chapter,
@@ -86,21 +87,19 @@ def mixed_library(book: bytes, books: int = 6) -> tuple[str, list[str]]:
                 db.add(request(project.id, cheap.id, "translation", prompt_tokens=2000, completion_tokens=500, duration=8))
                 db.add(request(project.id, free.id, "final_review", prompt_tokens=10, completion_tokens=5, duration=2))
                 db.add(request(project.id, cheap.id, "translation", status="error", prompt_tokens=7))
-                db.add(
-                    Job(
-                        project_id=project.id,
-                        provider_id=cheap.id,
-                        operation="translate",
-                        status="completed",
-                        created_at=now - 100,
-                        checkpoint={
-                            "step": "final_review",
-                            "final_review_targets": [s.id for s in segments[:4]],
-                            "final_review_done": [s.id for s in segments[:3]],
-                            "final_review_outcomes": {segments[1].id: {"outcome": "resolved", "revised": True}},
-                        },
-                    )
+                reviewed = Job(
+                    project_id=project.id,
+                    provider_id=cheap.id,
+                    operation="translate",
+                    status="completed",
+                    created_at=now - 100,
+                    checkpoint={"step": "final_review", "review_targets": 4},
                 )
+                db.add(reviewed)
+                db.flush()
+                state.mark_all(db, reviewed.id, state.REVIEW_TARGET, [s.id for s in segments[:4]])
+                state.mark_all(db, reviewed.id, state.REVIEWED, [s.id for s in segments[:3]])
+                state.mark(db, reviewed.id, state.REVIEWED, segments[1].id, outcome="resolved", data={"revised": True})
             if number == 3:
                 db.add(
                     Job(

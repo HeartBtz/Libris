@@ -8,6 +8,7 @@ from sqlalchemy import select
 
 from app.db import SessionLocal
 from app.engines.context.config import memory_config
+from app.jobs.concurrency import blocking
 from app.models import Memory, Outbox, Project, Segment
 from app.providers.openviking import OpenVikingClient, event_uri, project_uri
 
@@ -39,9 +40,12 @@ def book_words(query: str) -> set[str]:
     return words(QUERY_LABELS.sub("", query[start.start() :])) if start else words(query)
 
 
-def relevance(text: str, query: str) -> float:
-    a, b = words(text), book_words(query)
+def overlap(a: set[str], b: set[str]) -> float:
     return len(a & b) / max(1, min(len(a), len(b)))
+
+
+def relevance(text: str, query: str) -> float:
+    return overlap(words(text), book_words(query))
 
 
 class ContextProvider(ABC):
@@ -72,8 +76,16 @@ class InternalContextProvider(ContextProvider):
     async def retrieve(
         self, project: Project, query: str, position: int, deep: bool = False
     ) -> list[ContextItem]:
+        # Scores every memory of the book: off the event loop.
+        return await blocking(self.scored, project, query, position, deep)
+
+    def scored(self, project: Project, query: str, position: int, deep: bool) -> list[ContextItem]:
+        wanted = book_words(query)
         with SessionLocal() as db:
-            memories = db.scalars(select(Memory).where(Memory.project_id == project.id)).all()
+            # Later passages never feed this one (a human analysis shares its passage's position).
+            memories = db.scalars(
+                select(Memory).where(Memory.project_id == project.id, Memory.position <= position)
+            ).all()
             items = []
             latest_human_analysis = {}
             for candidate in sorted(memories, key=lambda m: m.created_at):
@@ -103,7 +115,7 @@ class InternalContextProvider(ContextProvider):
                 if memory.kind == "analysis":
                     content = {k: v for k, v in content.items() if k not in {"characters", "terms"}}
                 text = json.dumps(content, ensure_ascii=False)
-                score = relevance(text, query)
+                score = overlap(words(text), wanted)
                 if score > 0:
                     items.append(
                         ContextItem(
@@ -153,35 +165,7 @@ class OpenVikingContextProvider(ContextProvider):
             "hits": [],
             "rejected": [],
         }
-        with SessionLocal() as db:
-            events = list(
-                db.scalars(select(Outbox).where(Outbox.project_id == project.id, Outbox.status == "sent"))
-            )
-            valid_events = []
-            for event in events:
-                if event.payload.get("validated") and event.payload.get("type") == "analysis":
-                    latest = db.scalar(
-                        select(Memory.id)
-                        .where(
-                            Memory.segment_id == event.payload.get("segment_id"),
-                            Memory.kind == "analysis",
-                            Memory.validated.is_(True),
-                        )
-                        .order_by(Memory.created_at.desc())
-                        .limit(1)
-                    )
-                    if latest != event.event_key:
-                        continue
-                elif event.payload.get("validated"):
-                    sid = event.payload.get("segment_id")
-                    segment = db.get(Segment, sid) if sid else None
-                    if (
-                        not segment
-                        or not segment.validated
-                        or event.payload.get("content", {}).get("revision") != segment.revision
-                    ):
-                        continue
-                valid_events.append(event)
+        valid_events = await blocking(self.valid_events, project.id)
         # Server-scoped search plus an exact SQL allowlist. Directory summaries and future events
         # cannot bypass this boundary, even when a remote index returns an unexpected URI.
         allowed = {
@@ -260,6 +244,39 @@ class OpenVikingContextProvider(ContextProvider):
                     )
                 )
             return results
+
+    @staticmethod
+    def valid_events(project_id: str) -> list[Outbox]:
+        with SessionLocal() as db:
+            events = list(
+                db.scalars(select(Outbox).where(Outbox.project_id == project_id, Outbox.status == "sent"))
+            )
+            valid_events = []
+            for event in events:
+                if event.payload.get("validated") and event.payload.get("type") == "analysis":
+                    latest = db.scalar(
+                        select(Memory.id)
+                        .where(
+                            Memory.segment_id == event.payload.get("segment_id"),
+                            Memory.kind == "analysis",
+                            Memory.validated.is_(True),
+                        )
+                        .order_by(Memory.created_at.desc())
+                        .limit(1)
+                    )
+                    if latest != event.event_key:
+                        continue
+                elif event.payload.get("validated"):
+                    sid = event.payload.get("segment_id")
+                    segment = db.get(Segment, sid) if sid else None
+                    if (
+                        not segment
+                        or not segment.validated
+                        or event.payload.get("content", {}).get("revision") != segment.revision
+                    ):
+                        continue
+                valid_events.append(event)
+        return valid_events
 
 
 class HybridContextProvider(ContextProvider):

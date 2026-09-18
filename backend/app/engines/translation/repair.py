@@ -4,6 +4,8 @@ from app.db import SessionLocal
 from app.engines.context.builder import ContextTooLarge, build_context
 from app.engines.epub.text import split_unit
 from app.engines.quality.checks import checks, locked_term_error, validate_translation
+from app.jobs import segment_state as state
+from app.jobs.concurrency import blocking
 from app.jobs.execution import execution
 from app.jobs.queue import checkpoint, fence
 from app.models import Segment
@@ -13,11 +15,31 @@ from app.schemas import TextUnit, TranslationResult
 MINIMUM_PART = 400  # tokens: below this, a part is too short to be translated with any context
 
 
+def _repaired(job_id: str, segment_id: str) -> dict[str, dict]:
+    with SessionLocal() as db:
+        return state.batches(db, job_id, state.REPAIR, segment_id)
+
+
+def _changed(segment: Segment) -> bool:
+    with SessionLocal() as db:
+        current = db.get(Segment, segment.id)
+        return current.revision != segment.revision or current.human
+
+
+def _keep_batch(job_id: str, owner: str, segment_id: str, key: str, result: TranslationResult) -> None:
+    with SessionLocal() as db:
+        fence(db, job_id, owner)
+        state.mark(db, job_id, state.REPAIR, segment_id, key=key, data=result.model_dump())
+        db.commit()
+
+
 async def repair_translation(project, segment, operation, job, extra, terms):
     if not execution.get() or len(segment.units) <= 1 or len(segment.units) > 128:
         raise InvalidResponseExhausted("Réparation par petits groupes impossible pour ce passage.")
     groups = [segment.units[start : start + 4] for start in range(0, len(segment.units), 4)]
-    return await translate_groups(project, segment, operation, job, extra, terms, groups, "")
+    result = await translate_groups(project, segment, operation, job, extra, terms, groups, "")
+    validate_translation(segment.units, result)
+    return result
 
 
 async def translate_in_parts(project, segment, operation, job, extra, terms, too_large: ContextTooLarge):
@@ -57,11 +79,11 @@ async def translate_in_parts(project, segment, operation, job, extra, terms, too
 
 async def translate_groups(project, segment, operation, job, extra, terms, groups, suffix):
     jid, owner = execution.get()
-    key = f"{segment.id}:{segment.revision}:{operation}{suffix}"
-    completed = checkpoint(jid, owner).checkpoint.get("repair", {})
-    completed = completed.get(key, {})
+    prefix = f"{segment.revision}:{operation}{suffix}:"
+    await blocking(checkpoint, jid, owner)
+    completed = await blocking(_repaired, jid, segment.id)
     merged, uncertainties, events, new_terms = [], [], [], []
-    done = 0
+    done = 0  # unit offset of the batch: its checkpoint key
     for group in groups:
         allowed = {unit["id"] for unit in group}
 
@@ -77,15 +99,13 @@ async def translate_groups(project, segment, operation, job, extra, terms, group
             if error := locked_term_error(findings):
                 raise ValueError(error)
 
-        data = completed.get(str(done))  # unit offset: stable across versions
+        data = completed.get(prefix + str(done))
         if data:
             result = TranslationResult.model_validate(data)
             validate(result)
         else:
-            with SessionLocal() as db:
-                current = db.get(Segment, segment.id)
-                if current.revision != segment.revision or current.human:
-                    raise InvalidResponseExhausted("Le passage a changé pendant la réparation.")
+            if await blocking(_changed, segment):
+                raise InvalidResponseExhausted("Le passage a changé pendant la réparation.")
             batch_extra = dict(extra or {})
             batch_extra["TARGET_TEXT"] = [{"id": u["id"], "text": u["text"]} for u in group]
             if "CURRENT_TRANSLATION" in batch_extra:
@@ -109,22 +129,7 @@ async def translate_groups(project, segment, operation, job, extra, terms, group
                 validator=validate,
                 temperature=0.1,
             )
-            with SessionLocal() as db:
-                current_job = fence(db, jid, owner)
-                repair = dict(current_job.checkpoint.get("repair", {}))
-                batches = dict(repair.get(key, {}))
-                batches[str(done)] = result.model_dump()
-                repair[key] = batches
-                current_job.checkpoint = {
-                    **current_job.checkpoint,
-                    "repair": repair,
-                    "repair_progress": {
-                        "segment_id": segment.id,
-                        "units_done": done + len(group),
-                        "units_total": sum(len(g) for g in groups),
-                    },
-                }
-                db.commit()
+            await blocking(_keep_batch, jid, owner, segment.id, prefix + str(done), result)
         done += len(group)
         merged.extend(result.units)
         uncertainties.extend(result.uncertainties)

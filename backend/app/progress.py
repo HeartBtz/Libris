@@ -8,10 +8,12 @@ from dataclasses import dataclass, field
 
 from sqlalchemy import func, select
 
+from app.jobs import segment_state as state
 from app.models import (
     Chapter,
     Glossary,
     Job,
+    JobSegmentState,
     Memory,
     Project,
     Provider,
@@ -29,7 +31,8 @@ STAGE_OPERATIONS = {
     "review": ("final_review", "translation_revision", "consistency_check"),
 }
 REVIEW_JOB_OPERATIONS = ("translate", "resolve_validations")
-REVIEW_CHECKPOINT_OPERATIONS = ("analyze", "translate", "resolve_validations")
+REVIEW_STATE_OPERATIONS = ("analyze", "translate", "resolve_validations")
+REVIEW_STEPS = (state.REVIEW_TARGET, state.REVIEWED)
 ACTIVE_REVIEW_OPERATIONS = {"review", "consistency", "resolve_validations", "accept_critiques"}
 
 
@@ -111,6 +114,24 @@ def book_facts(db, project_ids: list[str]) -> dict[str, BookFacts]:
         select(Job).where(Job.project_id.in_(project_ids)).order_by(Job.created_at.desc())
     ):
         facts[job.project_id].jobs.append(job)
+    # Per job: does it hold final review rows, and how many passages has it reviewed.
+    review_rows = {
+        job_id: (rows, reviewed)
+        for job_id, rows, reviewed in db.execute(
+            select(
+                JobSegmentState.job_id,
+                func.count(),
+                func.count().filter(JobSegmentState.step == state.REVIEWED),
+            )
+            .join(Job, Job.id == JobSegmentState.job_id)
+            .where(
+                Job.project_id.in_(project_ids),
+                Job.operation.in_(REVIEW_JOB_OPERATIONS),
+                JobSegmentState.step.in_(REVIEW_STEPS),
+            )
+            .group_by(JobSegmentState.job_id)
+        )
+    }
     success = [RequestLog.project_id.in_(project_ids), RequestLog.status == "success"]
     stage_columns = []
     for operations in STAGE_OPERATIONS.values():
@@ -139,20 +160,16 @@ def book_facts(db, project_ids: list[str]) -> dict[str, BookFacts]:
                 job
                 for job in facts[pid].jobs
                 if job.operation in REVIEW_JOB_OPERATIONS
-                and (
-                    job.checkpoint.get("step") == "final_review"
-                    or job.checkpoint.get("final_review_targets")
-                    or job.checkpoint.get("final_review_done")
-                )
+                and (job.id in review_rows or job.checkpoint.get("step") == "final_review")
             ),
             None,
         )
         review_checkpoint = review_job.checkpoint if review_job else {}
         facts[pid].stats = {
-            "reviewed_segments": len(set(review_checkpoint.get("final_review_done", []))),
+            "reviewed_segments": review_rows.get(review_job.id, (0, 0))[1] if review_job else 0,
             "review_total": int(
                 review_checkpoint.get("total")
-                or len(review_checkpoint.get("final_review_targets", []))
+                or review_checkpoint.get("review_targets")
                 or flagged
                 or total
             ),
@@ -205,20 +222,37 @@ class ReviewState:
     outcomes: dict[str, dict]
 
 
-def _review_state(facts: BookFacts) -> ReviewState:
-    targets: set[str] = set()
-    done_ids: set[str] = set()
-    outcomes: dict[str, dict] = {}
-    for job in facts.jobs:
-        if job.operation not in REVIEW_CHECKPOINT_OPERATIONS:
+def _review_states(db, project_ids: list[str]) -> dict[str, ReviewState]:
+    """Final review targets and outcomes of every listed book, in one query."""
+    states = {pid: ReviewState(set(), set(), {}) for pid in project_ids}
+    # Newest job first: its outcome for a passage wins over an older review of the same passage.
+    for pid, sid, step, outcome, data in db.execute(
+        select(
+            Job.project_id,
+            JobSegmentState.segment_id,
+            JobSegmentState.step,
+            JobSegmentState.outcome,
+            JobSegmentState.data,
+        )
+        .join(Job, Job.id == JobSegmentState.job_id)
+        .where(
+            Job.project_id.in_(project_ids),
+            Job.operation.in_(REVIEW_STATE_OPERATIONS),
+            JobSegmentState.step.in_(REVIEW_STEPS),
+        )
+        .order_by(Job.created_at.desc())
+    ):
+        review = states[pid]
+        if step == state.REVIEW_TARGET:
+            review.targets.add(sid)
             continue
-        targets.update(job.checkpoint.get("final_review_targets", []))
-        done_ids.update(job.checkpoint.get("final_review_done", []))
-        for sid, value in job.checkpoint.get("final_review_outcomes", {}).items():
-            outcomes.setdefault(sid, value)
-    if targets:
-        done_ids.intersection_update(targets)
-    return ReviewState(targets, done_ids, outcomes)
+        review.done_ids.add(sid)
+        if outcome:
+            review.outcomes.setdefault(sid, {**data, "outcome": outcome})
+    for review in states.values():
+        if review.targets:
+            review.done_ids.intersection_update(review.targets)
+    return states
 
 
 def _progress(project: Project, facts: BookFacts, review: ReviewState, models: dict, statuses: dict) -> dict:
@@ -339,7 +373,7 @@ def _progress(project: Project, facts: BookFacts, review: ReviewState, models: d
 
 
 def books_progress(db, projects: list[Project], facts: dict[str, BookFacts]) -> dict[str, dict]:
-    reviews = {project.id: _review_state(facts[project.id]) for project in projects}
+    reviews = _review_states(db, [project.id for project in projects]) if projects else {}
     # Only a reviewed passage without a recorded outcome needs its current state.
     unknown = {
         sid

@@ -12,6 +12,7 @@ from app.api.project_archive import ARCHIVED_FIELDS, NOT_ARCHIVED
 from app.config import settings
 from app.db import SessionLocal
 from app.engines.translation.versions import save_version
+from app.jobs import segment_state as state
 from app.main import app
 from app.models import (
     BibleRevision,
@@ -22,6 +23,7 @@ from app.models import (
     Glossary,
     Issue,
     Job,
+    JobSegmentState,
     Membership,
     Memory,
     Project,
@@ -99,16 +101,18 @@ def reviewed_book(pid: str, user_id: str, provider_id: str) -> None:
                      message="Terme verrouillé", resolved=True))
         done = Job(project_id=pid, provider_id=provider_id, operation="translate", status="completed",
                    options={"provider_id": provider_id, "segment_ids": [segments[3].id]}, attempts=2,
-                   checkpoint={"step": "final_review", "total": 3,
-                               "final_review_targets": [s.id for s in segments[:3]],
-                               "final_review_done": [s.id for s in segments[:2]],
-                               "final_review_outcomes": {segments[1].id: {"outcome": "resolved", "revised": True}}},
-                   created_at=now - 30)
+                   checkpoint={"step": "final_review", "total": 3, "review_targets": 3},
+                   finished_at=now - 20, created_at=now - 30)
         paused = Job(project_id=pid, provider_id=provider_id, operation="resolve_validations", status="paused",
                      stop_reason="user_pause", checkpoint={"step": "final_review", "current": 1, "total": 3},
                      created_at=now - 5)
         db.add_all([done, paused])
         db.flush()
+        state.mark_all(db, done.id, state.REVIEW_TARGET, [s.id for s in segments[:3]])
+        state.mark_all(db, done.id, state.REVIEWED, [segments[0].id])
+        state.mark(db, done.id, state.REVIEWED, segments[1].id, outcome="resolved", data={"revised": True})
+        state.mark(db, done.id, state.REPAIR, segments[2].id, key="1:translation:0", data={"units": []})
+        state.mark(db, done.id, state.BIBLE, key="chapter:0")
         for operation, prompt, completion in (("translation", 1200, 300), ("final_review", 800, 90)):
             db.add(RequestLog(project_id=pid, provider_id=provider_id, job_id=done.id, segment_id=segments[1].id,
                               operation=operation, model="test-model", fingerprint="secret-fp", status="success",
@@ -167,6 +171,7 @@ def snapshot(pid: str) -> dict:
             "bible_revisions": dump(BibleRevision, BibleRevision.project_id == pid),
             "issues": dump(Issue, Issue.project_id == pid),
             "jobs": dump(Job, Job.project_id == pid),
+            "job_state": dump(JobSegmentState, JobSegmentState.job_id.in_(select(Job.id).where(Job.project_id == pid))),
             "requests": dump(RequestLog, RequestLog.project_id == pid, skip=REQUEST_BODIES),
         }
 
@@ -226,6 +231,49 @@ def test_project_archive_round_trip_is_faithful(seeded):
         assert not db.scalars(select(Membership).where(Membership.project_id == new_id)).all()
         assert all(j.provider_id is None and "provider_id" not in j.options
                    for j in db.scalars(select(Job).where(Job.project_id == new_id)))
+
+
+def test_an_archive_from_before_v05_brings_its_checkpoint_lists_back_as_job_state(seeded):
+    pid, user_id, provider_id = seeded
+    reviewed_book(pid, user_id, provider_id)
+    before = snapshot(pid)
+    with TestClient(app) as client:
+        login(client)
+        exported = client.get(f"/api/projects/{pid}/export/project")
+        with zipfile.ZipFile(io.BytesIO(exported.content)) as archive:
+            original, payload = archive.read("original.epub"), json.loads(archive.read("project.json"))
+        # As exported by v0.4 / early v0.5: no job_state, the same facts as lists in the checkpoint.
+        legacy: dict[str, dict] = {}
+        for item in payload.pop("job_state"):
+            checkpoint = legacy.setdefault(item["job_id"], {})
+            if item["step"] == state.REVIEW_TARGET:
+                checkpoint.setdefault("final_review_targets", []).append(item["segment_id"])
+            elif item["step"] == state.REVIEWED:
+                checkpoint.setdefault("final_review_done", []).append(item["segment_id"])
+                if item["outcome"]:
+                    outcome = {**item["data"], "outcome": item["outcome"]}
+                    checkpoint.setdefault("final_review_outcomes", {})[item["segment_id"]] = outcome
+            elif item["step"] == state.REPAIR:
+                revision, operation, start = item["key"].split(":")
+                name = f"{item['segment_id']}:{revision}:{operation}"
+                checkpoint.setdefault("repair", {}).setdefault(name, {})[start] = item["data"]
+            else:
+                checkpoint.setdefault("analysis_batches", []).append(item["key"])
+        for job in payload["jobs"]:
+            job["checkpoint"] = {
+                k: v for k, v in job["checkpoint"].items() if k != "review_targets"
+            } | legacy.get(job["id"], {})
+        client.delete(f"/api/projects/{pid}")
+        imported = client.post("/api/projects/import", files={"file": ("p.zip", zipped(original, payload))})
+        assert imported.status_code == 201, imported.text
+        new_id = imported.json()["id"]
+        restored = client.get(f"/api/projects/{new_id}").json()
+    after = snapshot(new_id)
+    assert after["job_state"] == before["job_state"]
+    assert after["jobs"] == [
+        {**job, "options": {k: v for k, v in job["options"].items() if k != "provider_id"}} for job in before["jobs"]
+    ]
+    assert restored["progress"]["review"]["resolved"] == 1
 
 
 def test_unfinished_work_is_restored_paused(seeded):

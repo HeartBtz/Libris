@@ -20,7 +20,16 @@ async def analyze(job: Job, owner: str) -> None:
                 select(Segment.id).where(Segment.project_id == job.project_id).order_by(Segment.position)
             )
         )
+    with SessionLocal() as db:
+        # A resumed job skips what is done without a checkpoint write and an event per passage.
+        analyzed = set(
+            db.scalars(
+                select(Memory.segment_id).where(Memory.project_id == job.project_id, Memory.kind == "analysis")
+            )
+        )
     for index, sid in enumerate(ids):
+        if sid in analyzed:
+            continue
         checkpoint(
             job.id,
             owner,

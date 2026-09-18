@@ -154,7 +154,21 @@ async def translate(job: Job, owner: str) -> None:
         if job.options.get("refused_only"):
             query = query.where(Segment.status == "refused", Segment.retained_source.is_(False))
         ids = list(db.scalars(query))
+        # A resumed job skips what is done without a checkpoint write and an event per passage; the
+        # checks inside the loop still catch a human edit made while the job runs.
+        settled = set(job.checkpoint.get("finished_ids", []))
+        if not force and job.operation != "review":
+            settled.update(
+                db.scalars(
+                    select(Segment.id).where(
+                        Segment.project_id == job.project_id,
+                        Segment.human.is_(True) | (Segment.stage == "done"),
+                    )
+                )
+            )
     for number, sid in enumerate(ids):
+        if sid in settled:
+            continue
         job = checkpoint(
             job.id,
             owner,

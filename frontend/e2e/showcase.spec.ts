@@ -2,7 +2,7 @@ import { test, expect } from "@playwright/test";
 import { mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { projectProgress } from "../src/features/progress";
-import type { Project } from "../src/types";
+import type { Project, Series } from "../src/types";
 import type { Page } from "@playwright/test";
 
 async function contrast(page: Page, foreground: string, background: string) {
@@ -107,6 +107,9 @@ test("capture public Libris showcase", async ({ page }) => {
     title: "Tide Lighthouse",
     author: "Demo collection",
     series_name: "Tide Chronicles",
+    series_id: "tide",
+    source_format: "epub",
+    project_kind: "volume",
     volume_number: 1,
     archived_at: null,
     source_language: "en",
@@ -145,6 +148,7 @@ test("capture public Libris showcase", async ({ page }) => {
         id: "demo-3",
         title: "Atlas for Tomorrow",
         series_name: "",
+        series_id: null,
         volume_number: null,
         source_language: "es",
         status: "completed",
@@ -157,8 +161,9 @@ test("capture public Libris showcase", async ({ page }) => {
         ...book,
         id: "demo-archive",
         title: "Mist Journal",
-        series_name: "Tide Chronicles",
-        volume_number: 4,
+        series_name: "",
+        series_id: null,
+        volume_number: null,
         archived_at: 1789167600,
         status: "completed",
         stats: { ...stats, translated: 24, validated: 24, flagged: 0 },
@@ -166,6 +171,35 @@ test("capture public Libris showcase", async ({ page }) => {
       "beta-model",
     ),
   ];
+  const tide: Series = {
+    id: "tide",
+    owner_id: "demo-user",
+    name: "Tide Chronicles",
+    kind: "books",
+    authors: ["Demo collection"],
+    source_language: "en",
+    target_language: "fr",
+    provider_id: "local",
+    quality: "high",
+    context_backend: "internal",
+    instructions: "",
+    bible_validated: false,
+    archived_at: null,
+    created_at: 1789167600,
+    updated_at: 1789254000,
+    shared: false,
+    volumes: 2,
+    serial: false,
+    chapters: 8,
+    formats: ["epub"],
+    progress: { total: 48, translated: 18, validated: 12, percent: 38, running: 1 },
+    issues: { flagged: 1, errors: 0, context_stale: 0 },
+    activity: 1789254000,
+    providers: [{ id: "local", name: "Local model", model: "zeta-model" }],
+    memory: { backends: ["internal"], pending: 0, failed: 0 },
+    missing_volumes: [],
+    duplicate_volumes: [],
+  };
   const chapters = ["The Return", "Salt and Iron", "The Keeper’s Log", "Low Tide"].map((title, position) => ({
     id: position ? `chapter-${position}` : "chapter",
     title: `Chapter ${position + 1} · ${title}`,
@@ -261,6 +295,8 @@ test("capture public Libris showcase", async ({ page }) => {
     let data: unknown = [];
     if (path.endsWith("/auth/me")) data = { id: "demo-user", username: "Démo", admin: true };
     else if (path === "/api/projects") data = books;
+    else if (path === "/api/series") data = [tide];
+    else if (path === "/api/series/tide") data = { ...tide, bible: {}, volume_list: books.slice(0, 2) };
     else if (path === "/api/projects/demo") data = books[0];
     else if (path.endsWith("/chapters")) data = chapters;
     else if (path.includes("/preview/")) data = { html: `<p>${savedTranslation}</p>` };
@@ -320,18 +356,19 @@ test("capture public Libris showcase", async ({ page }) => {
   await expect(page.locator("#main-content")).toBeFocused();
   expect(page.url()).toBe(libraryUrl);
 
-  await expect(page.getByRole("progressbar")).toHaveCount(3);
+  // Series first, then the books without a series.
+  await expect(page.getByRole("progressbar")).toHaveCount(2);
   const filters = page.getByRole("radiogroup", { name: "Filter books" });
   await expect(filters.getByRole("radio", { name: /Archives/ })).toContainText("1");
-  await expect(page.getByRole("progressbar", { name: "Translation for Tide Lighthouse" })).toHaveAttribute("value", "75");
-  await expect(page.getByRole("progressbar", { name: "Analysis & memory for Copper Gardens" })).toHaveAttribute(
-    "value",
-    "36",
-  );
+  const seriesSection = page.getByRole("region", { name: /^Series/ });
+  await expect(seriesSection.getByRole("link", { name: "Tide Chronicles" })).toBeVisible();
+  await expect(seriesSection).toContainText("2 volumes · 8 chapters");
+  await expect(seriesSection).toContainText("1 to review");
+  await expect(page.getByRole("progressbar", { name: "Translation of Tide Chronicles" })).toHaveAttribute("value", "38");
   await expect(page.getByRole("progressbar", { name: "Export for Atlas for Tomorrow" })).toHaveAttribute("value", "100");
 
-  const firstBook = page.getByRole("checkbox", { name: "Select Tide Lighthouse" });
-  await firstBook.check();
+  const standaloneBook = page.getByRole("checkbox", { name: "Select Atlas for Tomorrow" });
+  await standaloneBook.check();
   const batch = page.getByRole("region", { name: "Actions for multiple books" });
   await batch.getByRole("button", { name: "Configure…" }).click();
   const configure = page.getByRole("dialog", { name: "Configure the selected books" });
@@ -340,26 +377,34 @@ test("capture public Libris showcase", async ({ page }) => {
   const bulkDownload = page.waitForEvent("download");
   await batch.getByRole("button", { name: "Export EPUBs" }).click();
   expect((await bulkDownload).suggestedFilename()).toBe("libris-epubs.zip");
-  expect(exportedProjects).toEqual(["demo"]);
-  await firstBook.uncheck();
+  expect(exportedProjects).toEqual(["demo-3"]);
+  await standaloneBook.uncheck();
   await expect(batch).toHaveCount(0);
   await page.screenshot({ path: resolve(output, "library.png") });
 
-  const rows = page.locator(".library-table tbody tr");
+  const standalone = page.getByRole("region", { name: /Standalone volumes/ });
   await filters.getByRole("radio", { name: /In progress/ }).click();
-  await expect(rows).toHaveCount(1);
-  await expect(page.getByRole("link", { name: "Copper Gardens", exact: true })).toBeVisible();
+  await expect(seriesSection.getByRole("link", { name: "Tide Chronicles" })).toBeVisible();
+  await expect(standalone).toHaveCount(0);
   await page.getByRole("searchbox", { name: "Search for a book" }).fill("introuvable");
   await expect(page.getByText("No books match.", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Clear filters" }).click();
-  await expect(rows).toHaveCount(3);
-  await page.getByRole("combobox", { name: "Series", exact: true }).selectOption("Tide Chronicles");
-  await expect(rows).toHaveCount(2);
-  const series = page.getByRole("region", { name: "Series Tide Chronicles" });
-  await expect(series.getByRole("listitem")).toHaveCount(3);
-  await expect(series.getByText("Archived", { exact: true })).toBeVisible();
+  // A volume's title finds its series.
+  await page.getByRole("searchbox", { name: "Search for a book" }).fill("copper");
+  await expect(seriesSection.getByRole("link", { name: "Tide Chronicles" })).toBeVisible();
+  await expect(standalone).toHaveCount(0);
+  await page.getByRole("searchbox", { name: "Search for a book" }).fill("");
+
+  await seriesSection.getByRole("link", { name: "Tide Chronicles" }).click();
+  await expect(page.getByRole("heading", { name: "Tide Chronicles", level: 1 })).toBeVisible();
+  await page.getByRole("tab", { name: /Volumes/ }).click();
+  await expect(page.getByRole("progressbar", { name: "Analysis & memory for Copper Gardens" })).toHaveAttribute(
+    "value",
+    "36",
+  );
+  await expect(page.getByRole("textbox", { name: "Number of Copper Gardens" })).toHaveValue("2");
   await page.screenshot({ path: resolve(output, "series.png"), fullPage: true });
-  await page.getByRole("combobox", { name: "Series", exact: true }).selectOption("all");
+  await page.getByRole("link", { name: "Library", exact: true }).first().click();
 
   await filters.getByRole("radio", { name: /Archives/ }).click();
   await expect(page.getByRole("link", { name: "Mist Journal", exact: true })).toBeVisible();
@@ -374,23 +419,15 @@ test("capture public Libris showcase", async ({ page }) => {
   await sort.selectOption("title");
   await page.getByRole("button", { name: "Sort by status" }).click();
   await expect(sort).toHaveValue("status");
-  await expect(page.locator(".library-table .book-title")).toHaveText([
-    "Copper Gardens",
-    "Atlas for Tomorrow",
-    "Tide Lighthouse",
-  ]);
+  await expect(page.locator(".library-table .book-title")).toHaveText(["Atlas for Tomorrow"]);
   await sort.selectOption("model");
-  await expect(page.locator(".library-table .book-title")).toHaveText([
-    "Copper Gardens",
-    "Tide Lighthouse",
-    "Atlas for Tomorrow",
-  ]);
-  const importButton = page.getByRole("button", { name: "Import EPUBs", exact: true });
-  await importButton.focus();
-  await expect(importButton).toBeFocused();
+  const addButton = page.getByRole("button", { name: "Add content", exact: true });
+  await addButton.focus();
+  await expect(addButton).toBeFocused();
   await sort.selectOption("recent");
   await page.getByRole("radio", { name: "Cards" }).click();
-  await expect(page.locator(".book-card")).toHaveCount(3);
+  await expect(page.locator(".book-card")).toHaveCount(1);
+  await expect(page.locator(".series-grid")).not.toHaveClass(/is-dense/);
   await page.getByRole("radio", { name: "Table" }).click();
   await expectNoOverflow(page);
 

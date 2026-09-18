@@ -4,17 +4,14 @@ import { base, password, username } from "./integration-config";
 test("multiple EPUB import, batch selection, canonical graph and validated relationship @integration", async ({
   page,
 }) => {
+  // The assistant adds its steps to the import: allow for them.
+  test.setTimeout(120_000);
   const errors: string[] = [];
   const ids: string[] = [];
   page.on("pageerror", (e) => errors.push(e.message));
   page.on("response", (response) => {
-    if (
-      response.url().endsWith("/api/projects") &&
-      response.request().method() === "POST" &&
-      response.status() === 201
-    ) {
-      void response.json().then((p) => ids.push(p.id));
-    }
+    if (response.url().endsWith("/commit") && response.request().method() === "POST" && response.status() === 200)
+      void response.json().then((result: { projects: { id: string }[] }) => ids.push(...result.projects.map((p) => p.id)));
   });
   await page.goto(base);
   await page.getByLabel("Utilisateur", { exact: true }).fill(username);
@@ -23,9 +20,23 @@ test("multiple EPUB import, batch selection, canonical graph and validated relat
   await expect(
     page.getByRole("heading", { name: "Bibliothèque", exact: true }),
   ).toBeVisible();
-  await page
-    .locator('input[type="file"][accept=".epub"]')
+  await page.getByRole("button", { name: "Ajouter du contenu", exact: true }).first().click();
+  const assistant = page.getByRole("dialog", { name: "Ajouter du contenu" });
+  await assistant.getByRole("radio", { name: /Livres EPUB/ }).check();
+  await assistant.getByRole("button", { name: "Continuer" }).click();
+  await assistant.getByRole("radio", { name: /Volume unique/ }).check();
+  await assistant.getByRole("button", { name: "Continuer" }).click();
+  await assistant
+    .locator('input[type="file"]')
     .setInputFiles(["/tmp/libris/batch-a.epub", "/tmp/libris/batch-b.epub"]);
+  await expect(assistant.getByText("2/2 fichiers analysés")).toBeVisible({ timeout: 30000 });
+  await assistant.getByRole("button", { name: "Continuer" }).click();
+  await assistant.getByRole("button", { name: "Continuer" }).click();
+  await assistant.getByRole("button", { name: "Importer uniquement" }).click();
+  await expect(assistant.getByText("Import terminé.")).toBeVisible();
+  await assistant.getByRole("button", { name: "Fermer" }).first().click();
+  await page.getByRole("checkbox", { name: "Sélectionner Batch fixture A" }).check();
+  await page.getByRole("checkbox", { name: "Sélectionner Batch fixture B" }).check();
   try {
     await expect(
       page.getByText("2 livres sélectionnés", { exact: true }),

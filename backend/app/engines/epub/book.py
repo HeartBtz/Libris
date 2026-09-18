@@ -7,7 +7,7 @@ from urllib.parse import unquote, urlsplit, urlunsplit
 from lxml import etree
 
 from app.engines.epub.archive import inspect_archive, relative_resource, xml
-from app.engines.epub.text import apply_unit, extract_units, group_units, plain
+from app.engines.epub.text import apply_unit, extract_units, group_units, plain, skipped_text
 
 NS = {
     "c": "urn:oasis:names:tc:opendocument:xmlns:container",
@@ -260,11 +260,16 @@ def parse_book(data: bytes, max_chars: int = 3500) -> dict:
     resources = list(dict.fromkeys([*spine, *extra]))
     chapters = []
     word_count = 0
+    untranslated: dict[str, dict] = {}
     for path in resources:
         if path not in entries:
             continue  # Spine documents were checked; a dangling entry elsewhere does not prevent translation.
         root = xml(entries[path])
         units = extract_units(root, path)
+        for kind, count in skipped_text(root).items():
+            entry = untranslated.setdefault(kind, {"count": 0, "resources": []})
+            entry["count"] += count
+            entry["resources"] = [*entry["resources"], path][:20]
         title_nodes = root.xpath("//*[local-name()='h1' or local-name()='h2']") or root.xpath(
             "//*[local-name()='title']"
         )
@@ -292,6 +297,8 @@ def parse_book(data: bytes, max_chars: int = 3500) -> dict:
             ),
             "size": len(data),
             "resources": len(entries),
+            # Kept as in the original on purpose; listed so that nothing disappears without a word.
+            "untranslated": untranslated,
         },
     }
 

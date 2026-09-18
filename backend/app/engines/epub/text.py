@@ -25,8 +25,17 @@ BLOCKS = {
     "section",
     "article",
 }
-EXCLUDED = {"script", "style", "svg", "math", "code", "pre", "noscript"}
+# Ruby readings (rt) and their fallback parentheses (rp) annotate the base text: kept as they are.
+EXCLUDED = {"script", "style", "svg", "math", "code", "pre", "noscript", "rt", "rp"}
 ATOMIC = {"img", "br", "hr", "audio", "video", "object", "iframe"}
+# Elements that break the flow of text: what sits between two of them is one unit.
+STRUCTURAL = BLOCKS | {
+    "body", "ul", "ol", "dl", "table", "thead", "tbody", "tfoot", "tr", "figure", "aside", "header",
+    "footer", "nav", "main", "details", "summary", "hgroup", "address", "fieldset", "legend", "hr",
+    "pre", "center", "menu", "dialog", "form",
+}  # fmt: skip
+SVG = "http://www.w3.org/2000/svg"
+TRANSLATED_ATTRIBUTES = ("alt", "title", "aria-label")
 
 
 def tag(node: etree._Element) -> str:
@@ -46,11 +55,33 @@ def page_list(node: etree._Element) -> bool:
     )
 
 
+def svg_text(node: etree._Element) -> bool:
+    return isinstance(node.tag, str) and node.tag == f"{{{SVG}}}text"
+
+
 def excluded(node: etree._Element) -> bool:
-    return any(
-        tag(n) in EXCLUDED or n.get("translate") == "no" or "notranslate" in n.get("class", "").split()
-        for n in [node, *node.iterancestors()]
+    visible_svg_text = False
+    for n in [node, *node.iterancestors()]:
+        if n.get("translate") == "no" or "notranslate" in n.get("class", "").split():
+            return True
+        # Text drawn by an SVG (a cover title, a map label) is read like any other: only the drawing
+        # instructions around it stay untouched.
+        visible_svg_text = visible_svg_text or svg_text(n)
+        if tag(n) in EXCLUDED and not (tag(n) == "svg" and visible_svg_text):
+            return True
+    return False
+
+
+def structural(node: etree._Element) -> bool:
+    return isinstance(node.tag, str) and (
+        tag(node) in STRUCTURAL or any(tag(d) in STRUCTURAL for d in node.iterdescendants())
     )
+
+
+def leaf_block(node: etree._Element) -> bool:
+    if svg_text(node):
+        return True
+    return tag(node) in BLOCKS and not any(tag(c) in BLOCKS for c in node.iterdescendants())
 
 
 def outside_markers(value: str) -> str:
@@ -81,6 +112,32 @@ def validate_navigation(unit: dict, translated: str) -> None:
 
 def linearize(root: etree._Element) -> tuple[str, list[tuple[etree._Element, str]]]:
     """A complete linguistic unit with immutable DOM codes; slots match marker-delimited strings."""
+    return _linearize(root, "text", list(root))
+
+
+def run_children(parent: etree._Element, start: int) -> list:
+    """Inline children after `start` (-1: the parent's own text) up to the next block-level child."""
+    children = []
+    for child in list(parent)[start + 1 :]:
+        if structural(child):
+            break
+        children.append(child)
+    return children
+
+
+def runs(parent: etree._Element) -> list[int]:
+    """Starts of the text runs of a container: its own text, then the tail of each block-level child."""
+    return [-1, *(index for index, child in enumerate(parent) if structural(child))]
+
+
+def linearize_run(parent: etree._Element, start: int) -> tuple[str, list[tuple[etree._Element, str]]]:
+    lead = (parent, "text") if start < 0 else (parent[start], "tail")
+    return _linearize(lead[0], lead[1], run_children(parent, start))
+
+
+def _linearize(
+    lead: etree._Element, field: str, children: list
+) -> tuple[str, list[tuple[etree._Element, str]]]:
     pieces: list[str] = []
     slots: list[tuple[etree._Element, str]] = []
     counter = 0
@@ -92,21 +149,22 @@ def linearize(root: etree._Element) -> tuple[str, list[tuple[etree._Element, str
         pieces.append(value)
         slots.append((node, field))
 
-    def visit(node: etree._Element) -> None:
+    def visit_children(children) -> None:
         nonlocal counter
-        text(node, "text")
-        for child in node:
+        for child in children:
             number = counter
             counter += 1
             if not isinstance(child.tag, str) or excluded(child) or tag(child) in ATOMIC:
                 pieces.append(f"⟦x{number}⟧")
             else:
                 pieces.append(f"⟦t{number}⟧")
-                visit(child)
+                text(child, "text")
+                visit_children(list(child))
                 pieces.append(f"⟦/t{number}⟧")
             text(child, "tail")
 
-    visit(root)
+    text(lead, field)
+    visit_children(children)
     return "".join(pieces), slots
 
 
@@ -199,76 +257,140 @@ def plain(value: str) -> str:
 
 def extract_units(root: etree._Element, resource: str) -> list[dict]:
     tree = root.getroottree()
-    units: list[dict] = []
-    used: set[tuple[str, str]] = set()
-    section = "0"
+    nodes = list(root.iter())
+    order = {id(n): i for i, n in enumerate(nodes)}
+    found: list[tuple[tuple[float, int], dict]] = []
+    used: set[tuple[int, str]] = set()
+    linearized: set[int] = set()
 
-    def add(node: etree._Element, kind: str, value: str, attribute: str = "") -> None:
+    def at(node: etree._Element, offset: float = 0) -> tuple[float, int]:
+        return order[id(node)] + offset, 0
+
+    def after(node: etree._Element) -> tuple[float, int]:
+        # Text following an element (its tail) comes after everything the element contains, and the
+        # tail of an inner element before the tail of the element around it.
+        return order[id(list(node.iter())[-1])] + 0.5, -len(list(node.iterancestors()))
+
+    def add(node: etree._Element, kind: str, value: str, key: tuple, attribute: str = "", **extra) -> None:
         if not plain(value).strip():
             return
         path = tree.getpath(node)
-        identity = hashlib.sha256(f"{resource}:{path}:{kind}:{attribute}".encode()).hexdigest()[:20]
-        units.append(
-            {
-                "id": identity,
-                "text": value,
-                "resource": resource,
-                "path": path,
-                "kind": kind,
-                "attribute": attribute,
-                "section": section,
-                "tag": tag(node),
-                **({"nav": True} if any(tag(n) in NAVIGATION for n in [node, *node.iterancestors()]) else {}),
-            }
+        anchor = f":{extra['run']}" if "run" in extra else ""
+        identity = hashlib.sha256(f"{resource}:{path}:{kind}:{attribute}{anchor}".encode()).hexdigest()[:20]
+        found.append(
+            (
+                key,
+                {
+                    "id": identity,
+                    "text": value,
+                    "resource": resource,
+                    "path": path,
+                    "kind": kind,
+                    "attribute": attribute,
+                    "section": "0",
+                    "tag": tag(node),
+                    **extra,
+                    **({"nav": True} if any(tag(n) in NAVIGATION for n in [node, *node.iterancestors()]) else {}),
+                },
+            )
         )
 
-    for node in root.iter():
+    def claim(slots) -> None:
+        used.update((id(n), field) for n, field in slots)
+
+    html = tag(root) == "html"
+    for node in nodes:
         if not isinstance(node.tag, str) or excluded(node) or page_list(node):
             continue
-        name = tag(node)
-        if name in {"h1", "h2", "h3", "hr"}:
-            section = tree.getpath(node)
-        if name in BLOCKS and not any(tag(c) in BLOCKS for c in node.iterdescendants()):
+        inside = any(id(a) in linearized for a in node.iterancestors())
+        if leaf_block(node) and not inside:
             value, slots = linearize(node)
-            add(node, "block", value)
-            used.update((tree.getpath(n), field) for n, field in slots)
-        for attribute in ("alt", "title"):
+            add(node, "block", value, at(node))
+            claim(slots)
+            linearized.add(id(node))
+        elif html and not inside and structural(node) and tag(node) != "html":
+            # Mixed content ("Dear <b>Alice</b>, …<div>sig</div>"): the text between two blocks is one
+            # sentence, not one unit per text node.
+            for start in runs(node):
+                value, slots = linearize_run(node, start)
+                key = at(node, 0.25) if start < 0 else after(node[start])
+                add(node, "run", value, key, run=start)
+                claim(slots)
+        for attribute in TRANSLATED_ATTRIBUTES:
             if node.get(attribute):
-                add(node, "attribute", node.get(attribute, ""), attribute)
-    # Orphan text and NCX labels: never drop mixed-content text outside usual paragraph tags.
-    for node in root.iter():
-        if not isinstance(node.tag, str):
-            continue
+                add(node, "attribute", node.get(attribute, ""), at(node, 0.1), attribute)
+    # NCX labels and any text outside the structures above: never drop text silently.
+    for node in nodes:
         for field in ("text", "tail"):
+            if field == "text" and not isinstance(node.tag, str):
+                continue
             parent = node if field == "text" else node.getparent()
-            if parent is None or excluded(parent) or page_list(parent) or (tree.getpath(node), field) in used:
+            if parent is None or excluded(parent) or page_list(parent) or (id(node), field) in used:
                 continue
             if tag(parent) in {"html", "head", "meta", "link"}:
                 continue
             value = getattr(node, field) or ""
             if value.strip():
-                add(node, field, value)
-    # DOM order, with attributes after the element's visible text.
-    order = {tree.getpath(n): i for i, n in enumerate(root.iter())}
-    units.sort(key=lambda u: (order[u["path"]], u["kind"] == "attribute"))
+                add(node, field, value, at(node) if field == "text" else after(node))
+    found.sort(key=lambda item: item[0])
+    # A heading starts a section; everything after it, in document order, belongs to it.
+    headings = sorted(
+        (at(n), tree.getpath(n)) for n in nodes if isinstance(n.tag, str) and tag(n) in {"h1", "h2", "h3", "hr"}
+    )
+    units, section, index = [], "0", 0
+    for key, unit in found:
+        while index < len(headings) and headings[index][0] <= key:
+            section = headings[index][1]
+            index += 1
+        units.append(dict(unit, section=section))
     return units
+
+
+def skipped_text(root: etree._Element) -> dict[str, int]:
+    """Text kept untranslated on purpose (preformatted text, formulas, drawing labels), reported at import."""
+    counts: dict[str, int] = {}
+    for node in root.iter():
+        name = tag(node)
+        if name not in {"pre", "math", "svg"} or any(tag(a) in {"pre", "math", "svg"} for a in node.iterancestors()):
+            continue
+        kept = "".join(
+            "".join(n.itertext()) for n in node.iter() if tag(n) in {"title", "desc"}
+        ) if name == "svg" else "".join(node.itertext())
+        if kept.strip():
+            counts[name] = counts.get(name, 0) + 1
+    return counts
+
+
+SENTENCE_END = re.compile(
+    # Latin scripts end a sentence before a space; CJK ones end it on the mark itself, closing quotes
+    # and brackets included, since no space follows.
+    r"(?<=[.!?…])(?=\s)|(?<=[。！？｡…][」』）〕】》〉”’)\]])(?![」』）〕】》〉”’)\]])|(?<=[。！？｡])(?![」』）〕】》〉”’)\]。！？｡…])"
+)
+CLAUSE = re.compile(r"⟦/?[tx]\d+⟧|\s+|[^\s⟦、，,；;]+[、，,；;]?|[、，,；;]")
 
 
 def split_unit(unit: dict, max_chars: int) -> list[dict]:
     value = unit["text"]
     if len(value) <= max_chars:
         return [dict(unit, part=0, parts=1, original_id=unit["id"])]
-    # Prefer sentence boundaries. Long sentences fall back to word boundaries, never split codes.
-    sentences = re.split(r"(?<=[.!?。！？])(?=\s)", value)
+    # Prefer sentence boundaries, then clauses and words; a run without any (CJK prose) is cut at the
+    # limit. Codes are never split.
+    sentences = SENTENCE_END.split(value)
     pieces: list[str] = []
     current = ""
     for sentence in sentences:
-        atoms = [sentence] if len(sentence) <= max_chars else re.findall(r"⟦/?[tx]\d+⟧|\s+|[^\s⟦]+", sentence)
+        atoms = [sentence] if len(sentence) <= max_chars else CLAUSE.findall(sentence)
         for atom in atoms:
-            if current and len(current) + len(atom) > max_chars:
-                pieces.append(current)
-                current = ""
-            current += atom
+            chunks = (
+                [atom]
+                if len(atom) <= max_chars or MARKER.fullmatch(atom)
+                else [atom[i : i + max_chars] for i in range(0, len(atom), max_chars)]
+            )
+            for chunk in chunks:
+                if current and len(current) + len(chunk) > max_chars:
+                    pieces.append(current)
+                    current = ""
+                current += chunk
     if current:
         pieces.append(current)
     if "".join(pieces) != value:
@@ -305,8 +427,8 @@ def apply_unit(root: etree._Element, unit: dict, translation: str) -> None:
         raise ValueError("Ancre DOM source introuvable ou ambiguë.")
     node = matches[0]
     validate_codes(unit["text"], translation)
-    if unit["kind"] == "block":
-        _, slots = linearize(node)
+    if unit["kind"] in {"block", "run"}:
+        _, slots = linearize(node) if unit["kind"] == "block" else linearize_run(node, unit["run"])
         strings = MARKER.split(translation)
         if len(strings) != len(slots):
             raise ValueError("Nombre de fragments inline incohérent.")

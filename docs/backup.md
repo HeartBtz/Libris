@@ -9,12 +9,14 @@ A deployment only dumps the database just before it migrates, on the production 
 | File | Content |
 | --- | --- |
 | `database.dump` | `pg_dump -Fc` of the whole database, transactionally consistent, taken while Libris keeps running |
-| `books.tar.gz` | the complete `/data` volume (`<project>_books`): original EPUBs, project files, exports |
+| `books.tar.gz` | the complete `/data` volume (`<project>_books`): original EPUBs (`books/`), TXT chapter files and JSON payloads of text volumes (`sources/<project>/`), project files, exports, and `staging/` (files of imports not confirmed yet, removed at confirmation or expiry: harmless but not needed) |
 | `config.env` | only with `LIBRIS_BACKUP_INCLUDE_ENV=true`: a copy of the installation's `.env`. It is left out by default because it holds every secret; without its `SECRET_KEY`, a restore on another host asks for the provider keys again |
 | `backup.info` | date, Compose project, volume, database image, deployed Libris version |
 | `SHA256SUMS` | checksums of the files above |
 
 The database is dumped before the books are archived: a book file written in between is harmless, a database row without its file is not. A backup only counts once both files have been read back entirely (`pg_restore` over the whole dump, `tar -t` over the whole archive); it is written as a hidden `.libris-….partial` directory and renamed at the end, so an interrupted run never looks like a backup. Only then are backups older than `LIBRIS_BACKUP_RETENTION_DAYS` (14 by default) removed: a failing run never deletes the previous ones. Any failure exits non-zero, which marks the systemd unit as failed.
+
+The source files are needed for EPUB exports, previews and project archives: without `books/` and `sources/`, a restored installation still exports text (TXT, Markdown, chapter ZIP) and the Book Bible, but refuses those with an explicit message. A single volume can also be saved on its own as a project archive (version 3, see [architecture](architecture.md#archive-de-projet-version-3)).
 
 The optional Codex bridge state (`codex-state` volume) and an external OpenViking instance are not included; see [installation](installation.md#backups-and-recovery).
 
@@ -43,7 +45,7 @@ A backup that was never restored is a hope, not a backup. Once a month, and afte
 /usr/local/sbin/libris-restore /mnt/libris-backup/ct116/libris-<timestamp>
 ```
 
-The dry run verifies the checksums and the archive and prints every Docker command without starting anything. The real run restores into a separate Compose project, `libris-restore-test` (`LIBRIS_RESTORE_PROJECT`; the production project name is refused), with its own volumes and the API published only on a random loopback port. It uses the deployed application image (`LIBRIS_RESTORE_IMAGE` to choose another) and the backup's `config.env` when present, otherwise the installation's `.env` (`LIBRIS_RESTORE_ENV_FILE` to choose). It starts the database, restores the dump, extracts the books, runs the migrations and the API — never the worker, which would resume the backed-up jobs and call the model providers — then checks `alembic check`, `/health`, and prints the number of users, books, passages and book files. The project and its volumes are removed at the end; `--keep` leaves them for inspection (log in through `docker compose --project-name libris-restore-test port api 8088`). Compare the counts with production and note the date of the test.
+The dry run verifies the checksums and the archive and prints every Docker command without starting anything. The real run restores into a separate Compose project, `libris-restore-test` (`LIBRIS_RESTORE_PROJECT`; the production project name is refused), with its own volumes and the API published only on a random loopback port. It uses the deployed application image (`LIBRIS_RESTORE_IMAGE` to choose another) and the backup's `config.env` when present, otherwise the installation's `.env` (`LIBRIS_RESTORE_ENV_FILE` to choose). It starts the database, restores the dump, extracts the books, runs the migrations and the API — never the worker, which would resume the backed-up jobs and call the model providers — then checks `alembic check`, `/health`, and prints the number of users, books, passages, book files and source files. The project and its volumes are removed at the end; `--keep` leaves them for inspection (log in through `docker compose --project-name libris-restore-test port api 8088`). Compare the counts with production and note the date of the test.
 
 ## Restoring production
 

@@ -205,7 +205,8 @@ def test_project_archive_round_trip_is_faithful(seeded):
         assert exported.status_code == 200
         with zipfile.ZipFile(io.BytesIO(exported.content)) as archive:
             payload = json.loads(archive.read("project.json"))
-        assert payload["schema_version"] == 2
+        assert payload["schema_version"] == 3
+        assert archive.namelist() == ["sources/1.epub", "project.json"]
         assert "secret-fp" not in exported.text and "texte" not in json.dumps(payload["requests"])
         assert client.delete(f"/api/projects/{pid}").status_code == 200
         imported = client.post("/api/projects/import", files={"file": ("p.zip", exported.content)})
@@ -242,8 +243,9 @@ def test_an_archive_from_before_v05_brings_its_checkpoint_lists_back_as_job_stat
         login(client)
         exported = client.get(f"/api/projects/{pid}/export/project")
         with zipfile.ZipFile(io.BytesIO(exported.content)) as archive:
-            original, payload = archive.read("original.epub"), json.loads(archive.read("project.json"))
+            original, payload = archive.read("sources/1.epub"), json.loads(archive.read("project.json"))
         # As exported by v0.4 / early v0.5: no job_state, the same facts as lists in the checkpoint.
+        payload["schema_version"] = 2
         legacy: dict[str, dict] = {}
         for item in payload.pop("job_state"):
             checkpoint = legacy.setdefault(item["job_id"], {})
@@ -330,7 +332,7 @@ def test_version_1_archives_are_still_read(seeded, book_bytes):
         ({"schema_version": 2}, "project"),
         ({"schema_version": 2, "project": {"quality": "extreme"}}, "project.quality"),
         ({"schema_version": 2, "project": {}, "segments": [{"id": "x"}]}, "segments.0.position"),
-        ({"schema_version": 3, "project": {}}, "Version de projet non prise en charge"),
+        ({"schema_version": 4, "project": {}}, "Version de projet non prise en charge"),
         (b"{not json", "JSON"),
     ],
 )

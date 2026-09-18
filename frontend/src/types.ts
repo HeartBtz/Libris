@@ -27,6 +27,8 @@ export interface Project {
   author: string;
   series_name: string;
   volume_number: number | null;
+  /** Where the volume's text came from: an EPUB, TXT chapter files or a JSON payload. */
+  source_format?: "epub" | "txt" | "json";
   archived_at: number | null;
   source_language: string;
   target_language: string;

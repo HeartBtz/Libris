@@ -96,7 +96,8 @@ run "${compose[@]}" exec -T api python -c \
 	"import json, urllib.request; print('Health:', json.load(urllib.request.urlopen('http://127.0.0.1:8088/health', timeout=5)))"
 run "${compose[@]}" exec -T database sh -c \
 	'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Atc "SELECT format(\$\$%s users, %s books, %s passages\$\$, (SELECT count(*) FROM users), (SELECT count(*) FROM projects), (SELECT count(*) FROM segments))"'
-run "${compose[@]}" exec -T api sh -c 'echo "$(find /data/books -type f | wc -l) book files in /data/books"'
+run "${compose[@]}" exec -T api sh -c \
+	'echo "$(find /data/books -type f | wc -l) book files in /data/books, $(find /data/sources -type f 2>/dev/null | wc -l) source files in /data/sources"'
 if [[ "$dry_run" == true ]]; then
 	echo "Dry run: nothing was started."
 elif [[ "$keep" == true ]]; then

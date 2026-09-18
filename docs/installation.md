@@ -22,6 +22,7 @@ Run `python3 scripts/setup.py` in the repository root. It generates independent 
 | `MAX_UPLOAD_MB`, `MAX_UNPACKED_MB`, `MAX_ENTRIES` | Largest EPUB or project archive accepted (`60`), its unpacked size (`300`) and file count (`5000`). A project archive that would exceed them is refused at export, with the setting to raise |
 | `IMPORT_MAX_FILES`, `IMPORT_MAX_SESSION_MB`, `IMPORT_SESSION_HOURS` | Guided import: files per import (`500`), total size of one import (`2048`), and how long uploaded files wait for confirmation under `DATA_DIR/staging` (`24`) |
 | `TEXT_CHAPTER_MAX_CHARS` | Longest TXT or JSON chapter accepted, in characters after decoding; `2000000` |
+| `API_MAX_PAYLOAD_MB`, `API_MAX_CHAPTERS`, `API_RATE_LIMIT_PER_MINUTE` | Automation API (`/api/v1`, see [the API reference](api.md)): largest JSON request accepted with a Bearer token (defaults to `MAX_UPLOAD_MB`), chapters per request (`2000`) and calls per token and per minute in each API process (`120`, `0` disables the limit) |
 | `MAX_COMPRESSION_RATIO`                    | Whole-archive compression ratio above which an EPUB of more than 8 MiB unpacked is refused as a possible zip bomb; `100` |
 | `EVENT_STREAMS_PER_USER`, `EVENT_STREAMS_TOTAL` | Live progress connections held open at once per account (`4`) and per API process (`100`); beyond them the API answers 429 |
 | `PREVIEW_CACHE_MB`                         | Memory kept for the unpacked books of recent chapter previews; `64`, `0` disables the cache |

@@ -159,6 +159,15 @@ Les métriques distinguent le cache, les tentatives, les tokens rapportés par l
 
 C’est un ordre de grandeur : les contrôles de cohérence (qualité haute et maximum) sont comptés à un appel par terme ou personnage connu, et l’option de contexte approfondi (`deep`) n’est pas incluse. Les traces complètes de prompts/réponses sont privées au projet ; les logs de service ne contiennent pas le livre.
 
+## API d’automatisation
+
+Un script ou un autre serveur peut envoyer des chapitres à traduire et récupérer le résultat sans passer par l’interface, via l’API versionnée `/api/v1` (référence complète en anglais, avec exemples curl : [docs/api.md](api.md)).
+
+- **Jetons** : *Mon compte* (ou *Paramètres › API d’automatisation*) › *Créer un jeton*. Choisissez un nom, les permissions (`series:read`, `content:write`, `pipeline:start`, `jobs:read`, `jobs:control`, `results:read`) et une expiration. Le secret (`lbr_…`) n’est affiché qu’une fois : copiez-le dans le gestionnaire de secrets du client. Libris n’en garde que l’empreinte SHA-256 ; la création et la révocation sont journalisées. Un jeton ne voit que les séries et requêtes de son propriétaire, et ne permet pas d’utiliser l’interface ; la session de l’interface n’ouvre pas `/api/v1`.
+- **Envoi** : `POST /api/v1/translation-requests` avec `Authorization: Bearer <jeton>`, un JSON (ou un fichier `.json`) qui décrit la série, le volume, les langues (BCP 47), les chapitres (numéro, identifiant externe, titre, texte) et les options du pipeline. Tout est enregistré avant la réponse `202` ; l’en-tête `Idempotency-Key` ou le même `external_id` renvoie la même requête sans rien dupliquer (409 si le contenu diffère). Un chapitre déjà importé avec un autre texte est refusé sauf `replace_changed_chapters: true`.
+- **Suivi et résultat** : la traduction tourne dans le worker ; si un travail occupe déjà le volume, la requête attend (`queued`) et démarre ensuite, même après un redémarrage. `GET …/{id}` donne l’état, l’étape et la progression ; `…/pause`, `…/resume`, `…/cancel` pilotent le travail ; `…/result?format=json|txt|txt-zip` rend la traduction des chapitres de la requête (409 tant qu’elle n’est pas terminée, sauf `partial=true`).
+- **Limites** : taille (`API_MAX_PAYLOAD_MB`), nombre de chapitres (`API_MAX_CHAPTERS`) et débit par jeton (`API_RATE_LIMIT_PER_MINUTE`, compté par processus de l’API). Il n’y a volontairement pas de webhook : le client interroge l’état.
+
 ## Tests et développement
 
 ```bash

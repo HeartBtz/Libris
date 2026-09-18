@@ -10,8 +10,9 @@ from app.models import Job, Project
 PIPELINE = {"continue_pipeline": True, "automatic_recovery": True, "full_review": True}
 
 
-def launch(db: Session, project: Project, mode: str) -> tuple[Job | None, str]:
-    """`mode` is "analyze" or "pipeline". Returns the job, or none and why nothing was started."""
+def launch(db: Session, project: Project, mode: str, options: dict | None = None) -> tuple[Job | None, str]:
+    """`mode` is "analyze" or "pipeline"; `options` are added to the new job's (e.g. `final_review`).
+    Returns the job, or none and why nothing was started."""
     if project.archived_at is not None:
         return None, f"« {project.title} » est archivé : aucun travail lancé."
     if not project.provider_id:
@@ -19,4 +20,5 @@ def launch(db: Session, project: Project, mode: str) -> tuple[Job | None, str]:
     held = db.scalar(select(Job).where(Job.project_id == project.id, Job.status.in_(HELD)))
     if held:
         return held, ""
-    return enqueue(db, project, "analyze", dict(PIPELINE) if mode == "pipeline" else {}), ""
+    base = dict(PIPELINE) if mode == "pipeline" else {}
+    return enqueue(db, project, "analyze", {**base, **(options or {})}), ""

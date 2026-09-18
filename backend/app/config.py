@@ -23,6 +23,11 @@ class Settings(BaseSettings):
     import_session_hours: int = Field(default=24, ge=1, le=24 * 30)
     # Characters of one text chapter (TXT file or JSON chapter), after decoding.
     text_chapter_max_chars: int = Field(default=2_000_000, ge=1000, le=50_000_000)
+    # Automation API (/api/v1): JSON body of one request (empty: MAX_UPLOAD_MB), chapters per request,
+    # and calls per token and per minute in each API process (0: no limit).
+    api_max_payload_mb: int | None = Field(default=None, ge=1, le=4096)
+    api_max_chapters: int = Field(default=2000, ge=1, le=100_000)
+    api_rate_limit_per_minute: int = Field(default=120, ge=0, le=100_000)
     max_unpacked_mb: int = 300
     max_entries: int = 5000
     # Whole-archive compression ratio above which an EPUB is refused as a possible zip bomb.
@@ -60,6 +65,10 @@ class Settings(BaseSettings):
     retention_job_state_days: int = Field(default=30, ge=0)
     # Empty: GET /metrics does not exist. Set: Prometheus must send it as a Bearer token.
     metrics_token: str = ""
+
+    @property
+    def api_payload_mb(self) -> int:
+        return self.api_max_payload_mb or self.max_upload_mb
 
     def prepare(self) -> None:
         for name in ("books", "projects", "exports", "sources", "staging"):

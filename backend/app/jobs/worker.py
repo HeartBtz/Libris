@@ -347,6 +347,22 @@ async def memory_pump(stopped: asyncio.Event) -> None:
             pass
 
 
+REQUEST_INTERVAL = 2
+
+
+async def request_dispatcher(stopped: asyncio.Event, interval: float = REQUEST_INTERVAL) -> None:
+    """Starts queued automation requests once their volume is free; everything it needs is in SQL."""
+    from app.jobs.requests import dispatch
+
+    while not stopped.is_set():
+        try:
+            await asyncio.to_thread(dispatch)
+        except SQLAlchemyError as exc:
+            logger.warning("operation=request_dispatch status=deferred reason=%s", type(exc).__name__)
+        with contextlib.suppress(TimeoutError):
+            await asyncio.wait_for(stopped.wait(), timeout=interval)
+
+
 RETENTION_INTERVAL = 3600
 
 
@@ -377,6 +393,7 @@ async def main() -> None:
         provider_dispatcher(stopped),
         worker_slot(stopped, ("sync_memory",)),
         retention_loop(stopped),
+        request_dispatcher(stopped),
     )
 
 

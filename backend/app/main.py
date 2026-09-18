@@ -14,9 +14,11 @@ from app import __version__, throttle
 from app.api import (
     characters,
     coverage,
+    estimates,
     exports,
     identity,
     memory,
+    monitoring,
     observability,
     projects,
     providers,
@@ -141,6 +143,8 @@ async def unexpected(_request: Request, exc: Exception):
 
 for module in (identity, providers, recovery, exports, projects, segments, memory, observability, characters, coverage):
     app.include_router(module.router)
+app.include_router(estimates.router)
+app.include_router(monitoring.router)
 
 
 @app.get("/health")

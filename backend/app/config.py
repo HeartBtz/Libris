@@ -40,12 +40,16 @@ class Settings(BaseSettings):
     retention_events_days: int = Field(default=7, ge=0)
     retention_outbox_sent_days: int = Field(default=7, ge=0)
     retention_bible_revisions: int = Field(default=20, ge=0)
+    # Empty: GET /metrics does not exist. Set: Prometheus must send it as a Bearer token.
+    metrics_token: str = ""
 
     def prepare(self) -> None:
         for name in ("books", "projects", "exports"):
             (self.data_dir / name).mkdir(parents=True, exist_ok=True)
         if len(self.secret_key) < 32:
             raise RuntimeError("SECRET_KEY doit contenir au moins 32 caractères (voir .env.example).")
+        if self.metrics_token and len(self.metrics_token) < 24:
+            raise RuntimeError("METRICS_TOKEN doit contenir au moins 24 caractères, ou rester vide.")
 
 
 @lru_cache

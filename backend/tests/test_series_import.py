@@ -261,3 +261,34 @@ def test_another_owner_cannot_see_or_import_into_a_series(client):
     with SessionLocal() as db:
         assert db.scalar(select(Series).where(Series.id == series_id)).name == "Web Novel"
         assert len(db.scalars(select(Series)).all()) == 2
+
+
+async def test_files_uploaded_at_once_are_all_kept():
+    import asyncio
+
+    import httpx
+
+    with SessionLocal() as db:
+        db.add(User(username="fast", password_hash=password_hash(PASSWORD), admin=True))
+        db.commit()
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        await client.post("/api/auth/login", json={"username": "fast", "password": PASSWORD})
+        session = (await client.post("/api/imports", json={"format": "txt"})).json()
+        responses = await asyncio.gather(*(
+            client.post(f"/api/imports/{session['id']}/files", files={"file": chapter(n)}) for n in range(1, 9)
+        ))
+        assert all(r.status_code == 201 for r in responses)
+        files = (await client.get(f"/api/imports/{session['id']}")).json()["files"]
+    assert sorted(item["index"] for item in files) == list(range(8))
+
+
+def test_a_text_volume_cannot_leave_its_series(client):
+    _, response = commit_txt(client, [chapter(1)], target={"mode": "new_volume", "volume_number": 1})
+    project_id = response.json()["projects"][0]["id"]
+    project = client.get(f"/api/projects/{project_id}").json()
+    settings = {k: project[k] for k in ("title", "author", "volume_number", "source_language", "target_language",
+                                        "provider_id", "quality", "context_backend", "instructions")}
+    assert client.put(f"/api/projects/{project_id}", json={**settings, "series_name": ""}).status_code == 409
+    batch = {"project_ids": [project_id], "mode": "clear"}
+    assert client.put("/api/projects/batch/series", json=batch).status_code == 409

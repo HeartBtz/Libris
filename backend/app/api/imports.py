@@ -6,6 +6,7 @@ Repeating a commit answers what the first one did; a file already in the library
 imported twice.
 """
 
+import asyncio
 import hashlib
 import shutil
 import time
@@ -52,6 +53,7 @@ from app.schemas import StrictModel
 from app.security import DB, CurrentUser
 
 router = APIRouter(prefix="/api/imports")
+staging_locks: dict[str, asyncio.Lock] = {}
 LOCALIZED = {"warnings", "errors", "reason", "number_reason", "message", "series_reason"}
 
 
@@ -77,7 +79,8 @@ def staging_dir(session: ImportSession):
 def owned_session(db, session_id: str, user, lock: bool = False) -> ImportSession:
     query = select(ImportSession).where(ImportSession.id == session_id)
     if lock:
-        query = query.with_for_update()
+        # Re-read the row: an earlier read in this request must not hide another request's upload.
+        query = query.with_for_update().execution_options(populate_existing=True)
     session = db.scalar(query)
     if not session or session.owner_id != user.id:
         raise HTTPException(404, "Import introuvable ou expiré.")
@@ -139,6 +142,16 @@ async def add_file(session_id: str, file: UploadFile, request: Request, user: Cu
         raise HTTPException(422, f"Ce fichier n’est pas un {session.format.upper()} : « {name} ».")
     inspection = await run_in_threadpool(inspect_file, session.format, name, data)
     sha256 = hashlib.sha256(data).hexdigest()
+    # Browsers upload several files at once: the list is rewritten under a lock, or an upload is lost
+    # (SQLite has no row lock; PostgreSQL also locks the row below).
+    async with staging_locks.setdefault(session_id, asyncio.Lock()):
+        return await run_in_threadpool(
+            record_file, db, session_id, user, name, data, sha256, inspection, request
+        )
+
+
+def record_file(db, session_id, user, name, data, sha256, inspection, request) -> dict:
+    limits = settings()
     session = owned_session(db, session_id, user, lock=True)
     files = list(session.files)
     if len(files) >= limits.import_max_files:

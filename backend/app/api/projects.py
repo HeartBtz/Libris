@@ -193,8 +193,8 @@ def configure_series(body: SeriesBatchInput, user: CurrentUser, db: DB):
                 check_series_access(db, project, user, series_name)
     touched = {project.series_id for project in projects}
     for offset, project in enumerate(projects):
-        if project.project_kind == "serial" and body.mode == "clear":
-            raise HTTPException(409, "Les chapitres d’une webnovel appartiennent obligatoirement à leur série.")
+        if body.mode == "clear" and (project.project_kind == "serial" or project.source_format != "epub"):
+            raise HTTPException(409, "Des chapitres TXT ou JSON appartiennent obligatoirement à une série.")
         series = None if body.mode == "clear" else get_or_create_series(db, project.owner_id, series_name)
         attach(project, series)
         touched.add(project.series_id)
@@ -244,8 +244,8 @@ def configure(project_id: str, body: ProjectConfig, user: CurrentUser, db: DB):
         raise HTTPException(422, "Provider inconnu.")
     if "series_name" in changed:
         check_series_access(db, project, user, body.series_name)
-        if project.project_kind == "serial":
-            raise HTTPException(409, "Les chapitres d’une webnovel appartiennent obligatoirement à leur série.")
+        if project.project_kind == "serial" or (project.source_format != "epub" and not body.series_name.strip()):
+            raise HTTPException(409, "Des chapitres TXT ou JSON appartiennent obligatoirement à une série.")
     previous_series = project.series_id
     for key, value in values.items():
         if key != "series_name":

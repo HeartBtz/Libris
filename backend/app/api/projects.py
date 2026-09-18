@@ -340,7 +340,8 @@ def restore(project_id: str, user: CurrentUser, db: DB):
 def chapters(project_id: str, user: CurrentUser, db: DB):
     access(db, project_id, user)
     return [
-        row(c)
+        # The layout of a text chapter is only needed to export it; it can be long.
+        {**row(c, ("import_meta",)), "import_meta": {k: v for k, v in c.import_meta.items() if k != "layout"}}
         for c in db.scalars(
             select(Chapter).where(Chapter.project_id == project_id).order_by(Chapter.position)
         )

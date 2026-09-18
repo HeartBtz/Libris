@@ -14,12 +14,12 @@ test("real PostgreSQL account and recovery workflow", async ({ page }) => {
   await page.getByLabel("Password", { exact: true }).fill("test-password-123456789");
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
   await page.getByRole("link", { name: "Settings", exact: true }).click();
-  await page.getByRole("button", { name: "Automatic recovery", exact: true }).click();
+  await page.getByRole("tab", { name: "Automatic recovery", exact: true }).click();
   await page.getByLabel("Retry delay (seconds)").fill("30");
   await page.getByRole("button", { name: "Save retry delay" }).click();
   await expect(page.getByRole("status")).toContainText("Delay saved");
   expect((await (await page.request.get(`${base}/api/settings/recovery`)).json()).retry_seconds).toBe(30);
-  await page.getByRole("button", { name: "Users", exact: true }).click();
+  await page.getByRole("tab", { name: "Users", exact: true }).click();
   await page.getByLabel("User", { exact: true }).fill("integration-reader");
   await page.getByLabel("Initial password", { exact: true }).fill("integration-password-123");
   await page.getByRole("button", { name: "Create account", exact: true }).click();
@@ -29,7 +29,8 @@ test("real PostgreSQL account and recovery workflow", async ({ page }) => {
   await expect(page.getByRole("status")).toContainText("Account saved");
   const accounts = await (await page.request.get(`${base}/api/users`)).json();
   expect(accounts.find((u: { username: string }) => u.username === "integration-reader").active).toBe(false);
-  await page.getByRole("link", { name: /My account/ }).click();
+  await page.getByRole("button", { name: /Account menu/ }).click();
+  await page.getByRole("menuitem", { name: "My account" }).click();
   await expect(page.getByRole("heading", { name: "Active sessions" })).toBeVisible();
   expect(errors).toEqual([]);
 });

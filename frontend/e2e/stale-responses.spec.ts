@@ -99,7 +99,7 @@ test("a slow answer for the previous chapter never replaces the current one", as
     `${process.env.SHOWCASE_URL || "http://127.0.0.1:4173"}/#project/demo`,
   );
   await page
-    .locator(".chapter-list")
+    .getByRole("navigation", { name: "Book sections" })
     .getByRole("button", { name: /Chapter second/ })
     .click();
   await expect(

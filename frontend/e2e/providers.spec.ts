@@ -47,6 +47,6 @@ test("an Anthropic provider can be created from the settings", async ({
     api_key: "sk-ant-test",
   });
   // A new provider form never inherits the key typed for the previous one.
-  await page.getByRole("button", { name: "+ New provider" }).click();
+  await page.getByRole("button", { name: "New provider" }).click();
   await expect(page.getByLabel("API key", { exact: true })).toHaveValue("");
 });

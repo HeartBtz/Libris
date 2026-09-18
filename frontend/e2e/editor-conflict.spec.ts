@@ -124,7 +124,7 @@ test("an edit conflict can be resolved from the editor", async ({ page }) => {
   server.text = "Version du travail en cours.";
   await page.getByRole("button", { name: "Refresh book data" }).click();
   await expect(
-    row.getByText("A new version of this segment arrived"),
+    row.getByText("A new version of this passage arrived"),
   ).toBeVisible();
   await expect(box).toHaveValue("Ma correction.");
 
@@ -148,6 +148,6 @@ test("an edit conflict can be resolved from the editor", async ({ page }) => {
   await row.getByRole("button", { name: "Reload the server version" }).click();
   await expect(box).toHaveValue("Version finale du serveur.");
   await expect(
-    row.getByText("A new version of this segment arrived"),
+    row.getByText("A new version of this passage arrived"),
   ).toHaveCount(0);
 });

@@ -18,7 +18,14 @@ from starlette.background import BackgroundTask
 from starlette.concurrency import run_in_threadpool
 
 from app.api.common import row
-from app.api.project_archive import build_archive, read_archive, restore_archive
+from app.api.project_archive import (
+    LEGACY_EPUB,
+    build_archive,
+    read_archive,
+    restore_archive,
+    restore_series,
+    restore_text_volume,
+)
 from app.api.projects import discard_book_file, import_book
 from app.config import settings
 from app.engines.epub import inspect_archive, rebuild
@@ -35,7 +42,7 @@ from app.engines.exports.text import (
     volume_texts,
     write_chapters,
 )
-from app.engines.ingestion.store import primary_asset, read_asset
+from app.engines.ingestion.store import Files, primary_asset, read_asset
 from app.engines.memory.identities import canonical_bible
 from app.models import Chapter, Segment
 from app.schemas import BatchExportInput, TextBatchExportInput
@@ -231,7 +238,7 @@ def export(
         )
     elif format == "project":
         content, mime, filename = (
-            build_archive(db, project, original_bytes(db, project)),
+            build_archive(db, project, original_bytes(db, project) if project.source_format == "epub" else None),
             "application/zip",
             "translation-project.zip",
         )
@@ -287,15 +294,36 @@ async def restore_project(file: UploadFile, user: CurrentUser, db: DB):
 
 
 def restore_from_archive(db, owner_id: str, data: bytes):
-    original, archive = read_archive(data)
-    # Reparse the original; never trust imported paths, owners, permissions, providers or DOM anchors.
-    # An archive made before segmentation 2 must be cut as it was, or its passages would not match.
-    project = import_book(db, owner_id, original, archive.project.book_info.get("segmentation", 1))
+    files, archive = read_archive(data)
+    # Never trust imported paths, owners, permissions, providers or DOM anchors: the sources are cut
+    # again here and the saved passages must match them.
+    series = restore_series(db, owner_id, archive)
+    written = Files()
+    project = None
     try:
+        legacy = archive.schema_version < 3
+        if legacy or archive.project.source_format == "epub":
+            source = None if legacy else next(item for item in archive.sources if item.format == "epub")
+            # An archive made before segmentation 2 must be cut as it was, or its passages would not match.
+            project = import_book(
+                db,
+                owner_id,
+                files[source.file] if source else files[LEGACY_EPUB],
+                archive.project.book_info.get("segmentation", 1),
+                name=source.original_name if source else "book.epub",
+                series=series,
+                volume_number=archive.project.volume_number,
+                files=written,
+            )
+        else:
+            project = restore_text_volume(db, owner_id, archive, files, series, written)
+        project.provider_id = None
         restore_archive(db, project, archive)
         db.commit()
     except BaseException:
-        discard_book_file(project)
+        written.discard()
+        if project is not None:
+            discard_book_file(project)
         raise
     return project
 

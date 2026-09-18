@@ -250,6 +250,13 @@ MESSAGES = {
     "Indiquez le numéro du nouveau volume.": "Enter the number of the new volume.",
     "Des chapitres TXT appartiennent obligatoirement à une série : choisissez-la ou créez-la.": "TXT chapters must belong to a series: choose it or create it.",
     "Aucun chapitre à importer.": "No chapter to import.",
+    "Archive projet invalide : fichier inattendu ou en double.": "Invalid project archive: unexpected or duplicated file.",
+    "Archive projet invalide : fichier inattendu ou manquant.": "Invalid project archive: unexpected or missing file.",
+    "Archive de projet altérée : un fichier source ne correspond pas à son empreinte.": "Altered project archive: a source file does not match its checksum.",
+    "Archive projet invalide : sources incohérentes avec le format du volume.": "Invalid project archive: sources inconsistent with the volume format.",
+    "Archive de projet invalide : des chapitres en feuilleton appartiennent à une série.": "Invalid project archive: serialized chapters belong to a series.",
+    "Structure du projet incompatible avec ses fichiers sources.": "Project structure incompatible with its source files.",
+    "Le texte source du projet ne correspond pas à ses fichiers sources.": "The project's source text does not match its source files.",
 }  # fmt: skip
 
 TEMPLATES = {
@@ -306,6 +313,11 @@ TEMPLATES = {
     "« {title} » est archivé : aucun travail lancé.": "“{title}” is archived: no job started.",
     "Aucun provider pour « {title} » : choisissez-en un, puis lancez l’analyse.": "No provider for “{title}”: choose one, then start the analysis.",
     "« {title} » a été importé depuis des fichiers texte, pas depuis un EPUB : exportez-le en TXT, en ZIP de chapitres ou en Markdown.": "“{title}” was imported from text files, not from an EPUB: export it as TXT, as a ZIP of chapters or as Markdown.",
+    "Des fichiers sources de « {title} » sont introuvables sur le serveur : l’archive de projet est indisponible. Les exports texte restent possibles ; restaurez le dossier des sources (DATA_DIR/sources) pour la retrouver.": "Some source files of “{title}” cannot be found on the server: the project archive is unavailable. Text exports remain possible; restore the sources folder (DATA_DIR/sources) to get it back.",
+    "Archive de projet trop volumineuse pour être réimportée : {count} fichiers pour {limit} autorisés (MAX_ENTRIES). Augmentez ce réglage sur les serveurs d’export et de restauration.": "Project archive too large to be imported back: {count} files for {limit} allowed (MAX_ENTRIES). Raise this setting on the exporting and restoring servers.",
+    "La série « {name} » a déjà ses chapitres en feuilleton : cette archive ne peut pas y être restaurée.": "The series “{name}” already has its serialized chapters: this archive cannot be restored into it.",
+    "La série « {name} » contient déjà le volume d’identifiant « {id} ».": "The series “{name}” already contains the volume with identifier “{id}”.",
+    "Le texte source du chapitre « {title} » est illisible : {error}": "The source text of chapter “{title}” cannot be read: {error}",
 }  # fmt: skip
 
 

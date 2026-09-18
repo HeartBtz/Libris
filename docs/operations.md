@@ -74,13 +74,13 @@ Les documents globaux sont séparés du retrieval narratif, limité aux événem
 
 ## Archive de projet
 
-**Exporter → Archive de projet** produit `translation-project.zip` : l’EPUB original et `project.json` (format `schema_version: 2`). Elle sert de sauvegarde d’un livre ou à le déplacer vers une autre instance ; **Restaurer** (import d’archive) recrée un nouveau projet.
+**Exporter → Projet complet (.zip)** produit `translation-project.zip` : les fichiers sources du volume (EPUB, chapitres TXT ou payload JSON, sous `sources/`) et `project.json` (format `schema_version: 3`, voir [architecture](architecture.md#archive-de-projet-version-3)). Elle sert de sauvegarde d’un volume ou à le déplacer vers une autre instance ; **Restaurer** (import d’archive) recrée un nouveau projet, rattaché à la série du même nom de la personne qui restaure (créée au besoin).
 
 L’archive conserve tout ce qui fait le travail sur le livre : configuration (titre, série et tome, langues, qualité, source mémoire, instructions globales), consignes par chapitre et par passage, traductions avec leur statut (validé, à vérifier, refusé, original conservé), étape, critiques et incertitudes, historique complet des versions (sans doublon), glossaire, Book Bible et ses révisions, personnages, fusions et liens, mémoires, problèmes qualité, travaux avec leurs checkpoints (dont les résultats de la revue finale) et les chiffres des requêtes LLM (opération, modèle, tokens, durée, coût, statut).
 
 Ne sont **pas** restaurés, par sécurité : le propriétaire (la personne qui restaure devient propriétaire), les membres et leurs droits (à repartager), le provider (à choisir parmi ceux du serveur ; les travaux qui en épinglaient un reprennent sur celui du livre), les prompts et réponses complets des requêtes, les événements de progression et la file d’envoi OpenViking. Un travail qui était en cours revient **en pause** : rien ne repart ni n’est facturé sans action. Un livre archivé revient actif.
 
-L’archive est validée avant toute écriture : une archive incomplète ou altérée est refusée (422) en nommant les champs fautifs, et une archive dont le texte source ne correspond pas à son EPUB est refusée sans laisser de livre partiel. Les archives de l’ancien format (`schema_version: 1`) restent lisibles. L’export refuse une archive que l’import ne pourrait pas relire (`MAX_UPLOAD_MB`, `MAX_UNPACKED_MB`) ; le message indique le réglage à augmenter sur les deux serveurs.
+L’archive est validée avant toute écriture : une archive incomplète ou altérée est refusée (422) en nommant les champs fautifs, et une archive dont le texte source ne correspond pas à son EPUB ou à ses fichiers texte est refusée sans laisser de livre partiel. Les archives des anciens formats (`schema_version: 1` et `2`) restent lisibles. L’export refuse une archive que l’import ne pourrait pas relire (`MAX_UPLOAD_MB`, `MAX_UNPACKED_MB`) ; le message indique le réglage à augmenter sur les deux serveurs.
 
 ## Limites de charge
 

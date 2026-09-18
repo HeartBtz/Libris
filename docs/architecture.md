@@ -93,6 +93,33 @@ Pour OpenViking : `target_uri` borne la recherche ; une seconde barrière compar
 
 L’état narratif n’est pas assimilé à la connaissance éditoriale du roman. Les fiches et la Book Bible issues d’une lecture globale sont marquées éditoriales ; elles ne doivent pas conduire à dévoiler une ambiguïté dans le texte traduit.
 
+## Exports et archives multiformat
+
+Un volume vient d’un EPUB, de fichiers TXT (un par chapitre) ou d’un payload JSON ; ses fichiers sources sont des lignes `SourceAsset` (`storage_path` relatif à `DATA_DIR` : `books/<projet>.epub`, `sources/<projet>/<asset>.<ext>`). `Project.original_path`/`original_hash` ne restent renseignés que pour les EPUB, et l’EPUB d’origine est lu par sa ligne `SourceAsset` puis, pour les livres antérieurs à 0.6, par ces anciens champs et `DATA_DIR/books/<id>.epub`.
+
+`GET /api/projects/{pid}/export/{format}` :
+
+| Format | Source | Contenu |
+|---|---|---|
+| `epub` | EPUB seulement (409 explicite pour TXT/JSON) | EPUB reconstruit depuis l’original, validé par EPUBCheck |
+| `txt` | toutes | un fichier : titre du volume, puis chaque chapitre sous son titre, chapitres séparés par deux lignes vides |
+| `txt-zip` | toutes | `chapters/NNN - Titre.txt` (UTF-8, ordre de lecture, numéros complétés de zéros, noms nettoyés et uniques) + `manifest.json` (SHA-256 de chaque fichier, chapitres incomplets) ; `consolidated=true` ajoute le fichier unique |
+| `md` | toutes | `# Volume`, puis `## Chapitre` au-dessus de chaque chapitre |
+| `bible`, `project` | toutes | Book Bible JSON ; archive de projet (ci-dessous) |
+
+`allow_source=true` exporte une traduction inachevée (originaux conservés) en EPUB comme en texte ; sans lui, un export texte incomplet répond 409. `POST /api/exports/text {project_ids, allow_source, consolidated}` exporte plusieurs volumes (une série) : un dossier `NN - Titre/` par volume avec ses chapitres et son manifeste. Le rendu texte (`engines/exports/text.py`) suit `Chapter.import_meta["layout"]` pour TXT/JSON (lignes, lignes vides, indentation, séparateurs de scène) et donne un paragraphe par unité pour un EPUB, sans `<title>` ni attributs ; le titre d’un chapitre EPUB est la traduction de l’unité d’où il a été lu. Aucun marqueur `⟦…⟧` n’est écrit. L’aperçu d’un chapitre TXT/JSON est un HTML simple construit depuis le layout, texte échappé, même CSP que l’aperçu EPUB, sans lire d’EPUB.
+
+### Archive de projet, version 3
+
+`translation-project.zip` contient `project.json` et les fichiers sources sous des noms fixés par Libris : `sources/<n>.epub|txt|json` (toutes les `SourceAsset` du volume) et, pour les chapitres JSON, `texts/<n>.txt`. `project.json` (`schema_version: 3`) ajoute aux données de la version 2 :
+
+- `series` : `{name, kind, authors}` ; le projet garde `series_name`, `volume_number`, `source_format`, `project_kind`, `external_id`, `import_meta` ;
+- `sources` : `{file, format, original_name, media_type, sha256, meta}` ;
+- par chapitre : `asset` (fichier source), `external_id`, `chapter_number`, `source_checksum`, `import_meta` (layout), `context_stale`, et pour TXT/JSON `text_source {file, title, first_line_title}` : le fichier à redécouper et les options d’import qui redonnent les mêmes unités (texte source reconstruit depuis les unités et le layout pour JSON, dont le payload n’est pas un texte de chapitre) ;
+- glossaire avec `series_override`.
+
+Restauration (`POST /api/projects/import`) : seuls `project.json`, `original.epub` (versions 1 et 2) et les noms `sources/…`, `texts/…` ci-dessus sont admis, aucun n’est utilisé comme chemin ; nombre d’entrées (`MAX_ENTRIES`), tailles déclarées (`MAX_UNPACKED_MB`), ratio de compression, lecture bornée par la taille déclarée, empreintes SHA-256 et cohérence sources/chapitres sont vérifiés avant toute écriture. Un EPUB est réimporté par `import_book` (découpe de l’archive) ; un volume TXT/JSON est recréé par `TxtAdapter`/`text_chapter` avec les `resource` enregistrées, donc les mêmes identifiants d’unités, puis chaque passage doit avoir le même texte source que dans l’archive, sinon refus. Tout est fait dans une transaction, fichiers retirés en cas d’échec. La personne qui restaure devient propriétaire, la série est retrouvée ou créée par nom normalisé parmi les siennes (`get_or_create_series`), un second conteneur de feuilleton ou un `external_id` de volume déjà pris dans la série sont refusés (409), aucun provider n’est restauré. `NOT_ARCHIVED` liste les colonnes volontairement absentes ; un test échoue si une nouvelle colonne n’est ni archivée ni listée.
+
 ## Sécurité
 
 - Pas d’extraction ZIP sur des chemins choisis par le livre ; contrôle des chemins, doublons, symlinks, tailles et ratios.

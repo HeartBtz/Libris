@@ -24,7 +24,7 @@ Le compte initial est créé seulement lorsque la base ne contient aucun utilisa
 
 ### Stockage
 
-- Volume `books` monté sur `/data` : `/data/books` (originaux), `/data/projects`, `/data/exports`.
+- Volume `books` monté sur `/data` : `/data/books` (EPUB originaux), `/data/sources` (chapitres TXT et payloads JSON), `/data/staging` (fichiers d’imports non confirmés, temporaires), `/data/projects`, `/data/exports`.
 - Volume `database` : données PostgreSQL, textes, traductions, versions, mémoire, paramètres chiffrés, jobs et traces.
 - `.env` : clé de chiffrement de l’application et identifiants de déploiement.
 
@@ -41,7 +41,20 @@ Pour les commandes par lot, les deux progressions, les interruptions, les refus 
 5. Examiner et corriger la **Book Bible**, les personnages et les propositions de glossaire. Les entrées proposées ne sont pas acceptées automatiquement par défaut. Le glossaire s’exporte et s’importe en JSON, CSV ou TBX (format d’échange des outils de traduction). L’import reconnaît le format au contenu, accepte les CSV de tableur (séparateur `;` ou `,`, en-têtes français ou anglais comme « Terme source ; Traduction ») et ne remplace jamais un terme déjà présent. En TBX, un terme verrouillé est « preferred », un terme accepté « admitted » et une proposition non acceptée « deprecated ».
 6. **Traduire**. Le suivi se reconnecte automatiquement. Pause, reprise et retry conservent les traductions enregistrées.
 7. Comparer, corriger et valider dans l’éditeur (`Ctrl`/`⌘`+`S` enregistre, `Ctrl`/`⌘`+`Entrée` valide). Le texte source affiche la mise en forme du livre ; dans la traduction, les repères `⟦t0⟧…⟦/t0⟧` apparaissent en marques discrètes (‹ ouvre une mise en forme, › la ferme, un petit carré signale une image ou une note ; le survol les nomme) et doivent rester en place : leur suppression est signalée puis refusée par le serveur. Quitter un onglet ou la page avec une traduction non enregistrée demande confirmation.
-8. Exporter en EPUB, TXT, Markdown, Book Bible (JSON) ou archive de projet. L’export EPUB complet est refusé si du texte manque ou si EPUBCheck signale une non-conformité. L’archive de projet est une sauvegarde complète du travail (statuts, validations, historique, critiques, glossaire, personnages, travaux) ; les membres, le provider et le propriétaire ne sont pas restaurés — voir [Archive de projet](operations.md#archive-de-projet).
+8. Exporter depuis le menu **Exporter** du volume (voir [Exports](#exports)). L’archive de projet est une sauvegarde complète du travail (statuts, validations, historique, critiques, glossaire, personnages, travaux) ; les membres, le provider et le propriétaire ne sont pas restaurés — voir [Archive de projet](operations.md#archive-de-projet).
+
+### Exports
+
+Le menu **Exporter** propose les formats adaptés à la source du volume :
+
+- **Volume EPUB** : EPUB traduit, Texte, Markdown, Book Bible JSON, Projet complet (.zip), et **EPUB partiel · originaux conservés**.
+- **Volume TXT ou JSON** : **Chapitres (.zip, un fichier par chapitre)**, **Texte consolidé (.txt)**, Markdown, Book Bible JSON, Projet complet (.zip). L’export EPUB n’existe pas pour ces volumes.
+
+Le ZIP de chapitres contient un fichier UTF-8 par chapitre (`chapters/001 - Titre.txt`, dans l’ordre de lecture, numéros complétés de zéros) et `manifest.json` (titre, série, numéro de volume, langues, et pour chaque chapitre son numéro, son titre, son empreinte SHA-256 et s’il est complet). Chaque fichier garde la mise en page de la source : paragraphes, lignes, lignes vides, indentation, séparateurs de scène ; aucun repère interne de Libris n’y figure. Le texte consolidé réunit tous les chapitres sous leur titre ; le Markdown met un titre `##` au-dessus de chaque chapitre. L’export texte d’un EPUB respecte aussi les chapitres et leurs titres traduits.
+
+**Options d’export…** permet de choisir le format et deux options : **Compléter avec le texte original** (les passages non traduits gardent leur texte source ; le manifeste signale les chapitres incomplets) et, pour le ZIP, **Ajouter le texte consolidé au ZIP**. Sans la première option, un export texte ou EPUB d’une traduction incomplète est refusé ; l’export EPUB complet est aussi refusé si EPUBCheck signale une non-conformité.
+
+L’API permet en plus d’exporter plusieurs volumes d’une série en un seul ZIP (`POST /api/exports/text`, un dossier par volume). L’aperçu d’un chapitre TXT ou JSON est une mise en page simple de son texte.
 
 ### Écrans du livre
 

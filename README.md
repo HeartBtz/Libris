@@ -114,7 +114,7 @@ cd Libris
 ./scripts/install-docker.sh
 ```
 
-It creates a secret `.env` when needed, pulls the pinned `heartbtz/libris:0.4.1`
+It creates a secret `.env` when needed, pulls the pinned `heartbtz/libris:0.5.0`
 image and waits for the complete stack. It does not overwrite existing configuration or
 delete persistent volumes. Python is optional; when absent, setup runs in a temporary
 official Python container.

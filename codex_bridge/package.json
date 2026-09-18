@@ -1,7 +1,7 @@
 {
   "name": "libris-codex-bridge-runtime",
   "private": true,
-  "version": "0.4.1",
+  "version": "0.5.0",
   "dependencies": {
     "@openai/codex": "0.154.0"
   }

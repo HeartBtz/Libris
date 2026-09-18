@@ -3,14 +3,16 @@ import json
 import os
 import re
 import tempfile
+import threading
 import zipfile
+from collections import OrderedDict
 from pathlib import Path
 from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Response, UploadFile
 from fastapi.responses import FileResponse
 from lxml import etree
-from sqlalchemy import select
+from sqlalchemy import func, select
 from starlette.background import BackgroundTask
 from starlette.concurrency import run_in_threadpool
 
@@ -211,22 +213,70 @@ def restore_from_archive(db, owner_id: str, data: bytes):
     return project
 
 
-@router.get("/projects/{pid}/preview/{chapter_id}")
-def preview(pid: str, chapter_id: str, user: CurrentUser, db: DB, translated: bool = True):
-    project = access(db, pid, user)
-    chapter = db.get(Chapter, chapter_id)
-    if not chapter or chapter.project_id != pid:
-        raise HTTPException(404, "Chapitre introuvable.")
+class PreviewCache:
+    """Unpacked books of the latest previews, bounded in bytes.
+
+    Each chapter preview used to rebuild and unpack the whole book. The key carries the sum of the
+    passages' revisions, which every saved version increments: an edit is never served stale.
+    """
+
+    def __init__(self, entries: int = 8):
+        self.lock = threading.Lock()
+        self.books: OrderedDict[tuple, tuple[dict[str, bytes], int]] = OrderedDict()
+        self.entries = entries
+
+    def get(self, key: tuple) -> dict[str, bytes] | None:
+        with self.lock:
+            if key in self.books:
+                self.books.move_to_end(key)
+                return self.books[key][0]
+        return None
+
+    def put(self, key: tuple, book: dict[str, bytes]) -> None:
+        budget = settings().preview_cache_mb * 1024**2
+        size = sum(len(value) for value in book.values())
+        if size > budget:
+            return
+        with self.lock:
+            self.books.pop(key, None)
+            self.books[key] = (book, size)
+            while len(self.books) > self.entries or sum(s for _, s in self.books.values()) > budget:
+                self.books.popitem(last=False)
+
+
+previews = PreviewCache()
+
+
+def preview_entries(db, project, translated: bool) -> dict[str, bytes]:
+    revisions = db.scalar(
+        select(func.coalesce(func.sum(Segment.revision), 0)).where(Segment.project_id == project.id)
+    )
+    language = project.target_language if translated else ""
+    key = (project.id, project.original_hash, translated, language, revisions)
+    cached = previews.get(key)
+    if cached is not None:
+        return cached
     original = original_bytes(project)
     if translated:
         rows = []
-        for segment in project_segments(db, pid):
+        for segment in project_segments(db, project.id):
             value = row(segment)
             if not segment.translated_units:
                 value["translated_units"] = [{"id": u["id"], "text": u["text"]} for u in segment.units]
             rows.append(value)
         original = rebuild(original, rows, project.target_language)
     entries = inspect_archive(original)
+    previews.put(key, entries)
+    return entries
+
+
+@router.get("/projects/{pid}/preview/{chapter_id}")
+def preview(pid: str, chapter_id: str, user: CurrentUser, db: DB, translated: bool = True):
+    project = access(db, pid, user)
+    chapter = db.get(Chapter, chapter_id)
+    if not chapter or chapter.project_id != pid:
+        raise HTTPException(404, "Chapitre introuvable.")
+    entries = preview_entries(db, project, translated)
     root = xml(entries[chapter.resource])
     for node in list(root.iter()):
         if not isinstance(node.tag, str):

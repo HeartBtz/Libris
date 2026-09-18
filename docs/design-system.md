@@ -54,11 +54,30 @@ with a tooltip), `Badge` and `StatusPill`, `Card`, `Callout`, `Stat`, `PageHeade
 `Checkbox`, `Switch`, `Dialog` (focus trap, Escape, nested dialogs), `useDialogs()`
 (`confirm` and `prompt`, replacing the native dialogs), `useToast()`, `Menu` (keyboard
 navigation, radio items), `Tooltip`, `ProgressBar` (native `<progress>`), `EmptyState`,
-`Skeleton` and `LoadingBlock`, and `Table`. Icons are a small inline SVG set in
+`Skeleton` and `LoadingBlock`, `Table` and `FileButton` (a label styled as a button around
+the native file picker, so it stays keyboard-accessible). Icons are a small inline SVG set in
 `ui/icons.tsx`.
 
 Loading and empty are distinct states: skeletons while data loads, an empty state only
 once the answer is known to be empty.
+
+## Series and the import assistant
+
+`styles/screens/series.css` holds the patterns of the series library:
+
+- **Series cards** (`.series-card`): name, counts, format badges, one progress bar, issue
+  badges and a hairline footer for provider, memory and activity. In the table view the
+  grid becomes `.is-dense`, one series per line.
+- **Assistant** (`ImportWizard`, a `Dialog` of size `xl` with `.import-wizard`): a numbered
+  stepper (`.wizard-steps`, the current step named, done steps checked), choice cards
+  (`.choice`: a native radio, an icon, a title, a description, and the fields of the chosen
+  option below), a dashed drop zone (`.wizard-drop`), file lines and editable rows with a
+  3 px left border giving their state (`.tone-border-success|warning|danger|neutral`), and a
+  footer with "Abandon" on the left and the next action on the right. Blocking problems are a
+  danger callout that counts them; warnings are a warning callout; the server's refusals
+  keep one reason per line.
+- **Series page lists** (`.series-list`): rows that wrap into stacked cards instead of
+  scrolling, used for volumes, chapters, terms, relations, memory and the decision log.
 
 ## Formatting codes in the editor
 
@@ -76,6 +95,8 @@ textarea shows its own text.
 ## Responsive rules
 
 - `≤ 640 px`: single column, stacked forms, 40 px minimum touch targets, larger inputs.
+- `≤ 720 px`: the import assistant fills the screen, its rows stack with visible labels and
+  its footer buttons share the width.
 - `≤ 900 px`: the sidebar becomes a drawer opened from the top bar; the book editor
   shows one column per passage and a section selector; the library switches to cards.
 - `≤ 1100 px`: side panels (book settings, Book Bible, characters, settings lists)

@@ -11,7 +11,8 @@ from app.main import app
 from app.models import Event, Job, Outbox, Project, Provider, RequestLog, Segment
 
 TOKEN = "metrics-test-token-0123456789abcdef"
-SAMPLE = re.compile(r'^([a-zA-Z_:][a-zA-Z0-9_:]*)(\{(?:[a-zA-Z_][a-zA-Z0-9_]*="(?:[^"\\\n]|\\.)*",?)*\})? (\S+)$')
+LABEL = r'[a-zA-Z_][a-zA-Z0-9_]*="(?:[^"\\\n]|\\.)*"'
+SAMPLE = re.compile(rf"^([a-zA-Z_:][a-zA-Z0-9_:]*)(\{{{LABEL}(?:,{LABEL})*\}})? (\S+)$")
 
 
 @pytest.fixture(autouse=True)
@@ -105,7 +106,8 @@ def test_exposition_counts_queue_calls_and_passages_without_leaking(seeded, enab
                 RequestLog(operation="translation", status="success", fingerprint="a", cached=True, **common),
                 RequestLog(operation="chapter_analysis", status="interrupted", fingerprint="c",
                            prompt_tokens=300, **common),
-                RequestLog(operation="translation", status="running", fingerprint="d", created_at=now, **common),
+                RequestLog(operation="translation", status="running", fingerprint="d", created_at=now,
+                           **common),
             ]
         )
         db.add(Outbox(project_id=pid, event_key="k1", session_name="s", payload={}, status="pending"))

@@ -119,6 +119,8 @@ def test_model_statistics_aggregate_registered_models(seeded):
         "input_tokens": 120,
         "output_tokens": 80,
         "total_tokens": 200,
+        "wasted_input_tokens": 0,
+        "wasted_share": 0,
     }
     assert models["idle-model"]["total_tokens"] == 0
 

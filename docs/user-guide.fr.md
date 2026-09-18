@@ -120,7 +120,7 @@ Le budget actuel utilise une estimation **conservatrice en octets UTF-8**, affic
 
 La réponse complète est validée par schéma, identifiants, marqueurs et contrôles de texte. JSON Schema est utilisé si déclaré, avec repli JSON simple lorsqu’un endpoint rejette explicitement ce format. Une réponse tronquée ou polluée par du texte hors JSON est rejetée.
 
-Les métriques distinguent le cache, les tentatives, les tokens rapportés par le provider, la durée et le débit moyen global. Les coûts par million sont facultatifs et valent zéro par défaut. Les traces complètes de prompts/réponses sont privées au projet ; les logs de service ne contiennent pas le livre.
+Les métriques distinguent le cache, les tentatives, les tokens rapportés par le provider, la durée et le débit moyen global. Les coûts par million sont facultatifs et valent zéro par défaut. Les tokens d’entrée des requêtes en erreur, refusées ou interrompues sont comptés à part (`wasted_input_tokens`, et leur part `wasted_share` dans `GET /api/projects/{id}/metrics` et, par modèle, dans `GET /api/statistics/models`) : c’est la dépense qui n’a produit aucun résultat appliqué. Les traces complètes de prompts/réponses sont privées au projet ; les logs de service ne contiennent pas le livre.
 
 ## Tests et développement
 

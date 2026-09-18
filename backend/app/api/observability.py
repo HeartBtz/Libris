@@ -7,6 +7,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy import func, select
 
 from app.api.common import row
+from app.api.monitoring import WASTED_STATUSES
 from app.db import SessionLocal
 from app.models import Event, Provider, RequestLog
 from app.security import DB, Admin, CurrentUser, access, current_user
@@ -24,10 +25,13 @@ def model_statistics(_admin: Admin, db: DB):
             func.count(RequestLog.id),
             func.coalesce(func.sum(RequestLog.prompt_tokens), 0),
             func.coalesce(func.sum(RequestLog.completion_tokens), 0),
+            func.coalesce(
+                func.sum(RequestLog.prompt_tokens).filter(RequestLog.status.in_(WASTED_STATUSES)), 0
+            ),
         ).group_by(RequestLog.model)
     ).all()
     configured = set(db.scalars(select(Provider.model))) - {model for model, *_ in used}
-    rows = sorted([*used, *((model, 0, 0, 0) for model in configured)], key=lambda item: item[0])
+    rows = sorted([*used, *((model, 0, 0, 0, 0) for model in configured)], key=lambda item: item[0])
     return [
         {
             "model": model,
@@ -35,8 +39,10 @@ def model_statistics(_admin: Admin, db: DB):
             "input_tokens": input_tokens,
             "output_tokens": output_tokens,
             "total_tokens": input_tokens + output_tokens,
+            "wasted_input_tokens": wasted,
+            "wasted_share": wasted / input_tokens if input_tokens else 0,
         }
-        for model, requests, input_tokens, output_tokens in rows
+        for model, requests, input_tokens, output_tokens, wasted in rows
     ]
 
 
@@ -54,6 +60,7 @@ def metrics(pid: str, user: CurrentUser, db: DB):
                 RequestLog.status == "running", RequestLog.created_at > time.time() - Provider.timeout - 30
             ),
             func.count().filter(RequestLog.cached.is_(True)),
+            func.sum(RequestLog.prompt_tokens).filter(RequestLog.status.in_(WASTED_STATUSES)),
         )
         .select_from(RequestLog)
         .outerjoin(Provider, RequestLog.provider_id == Provider.id)
@@ -75,13 +82,26 @@ def metrics(pid: str, user: CurrentUser, db: DB):
         .outerjoin(Provider, RequestLog.provider_id == Provider.id)
         .where(RequestLog.project_id == pid)
     )
-    return dict(
+    result = dict(
         zip(
-            ("requests", "input_tokens", "output_tokens", "duration", "errors", "active", "cache_hits"),
+            (
+                "requests",
+                "input_tokens",
+                "output_tokens",
+                "duration",
+                "errors",
+                "active",
+                "cache_hits",
+                "wasted_input_tokens",
+            ),
             [v or 0 for v in values],
         ),
         cost=cost or 0,
     )
+    # Input spent on calls whose answer was never applied: errors, refusals, interruptions.
+    spent = result["input_tokens"]
+    result["wasted_share"] = result["wasted_input_tokens"] / spent if spent else 0
+    return result
 
 
 @router.get("/projects/{pid}/requests")

@@ -71,7 +71,9 @@ def render() -> str:
     now = time.time()
     out = Exposition()
     with SessionLocal() as db:
-        jobs = db.execute(select(Job.operation, Job.status, func.count()).group_by(Job.operation, Job.status)).all()
+        jobs = db.execute(
+            select(Job.operation, Job.status, func.count()).group_by(Job.operation, Job.status)
+        ).all()
         since = queued_since(db, now)
         expired = db.scalar(
             select(func.count()).select_from(Job).where(Job.status.in_(RUNNING), Job.lease_until < now)
@@ -177,7 +179,7 @@ def render() -> str:
 
 def authorized(request: Request, token: str) -> bool:
     scheme, _, supplied = request.headers.get("authorization", "").partition(" ")
-    # Compared in constant time on bytes: the length check alone leaks nothing useful.
+    # Constant-time comparison: timing reveals at most the token length, not its content.
     return scheme.lower() == "bearer" and hmac.compare_digest(supplied.strip().encode(), token.encode())
 
 
@@ -185,7 +187,9 @@ def authorized(request: Request, token: str) -> bool:
 def metrics(request: Request):
     token = settings().metrics_token
     if not token:
-        return JSONResponse({"detail": "Métriques désactivées. Définissez METRICS_TOKEN."}, status_code=404)
+        return JSONResponse(
+            {"detail": "Métriques désactivées. Définissez METRICS_TOKEN."}, status_code=404
+        )
     if not authorized(request, token):
         return JSONResponse(
             {"detail": "Jeton de métriques manquant ou invalide."},

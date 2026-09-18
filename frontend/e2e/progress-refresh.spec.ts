@@ -129,6 +129,12 @@ test("library shows active-stage progress and refresh reloads metrics", async ({
     390,
   );
   await page.getByRole("tab", { name: "Bilan & récupération" }).click();
+  // The draft typed above is protected: leaving the review queue asks first.
+  if (project.stats.flagged)
+    await page
+      .getByRole("dialog", { name: "Modifications non enregistrées" })
+      .getByRole("button", { name: "Quitter sans enregistrer" })
+      .click();
   await expect(
     page.getByRole("heading", { name: "Bilan & récupération", exact: true }),
   ).toBeVisible();

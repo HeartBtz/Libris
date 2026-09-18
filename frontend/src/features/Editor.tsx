@@ -727,7 +727,7 @@ export function SegmentRow({
           </details>
         )}
         <div className="segment-actions" role="group" aria-label={t("Actions du passage {position}", { position: segment.position + 1 })}>
-          <Button size="sm" disabled={busy || !complete || !dirty} onClick={() => void save(false)}
+          <Button size="sm" disabled={busy || !complete} onClick={() => void save(false)}
             shortcut={`${mod}+S`}
             aria-keyshortcuts="Control+S Meta+S"
           >

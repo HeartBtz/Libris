@@ -1,5 +1,6 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
-import type { KeyboardEvent, MouseEvent, ReactNode, Ref } from "react";
+import type { CSSProperties, KeyboardEvent, MouseEvent, ReactNode, Ref } from "react";
+import { createPortal } from "react-dom";
 import { cx } from "./Button";
 import { Icon } from "./icons";
 import type { IconName } from "./icons";
@@ -46,7 +47,7 @@ export function Menu({
   className?: string;
 }) {
   const [open, setOpen] = useState(false);
-  const [upward, setUpward] = useState(placement === "up");
+  const [position, setPosition] = useState<CSSProperties>({ visibility: "hidden" });
   const id = useId();
   const root = useRef<HTMLSpanElement>(null);
   const button = useRef<HTMLButtonElement>(null);
@@ -57,23 +58,42 @@ export function Menu({
     setOpen(false);
     if (restore) button.current?.focus();
   };
+  // The menu is rendered in <body> with fixed coordinates, so scrolling tables and cards
+  // with hidden overflow never clip it.
   useLayoutEffect(() => {
-    if (!open || !list.current || placement === "up") return;
-    const rect = list.current.getBoundingClientRect();
-    const triggerRect = button.current?.getBoundingClientRect();
-    setUpward(rect.bottom > window.innerHeight - 8 && (triggerRect?.top || 0) > rect.height + 8);
-  }, [open, placement]);
+    if (!open || !list.current || !button.current) return;
+    const anchor = button.current.getBoundingClientRect();
+    const height = list.current.offsetHeight;
+    const upward =
+      placement === "up" || (anchor.bottom + height + 12 > window.innerHeight && anchor.top > height + 12);
+    setPosition({
+      minWidth: Math.max(anchor.width, 200),
+      ...(upward ? { bottom: window.innerHeight - anchor.top + 4 } : { top: anchor.bottom + 4 }),
+      ...(align === "end"
+        ? { right: Math.max(8, window.innerWidth - anchor.right) }
+        : { left: Math.max(8, anchor.left) }),
+    });
+  }, [open, placement, align]);
   useEffect(() => {
-    if (!open) return;
-    items_()[0]?.focus();
+    if (!open) {
+      setPosition({ visibility: "hidden" });
+      return;
+    }
+    items_()[0]?.focus({ preventScroll: true });
     const outside = (event: Event) => {
-      if (!root.current?.contains(event.target as Node)) setOpen(false);
+      const target = event.target as Node;
+      if (!root.current?.contains(target) && !list.current?.contains(target)) setOpen(false);
     };
+    const dismiss = () => setOpen(false);
     document.addEventListener("mousedown", outside);
     document.addEventListener("touchstart", outside);
+    window.addEventListener("resize", dismiss);
+    window.addEventListener("scroll", dismiss, true);
     return () => {
       document.removeEventListener("mousedown", outside);
       document.removeEventListener("touchstart", outside);
+      window.removeEventListener("resize", dismiss);
+      window.removeEventListener("scroll", dismiss, true);
     };
   }, [open]);
   const onMenuKey = (event: KeyboardEvent<HTMLDivElement>) => {
@@ -109,13 +129,15 @@ export function Menu({
           }
         },
       })}
-      {open && (
+      {open &&
+        createPortal(
         <div
           ref={list}
           id={id}
           role="menu"
           aria-label={label}
-          className={cx("menu", `menu-${align}`, upward && "menu-up")}
+          className="menu"
+          style={position}
           onKeyDown={onMenuKey}
         >
           {items.map((item, index) => {
@@ -194,8 +216,9 @@ export function Menu({
               </button>
             );
           })}
-        </div>
-      )}
+        </div>,
+          document.body,
+        )}
     </span>
   );
 }

@@ -31,7 +31,7 @@ registerTranslations({
   Administration: "Administration",
   Paramètres: "Settings",
   "Sections des paramètres": "Settings sections",
-  "Fournisseurs LLM": "LLM providers",
+  "Providers LLM": "LLM providers",
   "Mémoire · OpenViking": "Memory · OpenViking",
   Utilisateurs: "Users",
   "Reprise automatique": "Automatic recovery",
@@ -212,7 +212,7 @@ export function Settings({ run }: { run: Run }) {
           value={tab}
           onChange={setTab}
           items={[
-            { id: "providers", label: t("Fournisseurs LLM") },
+            { id: "providers", label: t("Providers LLM") },
             { id: "memory", label: t("Mémoire · OpenViking") },
             { id: "search", label: "SearXNG" },
             { id: "prompts", label: "Prompts" },

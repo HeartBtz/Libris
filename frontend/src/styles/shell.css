@@ -178,10 +178,6 @@
   font-size: var(--text-xs);
 }
 
-.account-menu .menu {
-  width: max(100%, 220px);
-}
-
 .drawer-close {
   display: none !important;
 }

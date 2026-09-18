@@ -52,7 +52,9 @@ export function useFocusTrap<T extends HTMLElement>(active: boolean, close: () =
     };
     const onFocusIn = (event: FocusEvent) => {
       if (stack[stack.length - 1] !== element) return;
-      if (!element.contains(event.target as Node)) (focusable()[0] || element).focus();
+      const target = event.target as Element;
+      // Menus opened from inside the trapped area render in <body> but still belong to it.
+      if (!element.contains(target) && !target.closest?.('[role="menu"]')) (focusable()[0] || element).focus();
     };
     document.addEventListener("keydown", onKeyDown);
     document.addEventListener("focusin", onFocusIn);

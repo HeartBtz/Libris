@@ -11,7 +11,7 @@ from app.models.memory import (
     Outbox,
     Prompt,
 )
-from app.models.runs import Event, Issue, Job, RequestLog
+from app.models.runs import Event, Issue, Job, JobSegmentState, RequestLog
 
 __all__ = [
     "CharacterRelation",
@@ -33,6 +33,7 @@ __all__ = [
     "Event",
     "Issue",
     "Job",
+    "JobSegmentState",
     "RequestLog",
     "AppSetting",
 ]

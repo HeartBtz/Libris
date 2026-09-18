@@ -7,9 +7,10 @@ from sqlalchemy import select
 from app.config import settings
 from app.db import SessionLocal
 from app.engines.translation import final_review, pipeline
+from app.jobs import segment_state as state
 from app.jobs.queue import claim, enqueue
 from app.jobs.worker import execute
-from app.models import Issue, Job, Project, Segment
+from app.models import Issue, Job, JobSegmentState, Project, Segment
 from app.progress import project_stats
 from app.providers.llm import ProviderUnavailable
 from app.schemas import FinalReviewResult, TranslationResult
@@ -79,13 +80,10 @@ def test_project_stats_use_final_review_checkpoint(seeded):
         project = db.get(Project, pid)
         segments = list(db.scalars(select(Segment).where(Segment.project_id == pid).limit(2)))
         job = enqueue(db, project, "resolve_validations", {})
-        job.checkpoint = {
-            "step": "final_review",
-            "total": 2,
-            "final_review_targets": [segment.id for segment in segments],
-            "final_review_done": [segments[0].id],
-        }
+        job.checkpoint = {"step": "final_review", "total": 2, "review_targets": 2}
         db.flush()
+        state.mark_all(db, job.id, state.REVIEW_TARGET, [segment.id for segment in segments])
+        state.mark(db, job.id, state.REVIEWED, segments[0].id, outcome="resolved")
         result = project_stats(db, project)
         assert result["reviewed_segments"] == 1
         assert result["review_total"] == 2
@@ -137,7 +135,8 @@ async def test_full_review_includes_successful_unflagged_translations(seeded, mo
 
     assert calls == [sid, second_id]
     with SessionLocal() as db:
-        assert db.get(Job, jid).checkpoint["final_review_targets"] == [sid, second_id]
+        assert state.in_book_order(db, jid, state.REVIEW_TARGET) == [sid, second_id]
+        assert db.get(Job, jid).checkpoint["review_targets"] == 2
 
 
 async def test_final_review_never_calls_model_for_human_text(seeded, monkeypatch):
@@ -178,10 +177,9 @@ async def test_final_review_applies_only_verified_correction(seeded, monkeypatch
         segment = db.get(Segment, sid)
         assert segment.translation == ("Retour au phare" if verified else "Le retour")
         assert segment.status == ("ok" if verified else "check")
-        assert sid in db.get(Job, jid).checkpoint["final_review_done"]
-        outcome = db.get(Job, jid).checkpoint["final_review_outcomes"][sid]
-        assert outcome["outcome"] == ("resolved" if verified else "needs_human")
-        assert outcome["revised"] is verified
+        outcome = db.get(JobSegmentState, (jid, state.REVIEWED, sid, ""))
+        assert outcome.outcome == ("resolved" if verified else "needs_human")
+        assert outcome.data["revised"] is verified
 
 
 async def test_final_review_retains_non_recomputed_issues(seeded, monkeypatch):
@@ -220,9 +218,8 @@ async def test_final_review_outage_is_resumable(seeded, monkeypatch):
     await execute(*claim())
     with SessionLocal() as db:
         assert db.get(Job, jid).status == "waiting"
-        checkpoint = db.get(Job, jid).checkpoint
-        assert checkpoint["final_review_targets"] == [sid]
-        assert sid not in checkpoint.get("final_review_done", [])
+        assert state.in_book_order(db, jid, state.REVIEW_TARGET) == [sid]
+        assert not state.marked(db, jid, state.REVIEWED)
 
 
 async def test_human_edit_during_final_review_wins(seeded, monkeypatch):

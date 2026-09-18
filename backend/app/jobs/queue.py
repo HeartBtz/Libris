@@ -4,6 +4,8 @@ from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.orm import Session
 
 from app.db import SessionLocal
+from app.jobs.concurrency import job_lock
+from app.jobs.segment_state import FINISHED, mark
 from app.models import AppSetting, Event, Job, Project, Provider, RequestLog
 from app.models.common import uid
 
@@ -141,6 +143,13 @@ def claim(operations: tuple[str, ...] | None = None) -> tuple[str, str] | None:
 
 
 def checkpoint(job_id: str, owner: str, progress: dict | None = None) -> Job:
+    if progress is None:
+        return _checkpoint(job_id, owner, None)
+    with job_lock(job_id):
+        return _checkpoint(job_id, owner, progress)
+
+
+def _checkpoint(job_id: str, owner: str, progress: dict | None) -> Job:
     with SessionLocal() as db:
         job = db.scalar(select(Job).where(Job.id == job_id).with_for_update())
         if not job or job.lease_owner != owner or job.status not in RUNNING or job.lease_until < time.time():
@@ -164,11 +173,22 @@ def fence(db: Session, job_id: str, owner: str) -> Job:
     return job
 
 
+def lock_live_jobs(db: Session, project_id: str, *, analysis: bool = True) -> list[str]:
+    """Locks the book's held jobs before any passage row, in the worker's order (job, then passage).
+
+    The worker holds its job row (`fence`) while it writes a passage; an API action that locked the
+    passage first and then touched the job (recording the passage as settled) could deadlock with it.
+    """
+    query = select(Job.id).where(Job.project_id == project_id, Job.status.in_(HELD))
+    if not analysis:
+        query = query.where(Job.operation != "analyze")
+    return list(db.scalars(query.order_by(Job.id).with_for_update()))
+
+
 def finish_segment(job_id: str, owner: str, segment_id: str) -> None:
     with SessionLocal() as db:
         job = fence(db, job_id, owner)
-        completed = list(dict.fromkeys([*job.checkpoint.get("finished_ids", []), segment_id]))
-        job.checkpoint = {**job.checkpoint, "finished_ids": completed}
+        mark(db, job_id, FINISHED, segment_id)
         job.outage_count = 0
         db.commit()
 

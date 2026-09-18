@@ -9,12 +9,12 @@
 - `engines/memory` : décisions humaines, personnages, glossaire et outbox.
 - `engines/translation` : analyse hiérarchique, versions, orchestration et contrôle global.
 - `engines/quality` : identifiants d’unités, codes DOM, sorties vides, longueur, répétition, texte inchangé et terminologie.
-- `jobs` : prise en charge transactionnelle, bail, fencing, événements persistants et reprise.
+- `jobs` : prise en charge transactionnelle, bail, fencing, événements persistants, reprise, état par passage (`segment_state`) et exécution hors de la boucle asyncio (`concurrency`).
 - `api` : authentification, autorisations, projets, édition, paramètres, exports et SSE.
 
 ## Modèle SQL
 
-Entités normalisées : users, login_sessions, memberships, projects, chapters, segments, translation_versions, entities, glossary, memories, bible_revisions, memory_outbox, prompts, jobs, events, llm_requests, quality_issues, app_settings.
+Entités normalisées : users, login_sessions, memberships, projects, chapters, segments, translation_versions, entities, glossary, memories, bible_revisions, memory_outbox, prompts, jobs, job_segment_state, events, llm_requests, quality_issues, app_settings.
 
 Les documents XHTML/NCX sont des sections de travail ; les subdivisions sémantiques sont conservées dans les unités et `Segment.section`. Le `spine` original est stocké explicitement et ne dépend jamais d’un ordre de noms de fichiers. Les ancres sont déterministes : ressource + XPath + type de champ. Les paragraphes longs peuvent être fragmentés à des frontières linguistiques, puis réassemblés avant réinjection.
 
@@ -26,6 +26,44 @@ Les documents XHTML/NCX sont des sections de travail ; les subdivisions sémanti
 4. **Synchroniser** : SQL reste canonique. Un échec externe ne retire jamais un résultat local. Un accusé d’écriture perdu peut être rejoué sur l’URI stable.
 
 Une réponse HTTP reçue juste avant un crash peut être recalculée si elle n’avait pas été commitée. L’application garantit la persistance des résultats commités, pas l’exécution exactly-once d’une inférence distante.
+
+## Exécution des jobs
+
+### Checkpoint et état par passage
+
+`jobs.checkpoint` ne contient qu’un curseur et des compteurs : `step`, `current`, `total`, `segment_id`, `consecutive_failures`, les indicateurs de la récupération automatique, `review_targets` (nombre de passages visés par la revue finale), les compteurs de lots. Sa taille ne dépend pas de celle du livre (quelques centaines d’octets, toujours moins de 4 Ko) ; il est réécrit à chaque passage et renvoyé par `GET /api/projects/{id}/jobs`.
+
+Ce qu’un job a réglé passage par passage vit dans `job_segment_state` (clé primaire `job_id, step, segment_id, key`, écriture idempotente) :
+
+| `step` | Signification |
+| --- | --- |
+| `finished` | plus rien à faire pour ce passage dans ce job (y compris une correction humaine ou un original conservé pendant le job) |
+| `started` | une retraduction forcée a déjà appliqué sa nouvelle version |
+| `review_target` / `reviewed` | périmètre figé de la revue finale ; issue (`resolved`, `needs_human`, `protected`, `failed`) et `data.revised` |
+| `recovery_target` | passages repris par la récupération automatique |
+| `repair` | groupe de quatre unités déjà validé d’un passage en réparation (`key` = révision:opération:début) |
+| `bible`, `consistency` | lots de synthèse de la Book Bible et échantillons de cohérence déjà traités (`segment_id` vide) |
+
+La progression (`project.progress`, `stats`) lit ces lignes. Une fois un job fini depuis `RETENTION_JOB_STATE_DAYS`, seules ses lignes `reviewed` sont gardées (voir le guide d’exploitation). L’archive de projet emporte ces lignes avec les jobs, et une archive exportée avant la 0.5 est convertie à la restauration. La migration `b856c2e068f8` a converti les anciens checkpoints (listes `finished_ids`, `final_review_*`, `repair`…) : un job en pause au moment de la mise à jour reprend sans retraduire ; le retour arrière reconstruit les listes.
+
+### Boucle du worker
+
+Tous les jobs d’un worker partagent une boucle asyncio ; une requête SQL synchrone ou une boucle CPU longue y retarde les heartbeats des autres jobs, qui perdent leur bail. Les sessions SQL et les calculs proportionnels au livre (préparation du contexte, score de la mémoire, échantillonnage de cohérence, admission et journal des appels au modèle, écritures des résultats) s’exécutent donc dans des threads, une session par appel : huit threads pour ce travail, deux réservés au renouvellement des baux pour qu’un heartbeat n’attende jamais derrière. Le nombre de threads reste sous la taille du pool de connexions. Un verrou par job sérialise, dans le worker, la lecture-modification-écriture du checkpoint (PostgreSQL le fait déjà avec `FOR UPDATE` ; SQLite lit avant de prendre son verrou d’écriture).
+
+### Plusieurs passages d’un même livre
+
+La traduction, la revue finale et les contrôles de cohérence traitent plusieurs passages d’un livre à la fois, dans une fenêtre glissante : les passages démarrent dans l’ordre du livre, et au plus N sont en vol. N vaut la capacité (`max_concurrency`) du provider, partagée à parts égales (arrondi supérieur) entre les livres qui l’utilisent au même moment, et relue avant chaque démarrage ; `WORKER_BOOK_PARALLELISM` la plafonne (`1` rétablit le traitement strictement séquentiel). Dans chaque processus, les appels à un provider passent par une file d’attente dimensionnée à sa capacité, servie dans l’ordre d’arrivée, avant l’admission en base qui reste la limite commune à tous les processus.
+
+Compromis de contexte : le contexte d’un passage ne dépend que de ce qui est déjà enregistré. Un voisin précédent encore en cours de traduction apparaît dans `PREVIOUS_CONTEXT` avec sa source seule (traduction vide) et son état narratif manque à `CHAPTER_STATE` ; avec N passages en vol, au plus les N − 1 précédents sont concernés. Les voisins suivants ne présentent toujours que leur source. Avec `WORKER_BOOK_PARALLELISM=1`, chaque passage voit la traduction de tous ceux qui le précèdent, comme auparavant.
+
+L’analyse des passages reste séquentielle : chaque analyse lit le résumé du chapitre, les personnages et les relations laissés par les passages précédents et réécrit le résumé « jusqu’à la position » ; en parallèle, la mémoire chronologique serait construite dans le désordre. La synthèse de la Book Bible, qui enrichit la bible lot après lot, reste séquentielle pour la même raison.
+
+Reprise et sûreté :
+
+- Un passage n’est marqué `finished` qu’une fois toutes ses étapes enregistrées. Chaque écriture vérifie le bail (`fence`) et la révision du passage ; une version déjà appliquée n’est pas réappliquée.
+- Une pause, une annulation, la perte du bail ou l’arrêt du worker annulent tous les appels en vol (leur requête passe à `interrupted`) ; la première erreur d’un passage (panne du provider, authentification) arrête aussi les autres. Les passages interrompus ne sont pas marqués : la reprise les recommence à partir de ce qu’ils avaient enregistré, sans refaire ceux qui étaient terminés ni émettre d’événement pour eux.
+- Le compteur des dix passages consécutifs en échec suit l’ordre d’achèvement des passages.
+- Ordre des verrous : le worker verrouille la ligne de son job (`fence`) avant toute ligne de passage. Les actions de l’API qui touchent un passage et les jobs actifs du livre (correction humaine, original conservé, mise en file d’une proposition IA) verrouillent d’abord ces jobs (`lock_live_jobs`, par identifiant croissant), puis le passage ; l’interblocage passage/job avec le worker est donc impossible sous PostgreSQL. L’action attend au plus la fin de la courte transaction d’écriture du worker.
 
 ## Sélection contextuelle
 

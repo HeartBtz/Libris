@@ -8,6 +8,7 @@ from app.db import SessionLocal
 from app.engines.context.config import memory_config
 from app.engines.context.providers import ContextItem, HybridContextProvider
 from app.engines.memory.identities import effective_names, plausible_name
+from app.jobs.concurrency import blocking
 from app.models import Chapter, CharacterRelation, Entity, Glossary, Memory, Project, Provider, Segment
 from app.providers.llm import LLMError, estimate_tokens, load_prompt
 
@@ -75,6 +76,39 @@ async def build_context(
     needs: list[str] | None = None,
     provider_id: str | None = None,
 ) -> BuiltContext:
+    # Queries and scoring scale with the book: they run off the event loop shared by every job.
+    prepared = await blocking(
+        _prepare, project_id, segment_id, operation, deep, instruction, extra, needs, provider_id
+    )
+    memory = HybridContextProvider()
+    retrieved = await memory.retrieve(prepared.project, prepared.query, prepared.segment.position, deep)
+    return await blocking(_assemble, prepared, retrieved, memory.trace, operation)
+
+
+@dataclass
+class _Prepared:
+    project: Project
+    segment: Segment
+    provider: Provider
+    system: str
+    version: str
+    mandatory: dict
+    candidates: list[ContextItem]
+    query: str
+    previous: list[Segment]
+    following: list[Segment]
+
+
+def _prepare(
+    project_id: str,
+    segment_id: str,
+    operation: str,
+    deep: bool,
+    instruction: str,
+    extra: dict | None,
+    needs: list[str] | None,
+    provider_id: str | None,
+) -> _Prepared:
     with SessionLocal() as db:
         project = db.get(Project, project_id)
         segment = db.get(Segment, segment_id)
@@ -378,8 +412,15 @@ async def build_context(
         )
         if needs:
             query += "\nSpecific information needs:\n" + "\n".join(needs[:4])
-    memory = HybridContextProvider()
-    candidates += await memory.retrieve(project, query, segment.position, deep)
+    return _Prepared(
+        project, segment, provider, system, version, mandatory, candidates, query, previous, following
+    )
+
+
+def _assemble(prepared: _Prepared, retrieved: list[ContextItem], trace: dict, operation: str) -> BuiltContext:
+    provider, system, version, mandatory = prepared.provider, prepared.system, prepared.version, prepared.mandatory
+    candidates = [*prepared.candidates, *retrieved]
+    previous, following = prepared.previous, prepared.following
     # Schema and message-envelope reserve is separate from output reservation.
     budget = provider.context_window - provider.max_output_tokens - 6000
     mandatory_size = estimate_tokens(system) + estimate_tokens(json.dumps(mandatory, ensure_ascii=False))
@@ -443,7 +484,7 @@ async def build_context(
         {
             "prompt": operation,
             "prompt_version": version,
-            "retrieval": memory.trace,
+            "retrieval": trace,
             "selected": kept,
             "discarded": dropped,
             "mandatory": mandatory,

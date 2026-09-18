@@ -264,7 +264,12 @@ def remove(project_id: str, user: CurrentUser, db: DB, stop_jobs: bool = False):
         update(Job)
         .where(Job.project_id == project_id, Job.status.in_(HELD))
         .values(
-            status="cancelled", lease_owner="", lease_until=0, next_attempt=0, stop_reason="project_deleted"
+            status="cancelled",
+            lease_owner="",
+            lease_until=0,
+            next_attempt=0,
+            stop_reason="project_deleted",
+            finished_at=time.time(),
         )
     )
     # Clear self references before the project-level cascade; PostgreSQL otherwise may try to
@@ -351,6 +356,7 @@ def start_job(project_id: str, body: JobInput, user: CurrentUser, db: DB):
                         operation="analyze",
                         status="completed",
                         stop_reason="already_analyzed",
+                        finished_at=time.time(),
                         checkpoint={"step": "already_analyzed"},
                     )
                     db.add(prior)
@@ -451,6 +457,7 @@ def control(
     if action == "pause" and job.status not in HELD:
         raise HTTPException(409, "Seul un travail actif ou bloqué peut être mis en pause.")
     job.status = {"pause": "paused", "resume": "pending", "retry": "pending", "cancel": "cancelled"}[action]
+    job.finished_at = time.time() if action == "cancel" else None
     if action in {"resume", "retry"} and not job.options.get("provider_id"):
         job.provider_id = project.provider_id
     job.lease_owner, job.lease_until, job.error = "", 0, ""

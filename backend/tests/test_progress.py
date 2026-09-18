@@ -4,6 +4,7 @@ from sqlalchemy import select
 
 from app.api.projects import project_view
 from app.db import SessionLocal
+from app.jobs import segment_state as state
 from app.jobs.queue import checkpoint, enqueue
 from app.models import Chapter, Job, Project, Provider, Segment
 
@@ -25,17 +26,12 @@ def test_canonical_progress_tracks_active_job_and_review_outcomes(seeded):
         job = enqueue(db, project, "resolve_validations", {})
         targets = [segment.id for segment in segments]
         job.status = "reviewing"
-        job.checkpoint = {
-            "step": "final_review",
-            "current": 2,
-            "total": len(targets),
-            "final_review_targets": targets,
-            "final_review_done": [*targets[:2], "obsolete-segment"],
-            "final_review_outcomes": {
-                targets[0]: {"outcome": "resolved", "revised": True},
-                targets[1]: {"outcome": "failed", "revised": False},
-            },
-        }
+        job.checkpoint = {"step": "final_review", "current": 2, "total": len(targets), "review_targets": len(targets)}
+        db.flush()
+        state.mark_all(db, job.id, state.REVIEW_TARGET, targets)
+        state.mark(db, job.id, state.REVIEWED, targets[0], outcome="resolved", data={"revised": True})
+        state.mark(db, job.id, state.REVIEWED, targets[1], outcome="failed", data={"reason": "LLMError"})
+        state.mark(db, job.id, state.REVIEWED, "obsolete-segment", outcome="resolved")
         segments[0].status = "ok"
         db.flush()
         progress = project_view(db, project)["progress"]
@@ -48,16 +44,10 @@ def test_canonical_progress_tracks_active_job_and_review_outcomes(seeded):
         job.status = "completed"
         later = enqueue(db, project, "resolve_validations", {})
         later.status = "reviewing"
-        later.checkpoint = {
-            "step": "final_review",
-            "total": 1,
-            "final_review_targets": [targets[2]],
-            "final_review_done": [targets[2]],
-            "final_review_outcomes": {
-                targets[2]: {"outcome": "protected", "revised": False},
-            },
-        }
+        later.checkpoint = {"step": "final_review", "total": 1, "review_targets": 1}
         db.flush()
+        state.mark_all(db, later.id, state.REVIEW_TARGET, [targets[2]])
+        state.mark(db, later.id, state.REVIEWED, targets[2], outcome="protected")
         cumulative = project_view(db, project)["progress"]["review"]
         assert cumulative["examined"] == 3
         assert cumulative["resolved"] == 1
@@ -107,13 +97,9 @@ def test_automatic_analysis_job_uses_its_current_pipeline_stage(seeded):
         segments = list(db.scalars(select(Segment).where(Segment.project_id == pid)))
         targets = [segment.id for segment in segments]
         job.status = "reviewing"
-        job.checkpoint = {
-            "step": "final_review",
-            "current": 1,
-            "total": len(targets),
-            "final_review_targets": targets,
-            "final_review_done": targets[:1],
-        }
+        job.checkpoint = {"step": "final_review", "current": 1, "total": len(targets), "review_targets": len(targets)}
+        state.mark_all(db, job.id, state.REVIEW_TARGET, targets)
+        state.mark(db, job.id, state.REVIEWED, targets[0])
         db.flush()
 
         progress = project_view(db, project)["progress"]

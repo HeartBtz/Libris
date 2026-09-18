@@ -1,4 +1,4 @@
-"""Bounded growth for diagnostic data: request bodies, progress events, sent outbox rows, bible revisions.
+"""Bounded growth of diagnostic data: request bodies, events, outbox, bible revisions, old job state.
 
     docker compose exec api python -m app.maintenance.retention --dry-run
     docker compose exec api python -m app.maintenance.retention
@@ -17,7 +17,8 @@ from sqlalchemy import Text, cast, delete, func, select, update
 
 from app.config import settings
 from app.db import SessionLocal
-from app.models import BibleRevision, Event, Outbox, RequestLog
+from app.jobs.segment_state import REVIEWED
+from app.models import BibleRevision, Event, Job, JobSegmentState, Outbox, RequestLog
 
 DAY = 86400
 KEPT_EVENTS = 500  # per book, whatever their age: the interface replays recent progress from them
@@ -122,6 +123,30 @@ def bible_revisions(keep: int, dry_run: bool) -> int:
     return done
 
 
+def job_state(days: int, dry_run: bool, now: float) -> int:
+    """Per-passage state of jobs ended long ago; review outcomes stay, the book's review history shows them."""
+    done = 0
+    if not days:
+        return done
+    ended = select(Job.id).where(
+        Job.status.in_(("completed", "failed", "cancelled")),
+        # Jobs that ended before the column existed count from their creation.
+        func.coalesce(Job.finished_at, Job.created_at) < now - days * DAY,
+    )
+    prunable = (JobSegmentState.job_id.in_(ended), JobSegmentState.step != REVIEWED)
+    with SessionLocal() as db:
+        jobs = list(db.scalars(select(JobSegmentState.job_id).where(*prunable).distinct()))
+    for start in range(0, len(jobs), BATCH):
+        batch = (JobSegmentState.job_id.in_(jobs[start : start + BATCH]), JobSegmentState.step != REVIEWED)
+        with SessionLocal() as db:
+            if dry_run:
+                done += db.scalar(select(func.count()).select_from(JobSegmentState).where(*batch))
+            else:
+                done += db.execute(delete(JobSegmentState).where(*batch)).rowcount
+                db.commit()
+    return done
+
+
 def apply(dry_run: bool = False) -> dict:
     config, now = settings(), time.time()
     return {
@@ -129,6 +154,7 @@ def apply(dry_run: bool = False) -> dict:
         "events": events(config.retention_events_days, dry_run, now),
         "outbox": outbox(config.retention_outbox_sent_days, dry_run, now),
         "bible_revisions": bible_revisions(config.retention_bible_revisions, dry_run),
+        "job_state": job_state(config.retention_job_state_days, dry_run, now),
     }
 
 
@@ -140,5 +166,6 @@ if __name__ == "__main__":
     verb = "would be" if arguments.dry_run else "were"
     print(
         f"{result['request_bodies']} request bodies {verb} emptied; {result['events']} events, "
-        f"{result['outbox']} sent outbox rows and {result['bible_revisions']} bible revisions {verb} deleted."
+        f"{result['outbox']} sent outbox rows, {result['bible_revisions']} bible revisions and "
+        f"{result['job_state']} job state rows {verb} deleted."
     )

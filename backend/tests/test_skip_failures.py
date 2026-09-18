@@ -6,6 +6,7 @@ from sqlalchemy import select
 
 from app.db import SessionLocal
 from app.engines.translation import pipeline
+from app.jobs import segment_state as state
 from app.jobs.queue import claim, enqueue
 from app.jobs.worker import execute
 from app.models import Job, Project, Segment
@@ -45,7 +46,7 @@ async def test_stop_after_ten_failed_passages_and_reset_on_success(seeded, monke
         assert job.status == ("failed" if success_at is None else "completed")
         assert job.checkpoint["consecutive_failures"] == (10 if success_at is None else 6)
         assert len(calls) == (10 if success_at is None else 12)
-        assert len(job.checkpoint["finished_ids"]) == len(calls)
+        assert len(state.marked(db, jid, state.FINISHED)) == len(calls)
         if success_at is None:
             assert job.stop_reason == "consecutive_failures"
 

@@ -25,7 +25,7 @@ replacing side rails and tables with native selectors and readable records on ph
 
 - **Multiple books:** import EPUBs together and follow analysis and translation separately.
 - **Consistent context:** book bible, character identities, relationships and a lockable glossary.
-- **Your provider:** OpenAI-compatible APIs, OpenAI Responses, or optional Codex/ChatGPT authentication.
+- **Your provider:** OpenAI-compatible APIs, OpenAI Responses, the native Anthropic and OpenAI APIs, or optional Codex/ChatGPT authentication.
 - **Independent concurrency:** each provider has its own limit, shared by analysis, translation and review jobs.
 - **Resumable work:** persistent jobs, checkpoints, pause/resume and retries after temporary failures.
 - **Human decisions:** compare source and translation, accept or reject AI suggestions, edit and keep version history.
@@ -106,7 +106,7 @@ cd Libris
 ./scripts/install-docker.sh
 ```
 
-It creates a secret `.env` when needed, pulls the pinned `heartbtz/libris:0.3.1`
+It creates a secret `.env` when needed, pulls the pinned `heartbtz/libris:0.4.1`
 image and waits for the complete stack. It does not overwrite existing configuration or
 delete persistent volumes. Python is optional; when absent, setup runs in a temporary
 official Python container.
@@ -140,7 +140,7 @@ Then open http://localhost:8088 on your computer. For LAN, HTTPS, updates, backu
 3. Choose the provider, languages and quality mode in the book's configuration. Select **internal** memory to start without any external service.
 4. Analyze the book, review the book bible and glossary, then start translation.
 5. Use **Validations** to resolve flagged passages and **Traduction** to edit.
-6. Export EPUB, TXT, Markdown, JSON or a project archive.
+6. Export EPUB, TXT, Markdown, the Book Bible (JSON) or a project archive.
 
 The UI is available in French and English. Model quality, language coverage, latency and costs depend on your chosen provider. Structural validation is not a guarantee of literary fidelity.
 

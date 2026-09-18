@@ -27,7 +27,7 @@ Cliquer **Analyser** sur un livre entièrement analysé est une opération sans 
 | Annulation                    | `cancelled`, résultats conservés ; reprise explicite possible                                                    |
 | Arrêt propre du worker        | requête interrompue, travail remis en attente au checkpoint                                                      |
 | Arrêt brutal                  | récupération après expiration du bail de 60 s                                                                    |
-| Réseau, timeout, HTTP 429/5xx | `waiting`, nouvelle tentative planifiée, délai progressif de 30 s à 15 min ; `Retry-After` respecté jusqu’à 24 h |
+| Réseau, timeout, HTTP 429/5xx | `waiting`, nouvelle tentative planifiée, délai progressif de 60 s à 1 h (`PROVIDER_RECOVERY_BASE_SECONDS`, `PROVIDER_RECOVERY_MAX_SECONDS`) ; `Retry-After` respecté jusqu’à 24 h |
 | Authentification invalide     | `blocked`, reconnexion et reprise nécessaires                                                                    |
 | Refus pendant l’analyse       | `blocked` / `content_refusal`, intervention humaine nécessaire                                                   |
 | Refus pendant la traduction   | deuxième essai, puis passage marqué `refused` et poursuite du livre                                              |

@@ -12,11 +12,16 @@ Run `python3 scripts/setup.py` in the repository root. It generates independent 
 | `PORT`                                     | Published HTTP port; defaults to `8088`                                  |
 | `ALLOWED_ORIGINS`                          | Comma-separated browser origins including scheme and port, without paths |
 | `COOKIE_SECURE`                            | Use `true` behind HTTPS, `false` for local HTTP                          |
+| `SESSION_DURATION_HOURS`                   | Lifetime of a login session; defaults to `24`                            |
+| `FORWARDED_ALLOW_IPS`                      | Address of your reverse proxy, so that real client addresses are used (login throttling, logs) |
 | `SECRET_KEY`                               | Persistent application encryption key; retain with backups               |
 | `BOOTSTRAP_USERNAME`, `BOOTSTRAP_PASSWORD` | First administrator, created only on an empty database                   |
 | `POSTGRES_PASSWORD`                        | PostgreSQL initialization and connection password                        |
 | `CODEX_BRIDGE_TOKEN`                       | Private API-to-bridge authentication secret                              |
 | `OPENVIKING_URL`, `OPENVIKING_API_KEY`     | Optional external memory service                                         |
+| `WORKER_HEARTBEAT_SECONDS`                 | Interval at which a running job renews its 60 s lease; `2` (1–20)        |
+| `MEMORY_CATALOG_INTERVAL_SECONDS`          | Interval of the external-memory catalogue refresh; `60` (10–86400)       |
+| `PROVIDER_RECOVERY_BASE_SECONDS`, `PROVIDER_RECOVERY_MAX_SECONDS` | First and longest wait before retrying an unavailable provider; `60` and `3600` |
 
 Changing bootstrap credentials does not reset an existing account. Changing the database password in `.env` does not change an initialized PostgreSQL role's password.
 

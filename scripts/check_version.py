@@ -54,6 +54,12 @@ versions = {
     "Docker installer": installer,
     "Codex RPC": rpc,
 }
+for document in ("README.md", "docs/docker.md", "docs/docker-hub.md"):
+    # Installation guides pin an exact image: a stale pin silently installs an old release.
+    for number, pinned in enumerate(
+        re.findall(r"heartbtz/libris:(\d+\.\d+\.\d+)", (root / document).read_text())
+    ):
+        versions[f"{document} pin {number + 1}"] = pinned
 if len(set(versions.values())) != 1:
     raise SystemExit(f"Version mismatch: {versions}")
 if len(sys.argv) == 2 and sys.argv[1].removeprefix("v") != backend:

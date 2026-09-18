@@ -4,7 +4,7 @@ Libris uses Semantic Versioning. During the `0.x` phase, document any operationa
 
 ## Prepare
 
-1. Update versions in `backend/pyproject.toml`, `backend/app/__init__.py`, `frontend/package.json`, its lockfile, `codex_bridge/package.json`, its lockfile, `codex_bridge/rpc.py`, `.env.example`, `scripts/install-docker.sh` and both Dockerfile build arguments.
+1. Update versions in `backend/pyproject.toml`, `backend/app/__init__.py`, `frontend/package.json`, its lockfile, `codex_bridge/package.json`, its lockfile, `codex_bridge/rpc.py`, `.env.example`, `scripts/install-docker.sh`, both Dockerfile build arguments, and the pinned `heartbtz/libris:X.Y.Z` references in `README.md`, `docs/docker.md` and `docs/docker-hub.md` (checked by `scripts/check_version.py`).
 2. Update `CHANGELOG.md` and documentation.
 3. Run `python3 scripts/check_version.py`.
 4. Run backend tests, Ruff, frontend build, migration tests, dependency audits, Gitleaks and the disposable installation check.

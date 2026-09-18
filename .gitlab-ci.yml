@@ -236,6 +236,21 @@ container-runtime:
     - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
 
+# The pytest tests marked `epubcheck` export books and validate them with the EPUBCheck of the built image.
+container-epubcheck:
+  stage: verify
+  extends: .registry-login
+  needs: [container-build]
+  script:
+    - docker pull --quiet "$APP_IMAGE_REFERENCE"
+    # The image ships neither pip nor pytest: install them in this throwaway container only.
+    - >-
+      docker run --rm --user root --entrypoint sh --env LIBRIS_REQUIRE_EPUBCHECK=1 "$APP_IMAGE_REFERENCE" -c
+      "python -m ensurepip >/dev/null && python -m pip install -q --disable-pip-version-check --root-user-action=ignore
+      'pytest>=8' 'pytest-asyncio>=0.25' 'respx>=0.22' && python -m pytest -q -p no:cacheprovider -m epubcheck tests"
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
 container-scan:
   stage: verify
   extends: .pinned-images

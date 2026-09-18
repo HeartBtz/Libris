@@ -33,6 +33,13 @@ def context_query(source: str, neighbors: str, names: list[str]) -> str:
 NEIGHBORS = {"PREVIOUS_CONTEXT", "NEXT_CONTEXT"}
 
 
+def section(name: str, content: str) -> str:
+    # json.dumps leaves "<" and ">" alone: a book quoting "</TARGET_TEXT>" would close the section and
+    # speak as the prompt. The JSON escapes decode to the same characters for the model.
+    escaped = content.replace("<", "\\u003c").replace(">", "\\u003e")
+    return f"<{name}>\n{escaped}\n</{name}>"
+
+
 def fit_neighbors(values: list[dict], limit: int, previous: bool) -> list[dict]:
     """Keep the passages closest to the target; shorten the last one rather than lose the neighbourhood."""
 
@@ -432,11 +439,8 @@ async def build_context(
             kept.append(detail)
     if (previous or following) and not any(i["source"] in {"PREVIOUS_CONTEXT", "NEXT_CONTEXT"} for i in kept):
         raise LLMError("Fenêtre trop petite pour conserver le voisinage du passage. Augmentez le contexte.")
-    sections = []
-    for item in kept:
-        sections.append(f"<{item['source']}>\n{item['content']}\n</{item['source']}>")
-    for key, value in mandatory.items():
-        sections.append(f"<{key}>\n{json.dumps(value, ensure_ascii=False)}\n</{key}>")
+    sections = [section(item["source"], item["content"]) for item in kept]
+    sections += [section(key, json.dumps(value, ensure_ascii=False)) for key, value in mandatory.items()]
     messages = [{"role": "system", "content": system}, {"role": "user", "content": "\n\n".join(sections)}]
     return BuiltContext(
         messages,

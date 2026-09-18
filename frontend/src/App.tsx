@@ -5,6 +5,7 @@ import { Settings } from "./features/Settings";
 import { Account } from "./features/Account";
 import { Workspace } from "./features/Workspace";
 import { Library } from "./features/Library";
+import { SeriesPage } from "./features/SeriesPage";
 import { Login } from "./features/Login";
 import { Statistics } from "./features/Statistics";
 import { message, registerTranslations, useI18n } from "./i18n";
@@ -28,6 +29,7 @@ registerTranslations({
   Système: "System",
   Administrateur: "Administrator",
   Utilisateur: "User",
+  Série: "Series",
 });
 
 export function App() {
@@ -105,7 +107,7 @@ export function App() {
     localStorage.setItem("sidebar", collapsed ? "collapsed" : "expanded");
   }, [collapsed]);
   useEffect(() => {
-    document.title = `${route === "settings" ? t("app.settings") : route === "statistics" ? t("app.statistics") : route === "account" ? t("Mon compte") : route === "library" ? t("app.library") : t("app.project")} · Libris`;
+    document.title = `${route === "settings" ? t("app.settings") : route === "statistics" ? t("app.statistics") : route === "account" ? t("Mon compte") : route === "library" ? t("app.library") : route.startsWith("series/") ? t("Série") : t("app.project")} · Libris`;
   }, [route, t]);
   const drawer = useFocusTrap<HTMLElement>(drawerOpen, () => setDrawerOpen(false));
   if (checking)
@@ -146,7 +148,7 @@ export function App() {
         setUser(null);
       }
     });
-  const section = route.startsWith("project/") ? "library" : route;
+  const section = route.startsWith("project/") || route.startsWith("series/") ? "library" : route;
   const links: [string, string, IconName][] = [
     ["library", t("app.library"), "book"],
     ...(user.admin
@@ -241,6 +243,8 @@ export function App() {
             <Settings run={run} />
           ) : route === "statistics" && user.admin ? (
             <Statistics run={run} />
+          ) : route.startsWith("series/") ? (
+            <SeriesPage key={route} id={route.split("/")[1]} user={user} run={run} />
           ) : route.startsWith("project/") ? (
             <Workspace key={route} id={route.split("/")[1]} user={user} run={run} />
           ) : (

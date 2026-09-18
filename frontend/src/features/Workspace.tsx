@@ -4,6 +4,7 @@ import { formatPercent, getLocale, registerTranslations, useI18n } from "../i18n
 import type { Chapter, Job, Project, Run, Segment, User } from "../types";
 import { useLeaveGuard } from "../unsaved";
 import {
+  Badge,
   Button,
   Callout,
   Icon,
@@ -49,6 +50,7 @@ registerTranslations({
   "Mis à jour à {time}": "Updated at {time}",
   Bibliothèque: "Library",
   "volume {volume}": "volume {volume}",
+  "flux continu": "continuous flow",
   "lot {current}/{total}": "batch {current}/{total}",
   "Reprendre le travail annulé": "Resume cancelled work",
   "Reprendre après connexion": "Resume after signing in",
@@ -358,6 +360,12 @@ export function Workspace({ id, user, run }: { id: string; user: User; run: Run 
           <div className="breadcrumb">
             <a href="#library">{t("Bibliothèque")}</a>
             <Icon name="chevronRight" size={12} />
+            {project.series_id && (
+              <>
+                <a href={`#series/${project.series_id}`}>{project.series_name}</a>
+                <Icon name="chevronRight" size={12} />
+              </>
+            )}
             <span className="breadcrumb-current">{project.title}</span>
           </div>
           <h1 className="page-title">{project.title}</h1>
@@ -370,10 +378,17 @@ export function Workspace({ id, user, run }: { id: string; user: User; run: Run 
             </span>
             {project.series_name && (
               <span className="book-series">
-                {project.series_name}
-                {project.volume_number && ` · ${t("volume {volume}", { volume: project.volume_number })}`}
+                {project.series_id ? (
+                  <a href={`#series/${project.series_id}`}>{project.series_name}</a>
+                ) : (
+                  project.series_name
+                )}
+                {project.project_kind === "serial"
+                  ? ` · ${t("flux continu")}`
+                  : project.volume_number && ` · ${t("volume {volume}", { volume: project.volume_number })}`}
               </span>
             )}
+            {project.source_format && <Badge>{project.source_format.toUpperCase()}</Badge>}
           </p>
         </div>
         <div className="workspace-actions">

@@ -9,6 +9,7 @@ workflow:
     - if: $CI_COMMIT_BRANCH
 
 # Jobs that write to the registry, a release or production are not interruptible; checks are.
+# Every job sets its own `timeout:`, and every command that can hang has a `timeout` of its own.
 default:
   interruptible: true
   timeout: 30 minutes
@@ -45,6 +46,26 @@ variables:
           - .gitlab-ci.yml
     - if: $CI_COMMIT_BRANCH
 
+# Every container a job starts is named after the job and carries the `libris-ci-job` label, and runs
+# under `--init` so that the TERM of a `timeout` stops it. Killing or cancelling the job only kills
+# the docker client, never the container: this after_script (it also runs on cancellation) removes
+# whatever is left.
+.ci-containers:
+  after_script:
+    - docker ps --all --quiet --filter "label=libris-ci-job=$CI_JOB_ID" | xargs --no-run-if-empty docker rm --force --volumes >/dev/null 2>&1 || true
+
+# Last line of defence when an after_script could not run (runner restart, killed shell): any CI
+# container or e2e stack older than two hours, far beyond every job timeout, is removed.
+.reap-stale-containers:
+  before_script:
+    - |
+      now="$(date +%s)"
+      for id in $(docker ps --all --quiet --filter label=libris-ci-job) $(docker ps --all --quiet --filter name=libris-e2e-); do
+        created="$(docker inspect --format '{{.Created}}' "$id" 2>/dev/null)" || continue
+        if [ $(( now - $(date -d "$created" +%s) )) -gt 7200 ]; then docker rm --force --volumes "$id" >/dev/null 2>&1 || true; fi
+      done
+      docker volume ls --quiet --filter dangling=true --filter name=libris-e2e- | xargs --no-run-if-empty docker volume rm >/dev/null 2>&1 || true
+
 .pip-cache:
   cache:
     key:
@@ -58,6 +79,7 @@ variables:
     - mkdir -p "$DOCKER_CONFIG"
     - echo "$CI_REGISTRY_PASSWORD" | docker login "$CI_REGISTRY" --username "$CI_REGISTRY_USER" --password-stdin
   after_script:
+    - !reference [.ci-containers, after_script]
     - rm -rf "$CI_PROJECT_DIR/.docker-$CI_JOB_ID"
 
 # Jobs that consume the digest-pinned images recorded by container-build or release-images.
@@ -70,24 +92,28 @@ variables:
 
 backend:
   stage: test
-  extends: [.code-rules, .pip-cache]
+  extends: [.code-rules, .pip-cache, .ci-containers]
+  timeout: 15 minutes
   script:
     - >-
-      docker run --rm --volume "$CI_PROJECT_DIR:/work" --workdir /work
+      timeout --signal=TERM --kill-after=30s 12m
+      docker run --rm --name "libris-ci-backend-$CI_JOB_ID" --label "libris-ci-job=$CI_JOB_ID" --init --volume "$CI_PROJECT_DIR:/work" --workdir /work
       --env PIP_CACHE_DIR=/work/.cache/pip --env PIP_DISABLE_PIP_VERSION_CHECK=1 --env PIP_ROOT_USER_ACTION=ignore
       "$PYTHON_IMAGE" sh -lc "$PYTHON_TEST_DEPS && cd backend && ruff check app tests && pytest -q"
 
 backend-postgres:
   stage: test
-  extends: [.code-rules, .pip-cache]
+  extends: [.code-rules, .pip-cache, .ci-containers]
+  timeout: 20 minutes
   script:
     - DB_CONTAINER="libris-ci-postgres-$CI_JOB_ID"
     # Throwaway database: keep its data in memory so that nothing can be left on the runner's disk.
-    - docker run --detach --name "$DB_CONTAINER" --tmpfs /var/lib/postgresql/data --env POSTGRES_DB=libris_test --env POSTGRES_USER=libris --env POSTGRES_PASSWORD=libris_test_password "$POSTGRES_IMAGE"
+    - docker run --detach --name "$DB_CONTAINER" --label "libris-ci-job=$CI_JOB_ID" --init --tmpfs /var/lib/postgresql/data --env POSTGRES_DB=libris_test --env POSTGRES_USER=libris --env POSTGRES_PASSWORD=libris_test_password "$POSTGRES_IMAGE"
     # TCP only answers once the image's initialisation (and its restart) is over.
     - for attempt in $(seq 1 30); do docker exec "$DB_CONTAINER" pg_isready -h 127.0.0.1 -U libris -d libris_test && break; test "$attempt" -lt 30; sleep 1; done
     - >-
-      docker run --rm --network "container:$DB_CONTAINER"
+      timeout --signal=TERM --kill-after=30s 15m
+      docker run --rm --name "libris-ci-backend-postgres-$CI_JOB_ID" --label "libris-ci-job=$CI_JOB_ID" --init --network "container:$DB_CONTAINER"
       --volume "$CI_PROJECT_DIR:/work" --workdir /work
       --env PIP_CACHE_DIR=/work/.cache/pip --env PIP_DISABLE_PIP_VERSION_CHECK=1 --env PIP_ROOT_USER_ACTION=ignore
       --env DATABASE_URL=postgresql+psycopg://libris:libris_test_password@127.0.0.1:5432/libris_test
@@ -96,12 +122,11 @@ backend-postgres:
       --env BOOTSTRAP_PASSWORD=ci-only-password-with-more-than-16-characters
       "$PYTHON_IMAGE" sh -lc
       "$PYTHON_TEST_DEPS && cd backend && alembic upgrade head && alembic downgrade base && alembic upgrade head && alembic check && pytest -q"
-  after_script:
-    - docker rm --force --volumes "libris-ci-postgres-$CI_JOB_ID" >/dev/null 2>&1 || true
 
 frontend:
   stage: test
-  extends: .code-rules
+  extends: [.code-rules, .ci-containers]
+  timeout: 15 minutes
   cache:
     key:
       prefix: npm
@@ -110,7 +135,8 @@ frontend:
   script:
     # One container and one `npm ci`: the Playwright image also builds and audits the application.
     - >-
-      docker run --rm --ipc=host --volume "$CI_PROJECT_DIR:/work" --workdir /work/frontend
+      timeout --signal=TERM --kill-after=30s 12m
+      docker run --rm --name "libris-ci-frontend-$CI_JOB_ID" --label "libris-ci-job=$CI_JOB_ID" --init --ipc=host --volume "$CI_PROJECT_DIR:/work" --workdir /work/frontend
       --env CI=true --env npm_config_cache=/work/.cache/npm
       "$PLAYWRIGHT_IMAGE" sh -lc
       "npm ci --prefer-offline --no-audit --no-fund && npm run build && npm audit --omit=dev --audit-level=high && npx playwright test --grep-invert '@integration|@journey'"
@@ -143,13 +169,14 @@ e2e:
           printf 'BOOTSTRAP_USERNAME=admin\nBOOTSTRAP_PASSWORD=%s\n' "$LIBRIS_E2E_PASSWORD"
           printf 'BIND_ADDRESS=127.0.0.1\nPORT=0\nCOOKIE_SECURE=false\nALLOWED_ORIGINS=http://127.0.0.1:8088\n'
         } > "$LIBRIS_ENV_FILE" )
-    - docker build --build-arg VCS_REF="$CI_COMMIT_SHA" --tag "$LIBRIS_IMAGE" .
+    - timeout 15m docker build --build-arg VCS_REF="$CI_COMMIT_SHA" --tag "$LIBRIS_IMAGE" .
     - stack() { docker compose --env-file "$LIBRIS_ENV_FILE" --file docker-compose.yml --file docker-compose.test.yml --profile test "$@"; }
-    - stack up --detach --no-build --wait api
+    - timeout 5m docker compose --env-file "$LIBRIS_ENV_FILE" --file docker-compose.yml --file docker-compose.test.yml --profile test up --detach --no-build --wait api
     - stack up --detach --no-build worker mock-llm
     - API_CONTAINER="$(stack ps --quiet api)"
     - >-
-      docker run --rm --ipc=host --network "container:$API_CONTAINER"
+      timeout --signal=TERM --kill-after=30s 20m
+      docker run --rm --name "libris-ci-playwright-$CI_JOB_ID" --label "libris-ci-job=$CI_JOB_ID" --init --ipc=host --network "container:$API_CONTAINER"
       --volume "$CI_PROJECT_DIR:/work" --workdir /work/frontend
       --env CI=true --env npm_config_cache=/work/.cache/npm --env PLAYWRIGHT_HTML_OPEN=never
       --env LIBRIS_E2E_URL=http://127.0.0.1:8088 --env LIBRIS_E2E_CONFIRM_DISPOSABLE=1
@@ -158,9 +185,10 @@ e2e:
       "$PLAYWRIGHT_IMAGE" sh -lc
       "npm ci --prefer-offline --no-audit --no-fund && npx playwright test --grep @journey --reporter=list,html --trace=retain-on-failure"
   after_script:
-    - stack() { docker compose --project-name "libris-e2e-$CI_JOB_ID" --env-file "$CI_PROJECT_DIR/.e2e-$CI_JOB_ID.env" --file docker-compose.yml --file docker-compose.test.yml --profile test "$@"; }
-    - if [ "$CI_JOB_STATUS" = failed ]; then stack logs --no-color --tail 300 api worker mock-llm > e2e-services.log 2>&1 || true; fi
-    - stack down --volumes --remove-orphans --timeout 10 || true
+    - if [ "$CI_JOB_STATUS" = failed ]; then timeout 1m docker compose --project-name "libris-e2e-$CI_JOB_ID" --env-file "$CI_PROJECT_DIR/.e2e-$CI_JOB_ID.env" --file docker-compose.yml --file docker-compose.test.yml --profile test logs --no-color --tail 300 api worker mock-llm > e2e-services.log 2>&1 || true; fi
+    - timeout 2m docker compose --project-name "libris-e2e-$CI_JOB_ID" --env-file "$CI_PROJECT_DIR/.e2e-$CI_JOB_ID.env" --file docker-compose.yml --file docker-compose.test.yml --profile test down --volumes --remove-orphans --timeout 10 || true
+    - !reference [.ci-containers, after_script]
+    - docker ps --all --quiet --filter "label=com.docker.compose.project=libris-e2e-$CI_JOB_ID" | xargs --no-run-if-empty docker rm --force --volumes >/dev/null 2>&1 || true
     - docker image rm "libris-e2e:$CI_JOB_ID" >/dev/null 2>&1 || true
     - rm -f "$CI_PROJECT_DIR/.e2e-$CI_JOB_ID.env"
   artifacts:
@@ -171,6 +199,8 @@ e2e:
 # Always runs, documentation-only changes included: version pins live in the README and docs.
 audit:
   stage: test
+  extends: [.ci-containers, .reap-stale-containers]
+  timeout: 10 minutes
   variables:
     GIT_DEPTH: "0"
   cache:
@@ -178,11 +208,12 @@ audit:
     paths: [.cache/pip-audit/]
   script:
     - >-
-      docker run --rm --volume "$CI_PROJECT_DIR:/work" --workdir /work
+      timeout --signal=TERM --kill-after=30s 8m
+      docker run --rm --name "libris-ci-pip-audit-$CI_JOB_ID" --label "libris-ci-job=$CI_JOB_ID" --init --volume "$CI_PROJECT_DIR:/work" --workdir /work
       --env PIP_CACHE_DIR=/work/.cache/pip-audit --env PIP_DISABLE_PIP_VERSION_CHECK=1 --env PIP_ROOT_USER_ACTION=ignore
       "$PYTHON_IMAGE" sh -lc
       "python3 scripts/check_version.py && pip install -q pip-audit==2.9.0 && pip-audit -r backend/requirements.lock"
-    - docker run --rm --volume "$CI_PROJECT_DIR:/repo" "$GITLEAKS_IMAGE" git /repo --redact --no-banner
+    - timeout --signal=TERM --kill-after=30s 5m docker run --rm --name "libris-ci-gitleaks-$CI_JOB_ID" --label "libris-ci-job=$CI_JOB_ID" --init --volume "$CI_PROJECT_DIR:/repo" "$GITLEAKS_IMAGE" git /repo --redact --no-banner
   rules:
     - if: $CI_COMMIT_TAG
       when: never
@@ -190,13 +221,15 @@ audit:
 
 release-policy:
   stage: test
+  extends: .ci-containers
+  timeout: 10 minutes
   variables:
     GIT_DEPTH: "0"
   script:
     - git fetch --no-tags origin "$CI_DEFAULT_BRANCH:refs/remotes/origin/$CI_DEFAULT_BRANCH"
     - git merge-base --is-ancestor "$CI_COMMIT_SHA" "origin/$CI_DEFAULT_BRANCH"
     # Also fails early when CHANGELOG.md has no section for the tag: it becomes the release notes.
-    - docker run --rm --volume "$CI_PROJECT_DIR:/work" --workdir /work "$PYTHON_IMAGE" sh -c "python3 scripts/check_version.py \"$CI_COMMIT_TAG\" && python3 scripts/release_notes.py \"$CI_COMMIT_TAG\" >/dev/null"
+    - timeout --signal=TERM --kill-after=30s 5m docker run --rm --name "libris-ci-release-policy-$CI_JOB_ID" --label "libris-ci-job=$CI_JOB_ID" --init --volume "$CI_PROJECT_DIR:/work" --workdir /work "$PYTHON_IMAGE" sh -c "python3 scripts/check_version.py \"$CI_COMMIT_TAG\" && python3 scripts/release_notes.py \"$CI_COMMIT_TAG\" >/dev/null"
   rules:
     - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/
 
@@ -204,6 +237,7 @@ container-build:
   stage: build
   extends: .registry-login
   interruptible: false
+  timeout: 45 minutes
   script:
     # Every default-branch commit leaves two ~500 MB images on the shared runner. Drop this project's own
     # unused images after three days: they all remain in the registry, and nothing else on the runner is touched.
@@ -227,6 +261,7 @@ verified-image:
   stage: publish
   extends: .registry-login
   interruptible: false
+  timeout: 10 minutes
   script:
     - docker pull --quiet "$APP_IMAGE_REFERENCE"
     - docker tag "$APP_IMAGE_REFERENCE" "$CI_REGISTRY_IMAGE:verified-sha-$CI_COMMIT_SHA"
@@ -267,21 +302,22 @@ release-images:
 container-runtime:
   stage: verify
   extends: .pinned-images
+  timeout: 10 minutes
   needs:
     - job: container-build
       optional: true
     - job: release-images
       optional: true
   script:
-    - APP_VERSION="$(docker run --rm --entrypoint python "$APP_IMAGE_REFERENCE" -c 'import app; print(app.__version__)')"
+    - APP_VERSION="$(timeout --signal=TERM --kill-after=30s 2m docker run --rm --name "libris-ci-runtime-version-$CI_JOB_ID" --label "libris-ci-job=$CI_JOB_ID" --init --entrypoint python "$APP_IMAGE_REFERENCE" -c 'import app; print(app.__version__)')"
     - LABEL_VERSION="$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.version" }}' "$APP_IMAGE_REFERENCE")"
     - LABEL_REVISION="$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$APP_IMAGE_REFERENCE")"
     - test "$APP_VERSION" = "$LABEL_VERSION"
     - test "$LABEL_REVISION" = "$CI_COMMIT_SHA"
     - test "$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$CODEX_IMAGE_REFERENCE")" = "$CI_COMMIT_SHA"
     - test "$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.version" }}' "$CODEX_IMAGE_REFERENCE")" = "$APP_VERSION"
-    - docker run --rm --entrypoint codex "$CODEX_IMAGE_REFERENCE" --version
-    - docker run --rm --interactive --entrypoint python "$APP_IMAGE_REFERENCE" - < scripts/check_epubcheck.py
+    - timeout --signal=TERM --kill-after=30s 2m docker run --rm --name "libris-ci-runtime-codex-$CI_JOB_ID" --label "libris-ci-job=$CI_JOB_ID" --init --entrypoint codex "$CODEX_IMAGE_REFERENCE" --version
+    - timeout --signal=TERM --kill-after=30s 5m docker run --rm --name "libris-ci-runtime-epubcheck-$CI_JOB_ID" --label "libris-ci-job=$CI_JOB_ID" --init --interactive --entrypoint python "$APP_IMAGE_REFERENCE" - < scripts/check_epubcheck.py
   rules:
     - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
@@ -291,11 +327,13 @@ container-epubcheck:
   stage: verify
   extends: .registry-login
   needs: [container-build]
+  timeout: 15 minutes
   script:
     - docker pull --quiet "$APP_IMAGE_REFERENCE"
     # The image ships neither pip nor pytest: install them in this throwaway container only.
     - >-
-      docker run --rm --user root --entrypoint sh --env LIBRIS_REQUIRE_EPUBCHECK=1 "$APP_IMAGE_REFERENCE" -c
+      timeout --signal=TERM --kill-after=30s 10m
+      docker run --rm --name "libris-ci-epubcheck-$CI_JOB_ID" --label "libris-ci-job=$CI_JOB_ID" --init --user root --entrypoint sh --env LIBRIS_REQUIRE_EPUBCHECK=1 "$APP_IMAGE_REFERENCE" -c
       "python -m ensurepip >/dev/null && python -m pip install -q --disable-pip-version-check --root-user-action=ignore
       'pytest>=8' 'pytest-asyncio>=0.25' 'respx>=0.22' && python -m pytest -q -p no:cacheprovider -m epubcheck tests"
   rules:
@@ -305,6 +343,7 @@ container-scan:
   stage: verify
   extends: .pinned-images
   resource_group: libris-trivy-cache
+  timeout: 20 minutes
   needs:
     - job: container-build
       optional: true
@@ -314,7 +353,7 @@ container-scan:
     TRIVY_CACHE_VOLUME: libris-trivy-cache
   script:
     - docker volume create "$TRIVY_CACHE_VOLUME" >/dev/null
-    - trivy() { docker run --rm --env TMPDIR=/root/.cache/trivy --volume "$TRIVY_CACHE_VOLUME:/root/.cache/trivy" --volume /var/run/docker.sock:/var/run/docker.sock --volume "$CI_PROJECT_DIR:/out" "$TRIVY_IMAGE" "$@"; }
+    - trivy() { timeout --signal=TERM --kill-after=30s 10m docker run --rm --name "libris-ci-trivy-$CI_JOB_ID" --label "libris-ci-job=$CI_JOB_ID" --init --env TMPDIR=/root/.cache/trivy --volume "$TRIVY_CACHE_VOLUME:/root/.cache/trivy" --volume /var/run/docker.sock:/var/run/docker.sock --volume "$CI_PROJECT_DIR:/out" "$TRIVY_IMAGE" "$@"; }
     - trivy image --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 "$CODEX_IMAGE_REFERENCE"
     # One analysis of the application image gives both the gate and the SBOM (all packages, HIGH/CRITICAL
     # fixable findings); `convert` only reformats that report.
@@ -335,6 +374,7 @@ container-scan:
   stage: publish
   extends: .pinned-images
   interruptible: false
+  timeout: 20 minutes
   rules:
     - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/
 
@@ -361,6 +401,7 @@ publish-dockerhub:
 release-gitlab:
   stage: release
   interruptible: false
+  timeout: 5 minutes
   script:
     # Notes = the CHANGELOG section of this version only; a retried job updates the existing release.
     - python3 scripts/release_notes.py "$CI_COMMIT_TAG" --publish

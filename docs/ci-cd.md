@@ -6,6 +6,8 @@ GitLab at `git.hbtz.fr/HeartBtz/libris` is the canonical repository and release 
 
 All jobs run on the CT105 shell runner and start their tools with `docker run`; containers, networks and Compose projects are named after `$CI_JOB_ID` so that up to eight concurrent jobs never collide.
 
+Cancelling or killing a job only kills the `docker` client of the shell runner: the container it started keeps running. So every container a job starts is named `libris-ci-<role>-$CI_JOB_ID`, carries the label `libris-ci-job=$CI_JOB_ID` and runs under `--init`; every test command is wrapped in `timeout --signal=TERM --kill-after=30s <limit>` (the TERM reaches the container through `--init`), and every job has its own `timeout:` (5 to 45 minutes). The `after_script` of each job, which GitLab also runs on cancellation, removes every container with the job's label (`docker ps --all --quiet --filter label=libris-ci-job=$CI_JOB_ID | xargs docker rm --force --volumes`); `e2e` also takes its Compose project down. As a last resort, `audit` (which runs in every pipeline) removes any `libris-ci-job` container or `libris-e2e-*` stack older than two hours. To clean by hand: `docker ps --all --filter label=libris-ci-job`.
+
 | Pipeline | Jobs |
 | --- | --- |
 | Merge request, branch | `backend` (Ruff + pytest on SQLite), `backend-postgres` (migration round trip + pytest on PostgreSQL), `frontend` (build, `npm audit`, Playwright specs that mock the API), `e2e` (user journey against the Compose stack), `audit` (version consistency, `pip-audit`, Gitleaks) |

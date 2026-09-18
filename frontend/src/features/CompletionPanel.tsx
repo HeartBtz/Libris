@@ -75,10 +75,12 @@ export function CompletionPanel({
   project,
   run,
   refresh,
+  tick = 0,
 }: {
   project: Project;
   run: Run;
   refresh: () => void;
+  tick?: number;
 }) {
   const { t } = useI18n();
   const [report, setReport] = useState<Report | null>(null);
@@ -109,7 +111,7 @@ export function CompletionPanel({
     return () => {
       active = false;
     };
-  }, [project.id, reload, run]);
+  }, [project.id, reload, tick, run]);
   if (!report) return <p role="status">{t("Chargement du bilan…")}</p>;
   const visible = report.recovery.filter(
     (s) => filter === "all" || s.status === filter,

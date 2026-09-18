@@ -206,13 +206,17 @@ export function Editor({
     setSelected(null);
   }, [chapter.id]);
   useEffect(() => {
-    void run.background(async () =>
-      setSegments(
-        await api(
-          `/projects/${project.id}/segments?chapter_id=${chapter.id}&status=${filter}&offset=${offset}&limit=50`,
-        ),
-      ),
-    );
+    // A slow answer for the previous chapter, filter or page must never replace the current list.
+    let active = true;
+    void run.background(async () => {
+      const loaded = await api<Segment[]>(
+        `/projects/${project.id}/segments?chapter_id=${chapter.id}&status=${filter}&offset=${offset}&limit=50`,
+      );
+      if (active) setSegments(loaded);
+    });
+    return () => {
+      active = false;
+    };
   }, [project.id, chapter.id, filter, offset, tick, run]);
   async function chapterAction() {
     await send(`/projects/${project.id}/jobs`, {

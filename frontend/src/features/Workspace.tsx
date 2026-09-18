@@ -1,4 +1,11 @@
-import { lazy, Suspense, useCallback, useEffect, useState } from "react";
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import { api, date, labels, responseError, send } from "../api";
 import { getLocale, registerTranslations, useI18n } from "../i18n";
 import type { Chapter, Job, Project, Run, Segment, User } from "../types";
@@ -142,7 +149,10 @@ export function Workspace({
   const [refreshing, setRefreshing] = useState(false);
   const [refreshedAt, setRefreshedAt] = useState("");
   const [streamState, setStreamState] = useState(t("Connexion au suivi…"));
+  const loadSequence = useRef(0);
   const load = useCallback(async () => {
+    // Loads overlap while a job emits events: only the most recent request may update the screen.
+    const sequence = ++loadSequence.current;
     setRefreshing(true);
     try {
       const [p, c, j] = await Promise.all([
@@ -150,13 +160,14 @@ export function Workspace({
         api<Chapter[]>(`/projects/${id}/chapters`),
         api<Job[]>(`/projects/${id}/jobs`),
       ]);
+      if (sequence !== loadSequence.current) return;
       setProject(p);
       setChapters(c);
       setJobs(j);
       setChapter((previous) => previous || c[0]?.id || "");
       setRefreshedAt(new Date().toLocaleTimeString(getLocale()));
     } finally {
-      setRefreshing(false);
+      if (sequence === loadSequence.current) setRefreshing(false);
     }
   }, [id]);
   useEffect(() => {
@@ -661,6 +672,7 @@ export function Workspace({
                   project={project}
                   run={run}
                   refresh={refresh}
+                  tick={tick}
                 />
               ) : tab === "validations" ? (
                 <ValidationPanel

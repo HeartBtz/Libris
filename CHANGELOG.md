@@ -7,6 +7,7 @@ All notable changes are documented here. Libris follows [Semantic Versioning](ht
 ### Fixed
 
 - **Edit conflicts in the editor.** When a running job delivered a new version of a passage while you were typing, every save was refused (HTTP 409) and nothing let you get out of it short of reloading the page. The notice now offers two explicit choices: reload the server version, or keep your text and save it over the latest version (#23).
+- **No more out-of-date answers on screen.** Switching chapter, filter or page quickly while the server was slow could show the previous chapter's passages under the new chapter title, and overlapping refreshes could leave the book header in a past state. Only the most recent request now updates the screen. The completion report also follows the job's progress and no longer needs a manual "Actualiser le bilan" to re-enable "Relancer la sélection" (#24).
 
 ## [0.4.0] - 2026-09-18
 

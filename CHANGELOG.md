@@ -2,6 +2,16 @@
 
 All notable changes are documented here. Libris follows [Semantic Versioning](https://semver.org/); while the project is below 1.0, minor versions may include breaking operational changes that are called out explicitly.
 
+## [Unreleased]
+
+### Changed
+
+- Removed the unused "structured error codes" module and circuit-breaker helpers announced in 0.3.4: nothing ever called them and their retry tables contradicted the real behaviour, which is the one described under *Automatic provider recovery* in 0.4.0 (#27).
+
+### Fixed
+
+- `WORKER_HEARTBEAT_SECONDS` and `MEMORY_CATALOG_INTERVAL_SECONDS` are now honoured by the worker (they were declared but ignored); out-of-range values are refused at start-up (#27).
+
 ## [0.4.0] - 2026-09-18
 
 A maintenance release coming out of a full audit of the application and of its production instance. It fixes the EPUB 3 export failures, makes the worker and provider recovery robust, stops two disk-space leaks, and repairs a number of interface defects. It is a minor version because a few behaviours change on purpose: sessions now last the documented 24 hours by default (`SESSION_DURATION_HOURS`), the live event stream of a book no longer replays its history, starting a job on a busy book answers HTTP 409, and "Configure selection" no longer overrides languages and qualities you did not set. No database migration is included.

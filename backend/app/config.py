@@ -28,8 +28,9 @@ class Settings(BaseSettings):
     codex_bridge_url: str = "http://codex:8092"
     codex_bridge_token: str = ""
     prompt_dir: Path = Path(__file__).resolve().parents[2] / "prompts"
-    worker_heartbeat_seconds: int = 2
-    memory_catalog_interval_seconds: int = 60
+    # The job lease lasts 60 s: the heartbeat that renews it must stay well below.
+    worker_heartbeat_seconds: int = Field(default=2, ge=1, le=20)
+    memory_catalog_interval_seconds: int = Field(default=60, ge=10, le=86400)
     provider_recovery_base_seconds: int = 60
     provider_recovery_max_seconds: int = 3600
 

@@ -1,4 +1,4 @@
-"""Enhanced provider reliability with exponential backoff and circuit breaker."""
+"""Retry delay for provider outages: exponential backoff, jitter and Retry-After."""
 
 import math
 import random
@@ -39,37 +39,3 @@ def calculate_retry_delay(
         delay = min(int(backoff + random.uniform(0, backoff * 0.1)), max_delay)
     requested = math.ceil(retry_after) if math.isfinite(retry_after) and retry_after > 0 else 0
     return max(delay, min(requested, RETRY_AFTER_CEILING))
-
-
-def should_circuit_break(outage_count: int, threshold: int = 10) -> bool:
-    """
-    Determine if circuit breaker should trip.
-
-    Args:
-        outage_count: Number of consecutive failures
-        threshold: Failure count threshold for circuit breaker
-
-    Returns:
-        True if circuit should break (stop retrying)
-    """
-    return outage_count >= threshold
-
-
-def error_matches_pattern(errors: list[str]) -> bool:
-    """
-    Detect if recent errors show a repeating pattern.
-
-    Args:
-        errors: List of recent error messages
-
-    Returns:
-        True if errors show same pattern (indicating systemic issue)
-    """
-    if len(errors) < 3:
-        return False
-
-    # Extract error prefixes (first 100 chars) for pattern matching
-    patterns = [e[:100] for e in errors]
-
-    # Check if all patterns are identical
-    return len(set(patterns)) == 1

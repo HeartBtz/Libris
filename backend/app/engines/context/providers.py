@@ -29,8 +29,18 @@ def words(text: str) -> set[str]:
     return {w.casefold() for w in re.findall(r"[^\W\d_]{3,}", text, re.UNICODE)}
 
 
+QUERY_LABELS = re.compile(r"^(Entities|Nearby source|Passage|Specific information needs):", re.M)
+
+
+def book_words(query: str) -> set[str]:
+    # The retrieval query opens with an instruction for the semantic search service. Lexically it is
+    # noise: "relationships", "objects" or "known" would match memories whatever the passage says.
+    start = QUERY_LABELS.search(query)
+    return words(QUERY_LABELS.sub("", query[start.start() :])) if start else words(query)
+
+
 def relevance(text: str, query: str) -> float:
-    a, b = words(text), words(query)
+    a, b = words(text), book_words(query)
     return len(a & b) / max(1, min(len(a), len(b)))
 
 

@@ -5,7 +5,7 @@ import secrets
 import time
 from typing import Annotated
 
-from cryptography.fernet import Fernet
+from cryptography.fernet import Fernet, InvalidToken
 from fastapi import Cookie, Depends, HTTPException
 from sqlalchemy.orm import Session
 
@@ -34,8 +34,15 @@ def encrypt(value: str) -> str:
     return cipher().encrypt(value.encode()).decode() if value else ""
 
 
+class SecretUnreadable(Exception):
+    """A stored secret was encrypted with another SECRET_KEY (restored database, rotated key)."""
+
+
 def decrypt(value: str) -> str:
-    return cipher().decrypt(value.encode()).decode() if value else ""
+    try:
+        return cipher().decrypt(value.encode()).decode() if value else ""
+    except InvalidToken as exc:
+        raise SecretUnreadable from exc
 
 
 def current_user(db: DB, epub_session: str | None = Cookie(default=None)) -> User:

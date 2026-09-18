@@ -20,7 +20,7 @@ from app.providers.codex import bridge_call
 from app.providers.refusals import refusal_http, refusal_reason
 from app.providers.tracing import compact_parameters, compact_trace
 from app.providers.transports import endpoint, generation_parameters, normalize_response, wire_payload
-from app.security import decrypt
+from app.security import SecretUnreadable, decrypt
 
 T = TypeVar("T", bound=BaseModel)
 logger = logging.getLogger("epub.llm")
@@ -112,7 +112,13 @@ class OpenAIProvider:
 
     @staticmethod
     def headers(provider: Provider) -> dict:
-        key = decrypt(provider.encrypted_key)
+        try:
+            key = decrypt(provider.encrypted_key)
+        except SecretUnreadable as exc:
+            raise ProviderAuthenticationRequired(
+                f"La clé API enregistrée pour « {provider.name} » ne peut plus être déchiffrée : SECRET_KEY a "
+                "changé depuis son enregistrement. Ressaisissez la clé dans les paramètres du fournisseur."
+            ) from exc
         if provider.kind == "anthropic":
             return {"x-api-key": key, "anthropic-version": "2023-06-01"}
         return {"Authorization": f"Bearer {key}"} if key else {}
@@ -135,6 +141,7 @@ class OpenAIProvider:
             provider = db.get(Provider, provider_id)
             if not provider:
                 raise LLMError("Provider non configuré.")
+        self.headers(provider)  # an unreadable stored key is an authentication problem, not a bad answer
         schema = json_schema(response_model)
         context = {
             **(context or {}),

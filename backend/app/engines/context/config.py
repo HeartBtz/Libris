@@ -1,7 +1,11 @@
+import logging
+
 from app.config import settings
 from app.db import SessionLocal
 from app.models import AppSetting
-from app.security import decrypt
+from app.security import SecretUnreadable, decrypt
+
+logger = logging.getLogger("epub.memory")
 
 
 def memory_config() -> dict:
@@ -25,5 +29,10 @@ def memory_config() -> dict:
         if saved:
             result.update({k: v for k, v in saved.value.items() if k != "encrypted_key"})
             if "encrypted_key" in saved.value:
-                result["api_key"] = decrypt(saved.value["encrypted_key"])
+                try:
+                    result["api_key"] = decrypt(saved.value["encrypted_key"])
+                except SecretUnreadable:
+                    # Translation must not stop because the optional memory service lost its key.
+                    logger.warning("openviking=disabled reason=stored_key_unreadable_secret_key_changed")
+                    result.update(api_key="", enable_search=False, enable_deep_search=False)
     return result

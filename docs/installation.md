@@ -14,7 +14,7 @@ Run `python3 scripts/setup.py` in the repository root. It generates independent 
 | `COOKIE_SECURE`                            | Use `true` behind HTTPS, `false` for local HTTP                          |
 | `SESSION_DURATION_HOURS`                   | Lifetime of a login session; defaults to `24`                            |
 | `FORWARDED_ALLOW_IPS`                      | Address of your reverse proxy, so that real client addresses are used (login throttling, logs) |
-| `SECRET_KEY`                               | Persistent application encryption key; retain with backups               |
+| `SECRET_KEY`                               | Persistent application encryption key; retain with backups. If it changes, stored provider keys can no longer be read: Libris asks you to enter them again |
 | `BOOTSTRAP_USERNAME`, `BOOTSTRAP_PASSWORD` | First administrator, created only on an empty database                   |
 | `POSTGRES_PASSWORD`                        | PostgreSQL initialization and connection password                        |
 | `CODEX_BRIDGE_TOKEN`                       | Private API-to-bridge authentication secret                              |

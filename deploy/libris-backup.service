@@ -1,0 +1,18 @@
+[Unit]
+Description=Libris backup: PostgreSQL dump and books volume, verified, with rotation
+Documentation=https://git.hbtz.fr/dev/libris/-/blob/main/docs/backup.md
+Wants=docker.service network-online.target
+After=docker.service network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/libris-backup.conf
+ExecStart=/usr/local/sbin/libris-backup
+# A backup must never slow the translation work down.
+Nice=10
+IOSchedulingClass=idle
+TimeoutStartSec=3h
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=full

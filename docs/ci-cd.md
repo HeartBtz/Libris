@@ -98,7 +98,8 @@ A successful deployment then removes the Libris images that are neither deployed
 | `/opt/libris-production/docker-compose.yml` | the Compose file the procedure drives; it is the repository `docker-compose.yml`, unmodified | operator |
 | `/opt/libris-production/current-*` | deployed version, commit and image IDs | the procedure, after each successful deployment |
 | `/opt/libris-production/backups/pre-*.dump` | the five most recent pre-deployment PostgreSQL dumps (several GB each) | the procedure |
-| `/opt/epub-translator/.env` | secrets; never stored anywhere else | operator |
+| `/opt/epub-translator/.env` | secrets; never stored anywhere else (the scheduled backup copies it only with `LIBRIS_BACKUP_INCLUDE_ENV=true`) | operator |
+| `/usr/local/sbin/libris-backup`, `libris-restore`, `/etc/systemd/system/libris-backup.{service,timer}`, `/etc/libris-backup.conf` | daily verified backup to another host and restore test ([backup](backup.md)) | operator |
 | `/etc/libris-registry/config.json` | read-only registry credentials | operator |
 
 `/opt/libris-production` holds multi-gigabyte dumps: when disk space is short, delete old files inside `backups/`, never the directory itself. Without `docker-compose.yml` the next `deploy-production` job stops with `Production configuration is not provisioned` (exit 65) before touching anything; the running containers are unaffected.

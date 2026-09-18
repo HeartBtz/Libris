@@ -1,0 +1,74 @@
+#!/usr/bin/env bash
+# Scheduled Libris backup: PostgreSQL dump, archive of the books volume and configuration, verified
+# before it counts, then rotation. Settings come from the environment (libris-backup.service loads
+# /etc/libris-backup.conf); see docs/backup.md.
+set -euo pipefail
+umask 077
+
+destination="${LIBRIS_BACKUP_DESTINATION:-}"
+mountpoint_required="${LIBRIS_BACKUP_MOUNTPOINT:-}"
+retention_days="${LIBRIS_BACKUP_RETENTION_DAYS:-14}"
+project="${LIBRIS_BACKUP_PROJECT:-epub-translator}"
+books_volume="${LIBRIS_BACKUP_BOOKS_VOLUME:-${project}_books}"
+secret_env="${LIBRIS_BACKUP_SECRET_ENV:-/opt/epub-translator/.env}"
+include_env="${LIBRIS_BACKUP_INCLUDE_ENV:-false}"
+
+fail() {
+	echo "Libris backup failed: $*" >&2
+	exit 1
+}
+
+[[ -n "$destination" ]] || fail "LIBRIS_BACKUP_DESTINATION is not set"
+[[ "$retention_days" =~ ^[1-9][0-9]*$ ]] || fail "LIBRIS_BACKUP_RETENTION_DAYS must be a positive number of days"
+# A remote share that is not mounted leaves an empty local directory behind: writing there would fill
+# the production disk with backups that do not survive its loss.
+if [[ -n "$mountpoint_required" ]]; then
+	mountpoint -q "$mountpoint_required" || fail "$mountpoint_required is not mounted"
+fi
+[[ -d "$destination" && -w "$destination" ]] || fail "$destination is not a writable directory"
+
+database="$(docker ps --quiet --filter "label=com.docker.compose.project=$project" --filter label=com.docker.compose.service=database)"
+[[ -n "$database" && "$database" != *$'\n'* ]] || fail "the running database container of Compose project $project was not found"
+docker volume inspect "$books_volume" >/dev/null 2>&1 || fail "volume $books_volume does not exist"
+# The database image is already on the host and has pg_restore, tar and gzip.
+tools_image="$(docker inspect --format '{{.Config.Image}}' "$database")"
+
+name="libris-$(date -u +%Y%m%dT%H%M%SZ)"
+work="$destination/.$name.partial"
+mkdir "$work"
+trap 'rm -rf "$work"' EXIT
+
+# Database first: a book file written after the dump is harmless, a database row without its file is not.
+docker exec "$database" sh -c 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc' > "$work/database.dump" \
+	|| fail "pg_dump failed"
+# Streamed through the host: the destination may be a network share that containers cannot write to.
+docker run --rm --network none --volume "$books_volume:/data:ro" --entrypoint tar "$tools_image" \
+	-czf - -C /data . > "$work/books.tar.gz" || fail "archiving volume $books_volume failed"
+if [[ "$include_env" == true ]]; then
+	cp "$secret_env" "$work/config.env" || fail "copying $secret_env failed"
+fi
+cat > "$work/backup.info" <<INFO
+created=$name
+project=$project
+books_volume=$books_volume
+database_image=$tools_image
+libris_version=$(cat "${LIBRIS_PRODUCTION_BASE:-/opt/libris-production}/current-version" 2>/dev/null || echo unknown)
+INFO
+
+# Verified before it counts: both files are read back entirely (`pg_restore --list` alone would accept
+# a truncated dump).
+[[ -s "$work/database.dump" && -s "$work/books.tar.gz" ]] || fail "empty dump or archive"
+docker run --rm --interactive --network none --entrypoint pg_restore "$tools_image" -f /dev/null \
+	< "$work/database.dump" || fail "the dump cannot be read back"
+docker run --rm --interactive --network none --entrypoint tar "$tools_image" -tzf - \
+	< "$work/books.tar.gz" > /dev/null || fail "the books archive cannot be read back"
+(cd "$work" && sha256sum -- * > SHA256SUMS) || fail "checksums could not be written"
+
+mv "$work" "$destination/$name"
+trap - EXIT
+echo "Libris backup $destination/$name written and verified ($(du -sh "$destination/$name" | cut -f1))"
+
+# Rotation only after a verified backup, so a failing job never deletes the last good ones.
+find "$destination" -mindepth 1 -maxdepth 1 -type d -name 'libris-*Z' -mtime "+$((retention_days - 1))" \
+	-not -name "$name" -print -exec rm -rf {} + | sed 's/^/Removed expired backup /'
+find "$destination" -mindepth 1 -maxdepth 1 -type d -name '.libris-*.partial' -mmin +1440 -exec rm -rf {} +

@@ -104,7 +104,7 @@ The Compose project name remains `epub-translator` for compatibility with existi
 
 ## Backups and recovery
 
-For a consistent backup, pause jobs and stop `api` and `worker` during capture. Store backups outside the repository with restricted permissions.
+For daily, verified backups to another host with rotation and a restore test, install the scheduled backup described in [backup and restore](backup.md). For a one-off manual backup, pause jobs and stop `api` and `worker` during capture. Store backups outside the repository with restricted permissions.
 
 ```bash
 mkdir -p backups

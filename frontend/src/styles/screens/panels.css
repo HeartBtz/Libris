@@ -580,3 +580,83 @@
   min-width: 0;
   overflow-wrap: anywhere;
 }
+
+/* API tokens (account and settings) */
+.token-list {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.token-list li {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+  min-width: 0;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.token-list li:last-child {
+  border-bottom: 0;
+}
+
+.token-main {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-2);
+  min-width: 0;
+}
+
+.token-main small {
+  flex-basis: 100%;
+}
+
+@media (max-width: 720px) {
+  .token-list li {
+    flex-wrap: wrap;
+  }
+}
+
+.token-scopes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+
+.token-scope-picker {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: var(--space-2) var(--space-4);
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.token-scope-picker legend {
+  margin-bottom: var(--space-2);
+  font-weight: 600;
+}
+
+.endpoint-list {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-3);
+}
+
+.endpoint-list div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.endpoint-list dd {
+  margin: 0;
+}
+
+.endpoint-list code {
+  overflow-wrap: anywhere;
+}

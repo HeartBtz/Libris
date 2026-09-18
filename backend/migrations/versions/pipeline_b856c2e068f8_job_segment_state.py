@@ -1,5 +1,7 @@
 """Per-passage job state moves from `jobs.checkpoint` to `job_segment_state`; checkpoints keep a cursor.
 
+`jobs.finished_at` records when a job ended, so that the retention can prune the state of old jobs.
+
 Existing checkpoints are converted in place, so a paused job resumes without retranslating anything and
 the review history of finished jobs stays visible. The downgrade rebuilds the former lists.
 """
@@ -78,6 +80,8 @@ def upgrade():
         sa.Column("data", sa.JSON(), nullable=False),
         sa.PrimaryKeyConstraint("job_id", "step", "segment_id", "key"),
     )
+    # Jobs finished before this migration count from their creation for the retention of their state.
+    op.add_column("jobs", sa.Column("finished_at", sa.Float(), nullable=True))
     connection = op.get_bind()
     for job_id in connection.execute(sa.select(jobs.c.id)).scalars().all():
         # One at a time: a production checkpoint reached 443 KB.
@@ -123,3 +127,5 @@ def downgrade():
         checkpoint.update(rebuilt.get(job_id, {}))
         connection.execute(jobs.update().where(jobs.c.id == job_id).values(checkpoint=checkpoint))
     op.drop_table("job_segment_state")
+    with op.batch_alter_table("jobs") as batch:
+        batch.drop_column("finished_at")

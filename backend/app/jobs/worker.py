@@ -94,7 +94,7 @@ def _suspend_safely(job_id: str, *arguments) -> None:
 def _complete(job_id: str, owner: str, project_id: str) -> None:
     with SessionLocal() as db:
         current = fence(db, job_id, owner)
-        current.status = "completed"
+        current.status, current.finished_at = "completed", time.time()
         current.next_attempt, current.outage_count, current.stop_reason = 0, 0, ""
         project = db.get(Project, project_id)
         incomplete = db.scalar(
@@ -199,6 +199,7 @@ async def execute(job_id: str, owner: str) -> None:
             current = db.get(Job, job_id)
             if current and current.lease_owner == owner and current.status not in {"paused", "cancelled"}:
                 current.status, current.error = "failed", str(exc)[:1500]
+                current.finished_at = time.time()
                 db.get(Project, job.project_id).status = "failed"
                 emit(db, job.project_id, job_id=job_id, status="failed", error=current.error)
                 db.commit()

@@ -43,6 +43,7 @@ class Settings(BaseSettings):
     retention_events_days: int = Field(default=7, ge=0)
     retention_outbox_sent_days: int = Field(default=7, ge=0)
     retention_bible_revisions: int = Field(default=20, ge=0)
+    retention_job_state_days: int = Field(default=30, ge=0)
 
     def prepare(self) -> None:
         for name in ("books", "projects", "exports"):

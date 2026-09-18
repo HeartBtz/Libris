@@ -36,6 +36,8 @@ class Job(Identified, Base):
     next_attempt: Mapped[float] = mapped_column(Float, default=0, server_default="0")
     outage_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     stop_reason: Mapped[str] = mapped_column(String(40), default="", server_default="")
+    # When the job last became completed, failed or cancelled; bounds the retention of its state.
+    finished_at: Mapped[float | None] = mapped_column(Float)
 
 
 class Event(Base):

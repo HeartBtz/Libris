@@ -50,6 +50,15 @@ def test_legacy_checkpoints_become_rows_and_come_back_on_downgrade(tmp_path):
     }
     with sqlite3.connect(database) as connection:
         connection.execute(
+            "INSERT INTO users (id, created_at, username, password_hash, admin) VALUES ('u1', 0, 'u', 'x', 1)"
+        )
+        connection.execute(
+            "INSERT INTO projects (id, created_at, owner_id, title, author, source_language, target_language,"
+            " quality, context_backend, status, original_hash, original_path, book_info, config, instructions,"
+            " bible, bible_validated, memory_revision, updated_at) VALUES ('p1', 0, 'u1', 't', '', 'en', 'fr',"
+            " 'fast', 'internal', 'paused', '0', '/dev/null', '{}', '{}', '', '{}', 0, 0, 0)"
+        )
+        connection.execute(
             "INSERT INTO jobs (id, created_at, project_id, operation, status, options, checkpoint, lease_owner,"
             " lease_until, attempts, error, next_attempt, outage_count, stop_reason)"
             " VALUES ('j1', 0, 'p1', 'translate', 'paused', '{}', ?, '', 0, 1, '', 0, 0, '')",

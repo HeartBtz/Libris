@@ -24,7 +24,7 @@ Run `python3 scripts/setup.py` in the repository root. It generates independent 
 | `WORKER_BOOK_PARALLELISM`                  | Passages of one book translated or reviewed at once; `0` (default) follows the provider's `max_concurrency`, shared between the books using it, `1` processes one passage at a time (0–16) |
 | `MEMORY_CATALOG_INTERVAL_SECONDS`          | Interval of the external-memory catalogue refresh; `60` (10–86400)       |
 | `PROVIDER_RECOVERY_BASE_SECONDS`, `PROVIDER_RECOVERY_MAX_SECONDS` | First and longest wait before retrying an unavailable provider; `60` and `3600` |
-| `RETENTION_REQUEST_BODIES_DAYS`, `RETENTION_EVENTS_DAYS`, `RETENTION_OUTBOX_SENT_DAYS`, `RETENTION_BIBLE_REVISIONS` | Automatic clean-up of diagnostic data (`30`, `7`, `7`, `20`; `0` disables a rule) — see the operations guide |
+| `RETENTION_REQUEST_BODIES_DAYS`, `RETENTION_EVENTS_DAYS`, `RETENTION_OUTBOX_SENT_DAYS`, `RETENTION_BIBLE_REVISIONS`, `RETENTION_JOB_STATE_DAYS` | Automatic clean-up of diagnostic data (`30`, `7`, `7`, `20`, `30`; `0` disables a rule) — see the operations guide |
 
 Changing bootstrap credentials does not reset an existing account. Changing the database password in `.env` does not change an initialized PostgreSQL role's password.
 

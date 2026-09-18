@@ -89,6 +89,13 @@ class BatchExportInput(StrictModel):
     project_ids: list[str] = Field(min_length=1, max_length=100)
 
 
+class TextBatchExportInput(BatchExportInput):
+    # Unfinished volumes keep their untranslated passages in the original; the manifests say which.
+    allow_source: bool = False
+    # Each volume folder also holds its chapters in one file.
+    consolidated: bool = False
+
+
 class GlossaryTerm(StrictModel):
     """A term as exchanged in glossary files (JSON, CSV, TBX)."""
 

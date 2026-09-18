@@ -305,6 +305,7 @@ TEMPLATES = {
     "« {name} » : {error}": "“{name}”: {error}",
     "« {title} » est archivé : aucun travail lancé.": "“{title}” is archived: no job started.",
     "Aucun provider pour « {title} » : choisissez-en un, puis lancez l’analyse.": "No provider for “{title}”: choose one, then start the analysis.",
+    "« {title} » a été importé depuis des fichiers texte, pas depuis un EPUB : exportez-le en TXT, en ZIP de chapitres ou en Markdown.": "“{title}” was imported from text files, not from an EPUB: export it as TXT, as a ZIP of chapters or as Markdown.",
 }  # fmt: skip
 
 

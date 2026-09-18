@@ -81,6 +81,7 @@ async def translation_call(
             context=built.inspector,
             validator=validate,
             temperature=0.15 if operation == "translation_revision" else None,
+            use_cache=not job.options.get("force"),
         )
     except InvalidResponseExhausted:
         from app.engines.translation.repair import repair_translation

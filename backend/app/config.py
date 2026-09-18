@@ -24,6 +24,8 @@ class Settings(BaseSettings):
     final_review_enabled: bool = True
     openviking_root_uri: str = "viking://resources/epub-translator"
     epubcheck_jar: str = ""
+    epubcheck_concurrency: int = Field(default=2, ge=1, le=16)
+    epubcheck_max_heap_mb: int = Field(default=1024, ge=128, le=16384)
     frontend_dir: Path = Path("/app/frontend/dist")
     codex_bridge_url: str = "http://codex:8092"
     codex_bridge_token: str = ""

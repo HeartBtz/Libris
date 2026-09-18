@@ -216,6 +216,7 @@ docker compose logs --since=5m api worker
 - [Installation, configuration, updates, backup and removal](docs/installation.md)
 - [Docker deployment for beginners](docs/docker.md)
 - [GitLab CI/CD, Docker registries and GitHub mirror](docs/ci-cd.md)
+- [Automation API (`/api/v1`)](docs/api.md)
 - [Architecture](docs/architecture.md)
 - [Compatibility matrix](docs/compatibility.md)
 - [Operations](docs/operations.md)

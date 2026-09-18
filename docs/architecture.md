@@ -10,7 +10,7 @@
 - `engines/translation` : analyse hiérarchique, versions, orchestration, contrôle global, traduction par parties (`repair.py`) et mémoire de traduction (`memory.py`).
 - `engines/quality` : identifiants d’unités, codes DOM, sorties vides, longueur, répétition, texte inchangé et terminologie.
 - `jobs` : prise en charge transactionnelle, bail, fencing, événements persistants, reprise, état par passage (`segment_state`) et exécution hors de la boucle asyncio (`concurrency`).
-- `api` : authentification, autorisations, projets, édition, paramètres, exports et SSE.
+- `api` : authentification, autorisations, projets, édition, paramètres, exports et SSE ; `api/v1.py` + `api/tokens.py` : API d’automatisation par jetons (voir [api.md](api.md)), dont les requêtes attendent en SQL que leur volume soit libre (`jobs/requests.py`, répartiteur du worker).
 
 ## Modèle SQL
 

@@ -185,10 +185,16 @@ e2e:
       "$PLAYWRIGHT_IMAGE" sh -lc
       "npm ci --prefer-offline --no-audit --no-fund && npx playwright test --grep @journey --reporter=list,html --trace=retain-on-failure"
   after_script:
-    - if [ "$CI_JOB_STATUS" = failed ]; then timeout 1m docker compose --project-name "libris-e2e-$CI_JOB_ID" --env-file "$CI_PROJECT_DIR/.e2e-$CI_JOB_ID.env" --file docker-compose.yml --file docker-compose.test.yml --profile test logs --no-color --tail 300 api worker mock-llm > e2e-services.log 2>&1 || true; fi
-    - timeout 2m docker compose --project-name "libris-e2e-$CI_JOB_ID" --env-file "$CI_PROJECT_DIR/.e2e-$CI_JOB_ID.env" --file docker-compose.yml --file docker-compose.test.yml --profile test down --volumes --remove-orphans --timeout 10 || true
+    # after_script runs in a fresh shell: the variables Compose interpolates must be set again,
+    # or `down` stops on the missing default `.env` and leaves the network and volumes behind.
+    - export LIBRIS_ENV_FILE="$CI_PROJECT_DIR/.e2e-$CI_JOB_ID.env" LIBRIS_IMAGE="libris-e2e:$CI_JOB_ID"
+    - touch "$LIBRIS_ENV_FILE"
+    - if [ "$CI_JOB_STATUS" = failed ]; then timeout 1m docker compose --project-name "libris-e2e-$CI_JOB_ID" --env-file "$LIBRIS_ENV_FILE" --file docker-compose.yml --file docker-compose.test.yml --profile test logs --no-color --tail 300 api worker mock-llm > e2e-services.log 2>&1 || true; fi
+    - timeout 2m docker compose --project-name "libris-e2e-$CI_JOB_ID" --env-file "$LIBRIS_ENV_FILE" --file docker-compose.yml --file docker-compose.test.yml --profile test down --volumes --remove-orphans --timeout 10 || true
     - !reference [.ci-containers, after_script]
     - docker ps --all --quiet --filter "label=com.docker.compose.project=libris-e2e-$CI_JOB_ID" | xargs --no-run-if-empty docker rm --force --volumes >/dev/null 2>&1 || true
+    - docker volume ls --quiet --filter "label=com.docker.compose.project=libris-e2e-$CI_JOB_ID" | xargs --no-run-if-empty docker volume rm --force >/dev/null 2>&1 || true
+    - docker network ls --quiet --filter "label=com.docker.compose.project=libris-e2e-$CI_JOB_ID" | xargs --no-run-if-empty docker network rm >/dev/null 2>&1 || true
     - docker image rm "libris-e2e:$CI_JOB_ID" >/dev/null 2>&1 || true
     - rm -f "$CI_PROJECT_DIR/.e2e-$CI_JOB_ID.env"
   artifacts:

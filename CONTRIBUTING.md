@@ -21,7 +21,7 @@ npm --prefix frontend exec vite preview -- --host 127.0.0.1 --port 4173
 SHOWCASE_URL=http://127.0.0.1:4173 npm --prefix frontend run test:e2e -- showcase.spec.ts
 ```
 
-The release screenshots under `docs/screenshots/` must come from a disposable API-backed installation containing only fictional EPUBs. Inspect them before committing. Never use a production library or credentials.
+The screenshots under `docs/screenshots/` come from `frontend/e2e/showcase.spec.ts`, which runs against mocked API answers with fictional books (`npx vite build && CI=1 SHOWCASE_SCREENSHOT_DIR=../docs/screenshots npx playwright test e2e/showcase.spec.ts`). `e2e/documentation.spec.ts` can capture the same views from a disposable API-backed installation containing only fictional EPUBs. Inspect them before committing. Never use a production library or credentials.
 
 Other E2E/smoke scripts operate on a running installation and may create/delete test projects. Run them only in an isolated test deployment, following the French user guide. Do not point them at production.
 

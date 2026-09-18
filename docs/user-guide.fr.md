@@ -35,13 +35,23 @@ Les traductions sont enregistrées immédiatement en SQL ; le volume `/data/proj
 Pour les commandes par lot, les deux progressions, les interruptions, les refus et le graphe : [guide d’exploitation](operations.md).
 
 1. Dans **Paramètres → Providers LLM**, renseigner la base URL (incluant `/v1`), le modèle et éventuellement la clé. Le bouton de test interroge `/models`. Les capacités JSON et reasoning restent configurables.
-2. Importer un EPUB dans la bibliothèque. La structure, les ressources et le texte sont analysés ; EPUBCheck est exécuté dans l’image Docker.
-3. Dans **Configuration**, choisir le provider, les langues, le mode qualité et les instructions globales. Utiliser des codes de langue BCP 47, par exemple `en`, `fr`, `ja`.
-4. **Analyser le livre**. Chaque unité est analysée, puis les résultats sont consolidés par chapitre en Book Bible. L’historique d’analyse reste consultable.
+2. Importer un EPUB dans la bibliothèque (bouton **Importer des EPUB** ou glisser-déposer des fichiers sur la page). La structure, les ressources et le texte sont analysés ; EPUBCheck est exécuté dans l’image Docker.
+3. Dans l’onglet **Réglages** du livre, choisir le provider, les langues, le mode qualité et les instructions globales. Le choix du premier provider lance l’analyse puis la traduction. Utiliser des codes de langue BCP 47, par exemple `en`, `fr`, `ja`.
+4. **Analyser le livre** (le bouton principal de l’en-tête du livre propose toujours l’étape suivante). Une confirmation affiche l’estimation de tokens et de coût du serveur lorsqu’elle est disponible. Chaque unité est analysée, puis les résultats sont consolidés par chapitre en Book Bible. L’historique d’analyse reste consultable.
 5. Examiner et corriger la **Book Bible**, les personnages et les propositions de glossaire. Les entrées proposées ne sont pas acceptées automatiquement par défaut.
 6. **Traduire**. Le suivi se reconnecte automatiquement. Pause, reprise et retry conservent les traductions enregistrées.
-7. Comparer, corriger et valider dans le workspace. Les marqueurs `⟦t0⟧…⟦/t0⟧` protègent les éléments inline ; leur suppression est refusée.
+7. Comparer, corriger et valider dans l’éditeur (`Ctrl`/`⌘`+`S` enregistre, `Ctrl`/`⌘`+`Entrée` valide). Le texte source affiche la mise en forme du livre ; dans la traduction, les repères `⟦t0⟧…⟦/t0⟧` apparaissent en puces colorées et doivent rester en place : leur suppression est signalée puis refusée par le serveur. Quitter un onglet ou la page avec une traduction non enregistrée demande confirmation.
 8. Exporter en EPUB, TXT, Markdown, Book Bible (JSON) ou archive de projet. L’export EPUB complet est refusé si du texte manque ou si EPUBCheck signale une non-conformité.
+
+### Écrans du livre
+
+- **Traduction** : sections repliables à gauche, passages source et traduction alignés, consignes propres à un passage via **Retraduire… → Consignes du passage…**.
+- **Validations** : file paginée des passages à vérifier (source, traduction, doutes et propositions de l’IA) ; chaque proposition peut être acceptée, refusée ou chargée dans l’éditeur avec **Modifier**. **Tout accepter** et **Lancer la revue IA** demandent confirmation.
+- **Book Bible** : résumé, fiches personnages modifiables dans un formulaire, maintenance de la mémoire (synchroniser, vérifier, réindexer dans OpenViking, reconstruire depuis la base).
+- **Glossaire** : import JSON, CSV ou TBX et export dans ces trois formats.
+- **Réglages** : informations du livre, langues, modèle, **Mémoire de traduction** lorsque le serveur la propose, partage (liste des membres, invitation, révocation) et suppression du projet.
+
+Le thème (clair, sombre ou celui du système) et la langue se choisissent dans le menu du compte, en bas de la barre latérale.
 
 La preview est volontairement simplifiée (CSS de lecture neutre) ; les CSS et ressources originales sont conservées dans l’EPUB exporté. Aucune mention IA n’est ajoutée automatiquement.
 

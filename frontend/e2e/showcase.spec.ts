@@ -283,7 +283,25 @@ test("capture public Libris showcase", async ({ page }) => {
     await route.fulfill({ json: data });
   });
   await page.setViewportSize({ width: 1440, height: 1040 });
-  await page.addInitScript(() => localStorage.setItem("locale", "en"));
+  await page.addInitScript(() => {
+    localStorage.setItem("locale", "en");
+    // A mocked route always ends its response, which the browser reports as a lost stream.
+    // This stand-in stays connected, as a live server does between two events.
+    class ConnectedEventSource extends EventTarget {
+      readyState = 1;
+      onopen: ((event: Event) => void) | null = null;
+      onmessage: ((event: MessageEvent) => void) | null = null;
+      onerror: ((event: Event) => void) | null = null;
+      constructor(public url: string) {
+        super();
+        setTimeout(() => this.onopen?.(new Event("open")), 50);
+      }
+      close() {
+        this.readyState = 2;
+      }
+    }
+    Object.defineProperty(window, "EventSource", { value: ConnectedEventSource });
+  });
   await page.goto(base);
   await expect(page.getByRole("heading", { name: "Library", exact: true })).toBeVisible();
 

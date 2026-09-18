@@ -266,3 +266,29 @@ async def test_outage_count_only_counts_consecutive_failures(seeded):
             # Successful calls happened between the two outages: each one is a first failure.
             assert job.status == "waiting" and job.outage_count == 1
             assert job.next_attempt <= time.time() + 61
+
+
+
+async def test_worker_intervals_follow_the_configuration(monkeypatch):
+    from pydantic import ValidationError
+
+    from app.config import Settings, settings
+    from app.jobs import worker
+
+    monkeypatch.setattr(settings(), "worker_heartbeat_seconds", 7)
+    monkeypatch.setattr(settings(), "memory_catalog_interval_seconds", 3600)
+    sleeps = []
+
+    async def record(seconds):
+        sleeps.append(seconds)
+        raise asyncio.CancelledError
+
+    with monkeypatch.context() as patch:
+        patch.setattr(worker.asyncio, "sleep", record)
+        with pytest.raises(asyncio.CancelledError):
+            await worker.heartbeat("job", "owner", asyncio.current_task())
+    assert sleeps == [7]
+    assert not worker.catalog_due(1000.0, 1120.0) and worker.catalog_due(1000.0, 4601.0)
+    # The heartbeat renews a 60 s lease: a value that could let it expire is refused at start-up.
+    with pytest.raises(ValidationError):
+        Settings(worker_heartbeat_seconds=45)

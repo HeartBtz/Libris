@@ -18,6 +18,13 @@ All notable changes are documented here. Libris follows [Semantic Versioning](ht
 - **Login throttling.** The brute-force protection counted every login — successful ones included — in a single bucket per client address. Behind a reverse proxy all visitors share the proxy's address, so twenty logins in five minutes locked everybody out, and anyone could do it on purpose. Only failed attempts now count, per client address *and* account name (with a higher overall ceiling per address), a successful login clears the counter, and expired entries are purged. Set `FORWARDED_ALLOW_IPS` to your proxy's address so that real client addresses are used (#22).
 - **Data consistency.** Restoring a "source kept" version (or re-importing a project archive containing one) now brings back the dedicated "Original conservé" status, so the passage stays listed among those still needing a translation; conversely, replacing a kept original with a real translation settles its standing alert. Importing a glossary whose JSON root is an object (`{"terms": [...]}`) is refused with an explicit message where it used to answer "0 imported" and swallow the mistake. Saving a character sheet now refuses an empty or over-long name and a name or alias that already belongs to another confirmed character, like the dedicated alias action already did (#25).
 - Database migrations now run on SQLite, the default `DATABASE_URL`: `alembic upgrade head` used to stop on the job/provider migration with "No support for ALTER of constraints in SQLite dialect". PostgreSQL installations are unaffected (#26).
+### Changed
+
+- Removed the unused "structured error codes" module and circuit-breaker helpers announced in 0.3.4: nothing ever called them and their retry tables contradicted the real behaviour, which is the one described under *Automatic provider recovery* in 0.4.0 (#27).
+
+### Fixed
+
+- `WORKER_HEARTBEAT_SECONDS` and `MEMORY_CATALOG_INTERVAL_SECONDS` are now honoured by the worker (they were declared but ignored); out-of-range values are refused at start-up (#27).
 
 ## [0.4.0] - 2026-09-18
 

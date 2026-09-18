@@ -59,8 +59,9 @@ async def sync_outbox(project_id: str | None = None) -> None:
 
 
 async def heartbeat(job_id: str, owner: str, task: asyncio.Task) -> None:
+    interval = settings().worker_heartbeat_seconds
     while True:
-        await asyncio.sleep(2)
+        await asyncio.sleep(interval)
         try:
             checkpoint(job_id, owner)
         except (JobStopped, SQLAlchemyError):
@@ -281,10 +282,14 @@ async def provider_dispatcher(stopped: asyncio.Event) -> None:
             await asyncio.gather(*running, return_exceptions=True)
 
 
+def catalog_due(last: float, now: float) -> bool:
+    return now - last > settings().memory_catalog_interval_seconds
+
+
 async def memory_pump(stopped: asyncio.Event) -> None:
     last_catalog = 0.0
     while not stopped.is_set():
-        if time.monotonic() - last_catalog > 60:
+        if catalog_due(last_catalog, time.monotonic()):
             with contextlib.suppress(SQLAlchemyError):
                 schedule_catalogs()
             last_catalog = time.monotonic()

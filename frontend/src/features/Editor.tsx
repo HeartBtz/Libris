@@ -57,8 +57,10 @@ const translations: Record<string, string> = {
   "Traduction passage {passage} unité {unit}":
     "Translation passage {passage} unit {unit}",
   "La traduction apparaîtra ici…": "The translation will appear here…",
-  "Une nouvelle version est arrivée. Votre saisie est conservée ; enregistrement soumis à vérification de version.":
-    "A new version has arrived. Your input is retained; saving is subject to version verification.",
+  "Une nouvelle version de ce passage est arrivée pendant votre saisie. Choisissez laquelle garder avant d’enregistrer.":
+    "A new version of this segment arrived while you were typing. Choose which one to keep before saving.",
+  "Recharger la version du serveur": "Reload the server version",
+  "Conserver ma saisie": "Keep my text",
   "Original conservé par décision humaine. Ce passage n’est pas compté comme traduit ; utilisez l’export partiel ou saisissez une traduction.":
     "Source retained by human decision. This passage is not counted as translated; use the partial export or enter a translation.",
   "Refus enregistré. Vous pouvez saisir une traduction ou ouvrir l’inspecteur pour ajouter une analyse humaine.":
@@ -511,11 +513,28 @@ export function SegmentRow({
           />
         ))}
         {dirty && base !== segment.revision && (
-          <p className="notice">
-            {t(
-              "Une nouvelle version est arrivée. Votre saisie est conservée ; enregistrement soumis à vérification de version.",
-            )}
-          </p>
+          <div className="notice" role="status">
+            <p>
+              {t(
+                "Une nouvelle version de ce passage est arrivée pendant votre saisie. Choisissez laquelle garder avant d’enregistrer.",
+              )}
+            </p>
+            <div className="actions">
+              <button
+                type="button"
+                onClick={() => {
+                  setUnits(fromServer());
+                  setBase(segment.revision);
+                  setDirty(false);
+                }}
+              >
+                {t("Recharger la version du serveur")}
+              </button>
+              <button type="button" onClick={() => setBase(segment.revision)}>
+                {t("Conserver ma saisie")}
+              </button>
+            </div>
+          </div>
         )}
         {segment.error && <p className="inline-error">{segment.error}</p>}
         {segment.retained_source && (

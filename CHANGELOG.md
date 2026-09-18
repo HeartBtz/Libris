@@ -9,6 +9,10 @@ All notable changes are documented here. Libris follows [Semantic Versioning](ht
 - **Edit conflicts in the editor.** When a running job delivered a new version of a passage while you were typing, every save was refused (HTTP 409) and nothing let you get out of it short of reloading the page. The notice now offers two explicit choices: reload the server version, or keep your text and save it over the latest version (#23).
 - **No more out-of-date answers on screen.** Switching chapter, filter or page quickly while the server was slow could show the previous chapter's passages under the new chapter title, and overlapping refreshes could leave the book header in a past state. Only the most recent request now updates the screen. The completion report also follows the job's progress and no longer needs a manual "Actualiser le bilan" to re-enable "Relancer la sélection" (#24).
 
+### Changed
+
+- Operations guide: `docs/ci-cd.md` now lists what lives outside Git on the production target and gives a verified procedure to re-provision `/opt/libris-production` if it is lost, with a warning to free disk space inside `backups/` and never by deleting the directory (#21).
+
 ## [0.4.0] - 2026-09-18
 
 A maintenance release coming out of a full audit of the application and of its production instance. It fixes the EPUB 3 export failures, makes the worker and provider recovery robust, stops two disk-space leaks, and repairs a number of interface defects. It is a minor version because a few behaviours change on purpose: sessions now last the documented 24 hours by default (`SESSION_DURATION_HOURS`), the live event stream of a book no longer replays its history, starting a job on a busy book answers HTTP 409, and "Configure selection" no longer overrides languages and qualities you did not set. No database migration is included.

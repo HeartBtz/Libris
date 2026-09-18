@@ -54,3 +54,33 @@ Scheduled Dependabot version pull requests are disabled on the read-only GitHub 
 The protected semver-tag `deploy-production` job is serialized by `resource_group` and runs automatically on CT105. It opens an audited Teleport session to CT116, where the root-owned target pulls the digest-pinned application and Codex images from the GitLab registry using its local read-only identity. The target then passes their commit, version and immutable image IDs to the preinstalled root-owned deployment procedure. That fixed procedure creates a transactionally consistent PostgreSQL dump while the current application remains available, then gracefully stops the old API, worker and Codex bridge for the migration and image switch. It preserves the existing named volumes and private `/opt/epub-translator/.env`, starts the API and Codex bridge, verifies the exact version through `/health`, and only then restarts the worker from its checkpoints. A healthy redeploy of the same commit is a no-op. The procedure also rejects an older version or a reused version number associated with another commit.
 
 The procedure intentionally restarts the worker with checkpoint recovery. If health fails and the schema did not change, it verifies restoration of the previous images. After a schema change it leaves application services stopped and retains the pre-deployment dump rather than attempting an unsafe automatic downgrade. Keep the dedicated runner, fixed Compose file, deployment procedure and protected production environment provisioned outside Git. Never put `.env`, registry credentials or user books in this repository.
+
+### What lives outside Git on the production target
+
+| Path on CT116 | Purpose | Recreated by |
+|---|---|---|
+| `/usr/local/sbin/libris-production-deploy` | fixed deployment procedure (copy of `deploy/libris-production-deploy`) | operator |
+| `/opt/libris-production/docker-compose.yml` | the Compose file the procedure drives; it is the repository `docker-compose.yml`, unmodified | operator |
+| `/opt/libris-production/current-*` | deployed version, commit and image IDs | the procedure, after each successful deployment |
+| `/opt/libris-production/backups/pre-*.dump` | the five most recent pre-deployment PostgreSQL dumps (several GB each) | the procedure |
+| `/opt/epub-translator/.env` | secrets; never stored anywhere else | operator |
+| `/etc/libris-registry/config.json` | read-only registry credentials | operator |
+
+`/opt/libris-production` holds multi-gigabyte dumps: when disk space is short, delete old files inside `backups/`, never the directory itself. Without `docker-compose.yml` the next `deploy-production` job stops with `Production configuration is not provisioned` (exit 65) before touching anything; the running containers are unaffected.
+
+### Re-provisioning the target directory
+
+If `/opt/libris-production` is lost, recreate it from the tag that is currently deployed, then verify before the next release:
+
+```bash
+install -d -m 0700 /opt/libris-production
+git -C /opt/epub-translator show "v$(curl -fsS http://192.168.1.116:8088/health | python3 -c 'import json,sys; print(json.load(sys.stdin)["version"])'):docker-compose.yml" \
+  | install -m 0600 /dev/stdin /opt/libris-production/docker-compose.yml
+api="$(docker inspect --format '{{.Config.Image}}' epub-translator-api-1)"
+codex="$(docker inspect --format '{{.Config.Image}}' epub-translator-codex-1)"
+LIBRIS_IMAGE="$api" LIBRIS_CODEX_IMAGE="$codex" LIBRIS_ENV_FILE=/opt/epub-translator/.env \
+  docker compose --project-name epub-translator --env-file /opt/epub-translator/.env \
+  --file /opt/libris-production/docker-compose.yml --profile codex config --services
+```
+
+The last command must list the five services (`database`, `migrate`, `api`, `worker`, `codex`) without error; `git -C /opt/epub-translator fetch --tags` first if the deployed tag is unknown to that checkout. The `current-*` markers are optional: the procedure recreates them, and only uses them to refuse an older version or a version number reused by another commit. Compose may report a different `config-hash` than the running containers even when the effective configuration is identical; the next deployment recreates the application containers anyway. A lost `backups/` directory means no pre-deployment dump exists until the next deployment: take a manual `pg_dump` first if a schema migration is pending.

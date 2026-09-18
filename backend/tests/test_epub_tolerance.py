@@ -58,3 +58,24 @@ def test_a_missing_spine_document_is_named(book_bytes):
     data = rewrite(book_bytes, lambda name, content: None if name.endswith("chapter2.xhtml") else content)
     with pytest.raises(ValueError, match="chapter2.xhtml"):
         parse_book(data)
+
+
+@pytest.mark.parametrize("encoding", ["utf-8", "utf-16", "utf-16-le", "utf-16-be"])
+def test_entity_declarations_are_refused_in_any_encoding(encoding):
+    declared = "UTF-8" if encoding == "utf-8" else "UTF-16"
+    document = (
+        f'<?xml version="1.0" encoding="{declared}"?>'
+        '<!DOCTYPE r [<!ENTITY a "AAAAAAAAAA"><!ENTITY b "&a;&a;&a;&a;&a;&a;&a;&a;&a;&a;">]>'
+        '<r title="&b;&b;&b;">text</r>'
+    )
+    data = document.encode(encoding)
+    if encoding in ("utf-16-le", "utf-16-be"):
+        data = ("\ufeff" + document).encode(encoding)
+    with pytest.raises(ValueError, match="entités"):
+        xml(data)
+
+
+def test_an_ordinary_doctype_is_still_accepted():
+    doctype = b'<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd">'
+    assert xml(doctype + b'<html xmlns="http://www.w3.org/1999/xhtml"><body><p>ok</p></body></html>') is not None
+    assert xml(b"<!DOCTYPE html><html><body/></html>") is not None

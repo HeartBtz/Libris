@@ -17,6 +17,7 @@ Run `python3 scripts/setup.py` in the repository root. It generates independent 
 | `POSTGRES_PASSWORD`                        | PostgreSQL initialization and connection password                        |
 | `CODEX_BRIDGE_TOKEN`                       | Private API-to-bridge authentication secret                              |
 | `OPENVIKING_URL`, `OPENVIKING_API_KEY`     | Optional external memory service                                         |
+| `RETENTION_REQUEST_BODIES_DAYS`, `RETENTION_EVENTS_DAYS`, `RETENTION_OUTBOX_SENT_DAYS`, `RETENTION_BIBLE_REVISIONS` | Automatic clean-up of diagnostic data (`30`, `7`, `7`, `20`; `0` disables a rule) — see the operations guide |
 
 Changing bootstrap credentials does not reset an existing account. Changing the database password in `.env` does not change an initialized PostgreSQL role's password.
 

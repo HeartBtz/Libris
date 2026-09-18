@@ -69,3 +69,18 @@ En mode Hybrid/OpenViking, un catalogue nommé est publié et actualisé :
 Dans **Book Bible → Mémoire OpenViking**, les liens ouvrent les fichiers réellement lus sur l’instance distante à travers le backend. **Synchroniser le livre et le graphe** fonctionne même pendant une analyse. **Vérifier dans OpenViking** distingue lecture et présence dans l’index.
 
 Les documents globaux sont séparés du retrieval narratif, limité aux événements admissibles sous `/events`. Les fichiers de catalogue sont des projections contextuelles compactes ; SQL conserve les données complètes et exactes.
+
+## Rétention des données de diagnostic
+
+Le worker borne lui-même la croissance de la base : une passe au démarrage, puis une par heure, par petits lots et hors de la boucle des jobs.
+
+| Variable | Défaut | Effet |
+|---|---|---|
+| `RETENTION_REQUEST_BODIES_DAYS` | `30` | vide le prompt, la réponse brute et la trace de contexte des requêtes LLM terminées plus anciennes. La ligne reste : tokens, coût, durée, statut, erreur et réponse validée (utilisée par le cache) sont conservés. |
+| `RETENTION_EVENTS_DAYS` | `7` | supprime les événements de progression plus anciens, en gardant toujours les 500 derniers de chaque livre. |
+| `RETENTION_OUTBOX_SENT_DAYS` | `7` | supprime les envois OpenViking déjà transmis. |
+| `RETENTION_BIBLE_REVISIONS` | `20` | garde les 20 dernières révisions automatiques de la Book Bible par livre ; les révisions humaines sont toutes conservées. |
+
+`0` désactive une règle. Pour mesurer avant d'appliquer : `docker compose exec api python -m app.maintenance.retention --dry-run`. Conséquence visible : l'inspecteur de requêtes n'affiche plus le prompt des requêtes de plus de 30 jours.
+
+PostgreSQL réutilise l'espace libéré mais ne le rend au système qu'après `VACUUM (FULL, ANALYZE) llm_requests;`, qui verrouille la table : arrêtez le worker avant, et prévoyez autant d'espace disque libre que la taille utile de la table.

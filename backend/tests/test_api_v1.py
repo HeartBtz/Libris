@@ -27,6 +27,7 @@ from app.models import (
     Job,
     Project,
     Provider,
+    Segment,
     Series,
     SourceAsset,
     TranslationRequest,
@@ -457,3 +458,23 @@ async def test_full_request_to_json_txt_and_zip_results(owner, api, provider_id)
             data.decode("utf-8")
         assert "Élodie" in bundle.read(names[0]).decode("utf-8")
         assert manifest["complete"] and [c["external_id"] for c in manifest["chapters"]] == ["chapter-001", "chapter-002"]
+
+
+def test_a_volume_sent_as_json_round_trips_through_a_project_archive(owner, api, provider_id):
+    long = " ".join(f"Sentence {n} about the tower." for n in range(300))
+    chapters = [{"external_id": "c1", "number": 1, "title": "Chapter 1", "content": f"Intro.\n\n{long}\n\n* * *\n\nEnd.\n"}]
+    body = payload(provider_id, chapters=chapters, pipeline={"start": False})
+    response = api.post("/api/v1/translation-requests", json=body, headers=bearer(new_token(owner)))
+    assert response.status_code == 202, response.text
+    project_id = response.json()["project_id"]
+    exported = owner.get(f"/api/projects/{project_id}/export/project")
+    assert exported.status_code == 200, exported.text
+    with SessionLocal() as db:
+        project = db.get(Project, project_id)
+        project.external_id, project.series_id = None, None  # the restored copy must not clash with it
+        db.commit()
+    restored = owner.post("/api/projects/import", files={"file": ("p.zip", exported.content)})
+    assert restored.status_code == 201, restored.text
+    with SessionLocal() as db:
+        sources = lambda pid: [s.source for s in db.scalars(select(Segment).where(Segment.project_id == pid).order_by(Segment.position))]  # noqa: E731
+        assert sources(restored.json()["id"]) == sources(project_id)

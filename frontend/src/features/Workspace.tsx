@@ -27,6 +27,8 @@ import { StageProgress } from "./StageProgress";
 import type { ExportState } from "./StageProgress";
 import { duration, projectProgress } from "./progress";
 import { Bible, Glossary, Observability, ProjectSettings, Quality } from "./panels";
+import { ExportMenu, exportFormats, exportName, exportPath } from "./ExportMenu";
+import type { ExportFormat, ExportOptions } from "./ExportMenu";
 
 const CharacterGraph = lazy(() => import("./CharacterGraph"));
 
@@ -73,14 +75,8 @@ registerTranslations({
   "Récupérer {count} passages": "Recover {count} passages",
   "Relire ({count})": "Review ({count})",
   "Exporter l’EPUB": "Export EPUB",
+  "Exporter les chapitres": "Export the chapters",
   "Configurer le livre": "Configure the book",
-  Exporter: "Export",
-  "Formats d’export": "Export formats",
-  "EPUB traduit": "Translated EPUB",
-  Texte: "Text",
-  "Projet complet (.zip)": "Complete project (.zip)",
-  "EPUB partiel · originaux conservés": "Partial EPUB · originals retained",
-  "Rapport de couverture": "Coverage report",
   "Autres actions": "More actions",
   "Aucun provider n’est configuré pour ce livre.": "No provider is configured for this book.",
   "Choisissez le modèle et les langues dans les réglages du livre.": "Choose the model and languages in the book settings.",
@@ -271,14 +267,11 @@ export function Workspace({ id, user, run }: { id: string; user: User; run: Run 
       refresh();
     });
   }
-  async function exportFile(format: string, allowSource = false) {
+  async function exportFile(format: ExportFormat, options: ExportOptions = {}) {
     if (exportState === "running") return;
     setExportState("running");
     try {
-      await downloadGet(
-        `/projects/${id}/export/${format}${allowSource ? "?allow_source=true" : ""}`,
-        `${project!.title}.${format === "project" ? "zip" : format === "bible" ? "json" : format}`,
-      );
+      await downloadGet(exportPath(id, format, options), exportName(project!.title, format));
       setExportState("done");
     } catch (error) {
       setExportState("error");
@@ -315,9 +308,9 @@ export function Workspace({ id, user, run }: { id: string; user: User; run: Run 
       variant="primary"
       icon="download"
       loading={exportState === "running"}
-      onClick={() => void run(() => exportFile("epub"))}
+      onClick={() => void run(() => exportFile(exportFormats(project)[0]))}
     >
-      {t("Exporter l’EPUB")}
+      {exportFormats(project)[0] === "epub" ? t("Exporter l’EPUB") : t("Exporter les chapitres")}
     </Button>
   );
   const moreItems: MenuEntry[] = [
@@ -413,29 +406,10 @@ export function Workspace({ id, user, run }: { id: string; user: User; run: Run 
             </div>
           )}
           {primary}
-          <Menu
-            label={t("Formats d’export")}
-            trigger={(props) => (
-              <Button {...props} icon="download" iconAfter="chevronDown" loading={exportState === "running"}>
-                {t("Exporter")}
-              </Button>
-            )}
-            items={[
-              ...[
-                ["epub", t("EPUB traduit")],
-                ["txt", t("Texte")],
-                ["md", "Markdown"],
-                ["bible", "Book Bible JSON"],
-                ["project", t("Projet complet (.zip)")],
-              ].map(([format, label]) => ({
-                label,
-                icon: "file" as const,
-                onSelect: () => void run(() => exportFile(format)),
-              })),
-              { label: t("EPUB partiel · originaux conservés"), icon: "file", onSelect: () => void run(() => exportFile("epub", true)) },
-              { kind: "separator" },
-              { label: t("Rapport de couverture"), icon: "external", href: `/api/projects/${id}/coverage`, target: "_blank" },
-            ]}
+          <ExportMenu
+            project={project}
+            running={exportState === "running"}
+            onExport={(format, options) => void run(() => exportFile(format, options))}
           />
           <IconButton
             icon="refresh"

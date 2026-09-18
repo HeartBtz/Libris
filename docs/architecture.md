@@ -24,6 +24,8 @@ Unités : un bloc feuille (`p`, `li`, `td`…) forme une unité ; dans un parent
 
 À l’export, les documents traduits reçoivent la langue et la direction de la cible (`dir="rtl"` pour l’arabe, l’hébreu, le persan, l’ourdou…, `page-progression-direction` du spine en EPUB 3) ; les éléments déclarant la langue source passent à la langue cible, ceux dans une troisième langue gardent langue et direction.
 
+La découpe est versionnée (`book_info.segmentation`, 2 depuis la v0.5). Les livres importés avant gardent leurs unités ; une archive de projet sans ce champ est réimportée avec la découpe 1 (`extract_units_v1`), faute de quoi ses passages ne correspondraient plus.
+
 `Segment.source_key` (SHA-256 des unités normalisées NFKC, espaces réduits, marqueurs compris) indexe la mémoire de traduction.
 
 ## Transactions importantes

@@ -19,11 +19,17 @@ Run `python3 scripts/setup.py` in the repository root. It generates independent 
 | `POSTGRES_PASSWORD`                        | PostgreSQL initialization and connection password                        |
 | `CODEX_BRIDGE_TOKEN`                       | Private API-to-bridge authentication secret                              |
 | `OPENVIKING_URL`, `OPENVIKING_API_KEY`     | Optional external memory service                                         |
+| `MAX_UPLOAD_MB`, `MAX_UNPACKED_MB`, `MAX_ENTRIES` | Largest EPUB or project archive accepted (`60`), its unpacked size (`300`) and file count (`5000`). A project archive that would exceed them is refused at export, with the setting to raise |
+| `MAX_COMPRESSION_RATIO`                    | Whole-archive compression ratio above which an EPUB of more than 8 MiB unpacked is refused as a possible zip bomb; `100` |
+| `EVENT_STREAMS_PER_USER`, `EVENT_STREAMS_TOTAL` | Live progress connections held open at once per account (`4`) and per API process (`100`); beyond them the API answers 429 |
+| `PREVIEW_CACHE_MB`                         | Memory kept for the unpacked books of recent chapter previews; `64`, `0` disables the cache |
+| `OPENAPI_ENABLED`                          | `/openapi.json`, served to signed-in users only; `false` removes it |
 | `EPUBCHECK_CONCURRENCY`, `EPUBCHECK_MAX_HEAP_MB` | Simultaneous EPUBCheck validations per process (`2`) and memory ceiling of each one (`1024`) |
 | `WORKER_HEARTBEAT_SECONDS`                 | Interval at which a running job renews its 60 s lease; `2` (1–20)        |
 | `MEMORY_CATALOG_INTERVAL_SECONDS`          | Interval of the external-memory catalogue refresh; `60` (10–86400)       |
 | `PROVIDER_RECOVERY_BASE_SECONDS`, `PROVIDER_RECOVERY_MAX_SECONDS` | First and longest wait before retrying an unavailable provider; `60` and `3600` |
 | `RETENTION_REQUEST_BODIES_DAYS`, `RETENTION_EVENTS_DAYS`, `RETENTION_OUTBOX_SENT_DAYS`, `RETENTION_BIBLE_REVISIONS` | Automatic clean-up of diagnostic data (`30`, `7`, `7`, `20`; `0` disables a rule) — see the operations guide |
+| `METRICS_TOKEN`                            | Empty by default: `GET /metrics` answers 404. Set a random value of at least 24 characters (`openssl rand -hex 32`) to let Prometheus scrape it with `Authorization: Bearer <token>` — see the operations guide |
 
 Changing bootstrap credentials does not reset an existing account. Changing the database password in `.env` does not change an initialized PostgreSQL role's password.
 

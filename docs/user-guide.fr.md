@@ -38,10 +38,10 @@ Pour les commandes par lot, les deux progressions, les interruptions, les refus 
 2. Importer un EPUB dans la bibliothèque. La structure, les ressources et le texte sont analysés ; EPUBCheck est exécuté dans l’image Docker.
 3. Dans **Configuration**, choisir le provider, les langues, le mode qualité et les instructions globales. Utiliser des codes de langue BCP 47, par exemple `en`, `fr`, `ja`.
 4. **Analyser le livre**. Chaque unité est analysée, puis les résultats sont consolidés par chapitre en Book Bible. L’historique d’analyse reste consultable.
-5. Examiner et corriger la **Book Bible**, les personnages et les propositions de glossaire. Les entrées proposées ne sont pas acceptées automatiquement par défaut.
+5. Examiner et corriger la **Book Bible**, les personnages et les propositions de glossaire. Les entrées proposées ne sont pas acceptées automatiquement par défaut. Le glossaire s’exporte et s’importe en JSON, CSV ou TBX (format d’échange des outils de traduction). L’import reconnaît le format au contenu, accepte les CSV de tableur (séparateur `;` ou `,`, en-têtes français ou anglais comme « Terme source ; Traduction ») et ne remplace jamais un terme déjà présent. En TBX, un terme verrouillé est « preferred », un terme accepté « admitted » et une proposition non acceptée « deprecated ».
 6. **Traduire**. Le suivi se reconnecte automatiquement. Pause, reprise et retry conservent les traductions enregistrées.
 7. Comparer, corriger et valider dans le workspace. Les marqueurs `⟦t0⟧…⟦/t0⟧` protègent les éléments inline ; leur suppression est refusée.
-8. Exporter en EPUB, TXT, Markdown, Book Bible (JSON) ou archive de projet. L’export EPUB complet est refusé si du texte manque ou si EPUBCheck signale une non-conformité.
+8. Exporter en EPUB, TXT, Markdown, Book Bible (JSON) ou archive de projet. L’export EPUB complet est refusé si du texte manque ou si EPUBCheck signale une non-conformité. L’archive de projet est une sauvegarde complète du travail (statuts, validations, historique, critiques, glossaire, personnages, travaux) ; les membres, le provider et le propriétaire ne sont pas restaurés — voir [Archive de projet](operations.md#archive-de-projet).
 
 La preview est volontairement simplifiée (CSS de lecture neutre) ; les CSS et ressources originales sont conservées dans l’EPUB exporté. Aucune mention IA n’est ajoutée automatiquement.
 
@@ -137,7 +137,17 @@ Le budget actuel utilise une estimation **conservatrice en octets UTF-8**, affic
 
 La réponse complète est validée par schéma, identifiants, marqueurs et contrôles de texte. JSON Schema est utilisé si déclaré, avec repli JSON simple lorsqu’un endpoint rejette explicitement ce format. Une réponse tronquée ou polluée par du texte hors JSON est rejetée.
 
-Les métriques distinguent le cache, les tentatives, les tokens rapportés par le provider, la durée et le débit moyen global. Les coûts par million sont facultatifs et valent zéro par défaut. Les traces complètes de prompts/réponses sont privées au projet ; les logs de service ne contiennent pas le livre.
+Les métriques distinguent le cache, les tentatives, les tokens rapportés par le provider, la durée et le débit moyen global. Les coûts par million sont facultatifs et valent zéro par défaut. Les tokens d’entrée des requêtes en erreur, refusées ou interrompues sont comptés à part (`wasted_input_tokens`, et leur part `wasted_share` dans `GET /api/projects/{id}/metrics` et, par modèle, dans `GET /api/statistics/models`) : c’est la dépense qui n’a produit aucun résultat appliqué.
+
+#### Estimer avant de lancer
+
+`GET /api/projects/{id}/estimate?operation=analyze|translate|review` (lecture seule, accessible à tout membre du livre) annonce ce qu’un travail coûterait, sans jamais appeler le modèle : `input_tokens`, `output_tokens`, `requests`, `passages` à traiter, `cost` et le détail par étape (`breakdown`).
+
+- **Seuls les passages restant à traiter comptent** : l’analyse ignore les passages déjà analysés (et la synthèse si la Book Bible est validée) ; la traduction ignore les passages terminés ou corrigés à la main ; la relecture reprend tous les passages sauf ceux validés.
+- **Base de calcul (`basis`, `basis_kind`)** : si le propriétaire du livre a déjà traité au moins 5 passages avec le même fournisseur (ce livre compris), chaque étape reprend les moyennes observées : appels par passage (nouvelles tentatives et erreurs comprises), tokens d’entrée et de sortie par appel, part des passages qui reçoivent une révision ou une revue finale (`history`, avec le nombre de livres). Sinon, estimation par défaut (`default`) : 12 500 tokens de consignes et de contexte par appel plus le passage (4 caractères par token), 15 % de nouvelles tentatives, révision sur 60 % et revue finale sur 50 % des passages, étapes selon la qualité du livre. Une étape jamais observée utilise la valeur par défaut (`mixed`). Les réponses servies par le cache ne comptent pas.
+- **Coût** : prix actuels du fournisseur du livre (`currency_note` rappelle lesquels) ; 0 si aucun prix n’est saisi. Les remises de cache des fournisseurs et les forfaits d’abonnement (Codex/ChatGPT) ne sont pas pris en compte.
+
+C’est un ordre de grandeur : les contrôles de cohérence (qualité haute et maximum) sont comptés à un appel par terme ou personnage connu, et l’option de contexte approfondi (`deep`) n’est pas incluse. Les traces complètes de prompts/réponses sont privées au projet ; les logs de service ne contiennent pas le livre.
 
 ## Tests et développement
 
@@ -185,6 +195,6 @@ Points à approfondir avant de qualifier la fidélité d’un roman de plusieurs
 - graphe temporel détaillé des relations/croyances, au-delà des événements sourcés et bornés actuels ;
 - meilleure édition visuelle des fiches et des marqueurs inline ;
 - preview CSS fidèle et résolution des défauts EPUB préexistants ;
-- migration portable de tout l’audit d’exécution (l’archive projet conserve textes, versions et mémoire, mais pas les jobs actifs, clés ou journaux complets de requêtes).
+- migration portable des journaux complets de requêtes (l’archive projet conserve le travail, les travaux et les chiffres des requêtes, mais pas les prompts et réponses, les clés ni les membres).
 
 **La conformité EPUB, les mocks et les scores automatiques ne constituent pas une preuve de qualité littéraire.** Voir [le protocole d’évaluation](quality-evaluation.md).

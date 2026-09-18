@@ -63,11 +63,19 @@ def svg_text(node: etree._Element) -> bool:
     return isinstance(node.tag, str) and node.tag == f"{{{SVG}}}text"
 
 
-def excluded(node: etree._Element) -> bool:
+# Segmentation 1 (up to v0.4): books imported then keep their units, and their archives restore.
+EXCLUDED_V1 = EXCLUDED - {"rt", "rp"}
+
+
+def excluded(node: etree._Element, legacy: bool = False) -> bool:
     visible_svg_text = False
     for n in [node, *node.iterancestors()]:
         if n.get("translate") == "no" or "notranslate" in n.get("class", "").split():
             return True
+        if legacy:
+            if tag(n) in EXCLUDED_V1:
+                return True
+            continue
         # Text drawn by an SVG (a cover title, a map label) is read like any other: only the drawing
         # instructions around it stay untouched.
         visible_svg_text = visible_svg_text or svg_text(n)
@@ -114,9 +122,9 @@ def validate_navigation(unit: dict, translated: str) -> None:
         )
 
 
-def linearize(root: etree._Element) -> tuple[str, list[tuple[etree._Element, str]]]:
+def linearize(root: etree._Element, legacy: bool = False) -> tuple[str, list[tuple[etree._Element, str]]]:
     """A complete linguistic unit with immutable DOM codes; slots match marker-delimited strings."""
-    return _linearize(root, "text", list(root))
+    return _linearize(root, "text", list(root), legacy)
 
 
 def run_children(parent: etree._Element, start: int) -> list:
@@ -140,7 +148,7 @@ def linearize_run(parent: etree._Element, start: int) -> tuple[str, list[tuple[e
 
 
 def _linearize(
-    lead: etree._Element, field: str, children: list
+    lead: etree._Element, field: str, children: list, legacy: bool = False
 ) -> tuple[str, list[tuple[etree._Element, str]]]:
     pieces: list[str] = []
     slots: list[tuple[etree._Element, str]] = []
@@ -158,7 +166,7 @@ def _linearize(
         for child in children:
             number = counter
             counter += 1
-            if not isinstance(child.tag, str) or excluded(child) or tag(child) in ATOMIC:
+            if not isinstance(child.tag, str) or excluded(child, legacy) or tag(child) in ATOMIC:
                 pieces.append(f"⟦x{number}⟧")
             else:
                 pieces.append(f"⟦t{number}⟧")
@@ -375,24 +383,88 @@ SENTENCE_END = re.compile(
     r"|(?<=[。！？｡…][」』）〕】》〉”’)\]])(?![」』）〕】》〉”’)\]])"
     r"|(?<=[。！？｡])(?![」』）〕】》〉”’)\]。！？｡…])"
 )
+SENTENCE_END_V1 = re.compile(r"(?<=[.!?。！？])(?=\s)")
+WORD_V1 = re.compile(r"⟦/?[tx]\d+⟧|\s+|[^\s⟦]+")
 CLAUSE = re.compile(r"⟦/?[tx]\d+⟧|\s+|[^\s⟦、，,；;]+[、，,；;]?|[、，,；;]")
 
 
-def split_unit(unit: dict, max_chars: int) -> list[dict]:
+def extract_units_v1(root: etree._Element, resource: str) -> list[dict]:
+    """Segmentation 1, kept verbatim: restoring an archive re-cuts its EPUB exactly as it was cut."""
+    tree = root.getroottree()
+    units: list[dict] = []
+    used: set[tuple[str, str]] = set()
+    section = "0"
+
+    def add(node: etree._Element, kind: str, value: str, attribute: str = "") -> None:
+        if not plain(value).strip():
+            return
+        path = tree.getpath(node)
+        identity = hashlib.sha256(f"{resource}:{path}:{kind}:{attribute}".encode()).hexdigest()[:20]
+        units.append(
+            {
+                "id": identity,
+                "text": value,
+                "resource": resource,
+                "path": path,
+                "kind": kind,
+                "attribute": attribute,
+                "section": section,
+                "tag": tag(node),
+                **({"nav": True} if navigation(node) else {}),
+            }
+        )
+
+    for node in root.iter():
+        if not isinstance(node.tag, str) or excluded(node, True) or page_list(node):
+            continue
+        name = tag(node)
+        if name in {"h1", "h2", "h3", "hr"}:
+            section = tree.getpath(node)
+        if name in BLOCKS and not any(tag(c) in BLOCKS for c in node.iterdescendants()):
+            value, slots = linearize(node, legacy=True)
+            add(node, "block", value)
+            used.update((tree.getpath(n), field) for n, field in slots)
+        for attribute in ("alt", "title"):
+            if node.get(attribute):
+                add(node, "attribute", node.get(attribute, ""), attribute)
+    for node in root.iter():
+        if not isinstance(node.tag, str):
+            continue
+        for field in ("text", "tail"):
+            parent = node if field == "text" else node.getparent()
+            if parent is None or excluded(parent, True) or page_list(parent):
+                continue
+            if (tree.getpath(node), field) in used:
+                continue
+            if tag(parent) in {"html", "head", "meta", "link"}:
+                continue
+            value = getattr(node, field) or ""
+            if value.strip():
+                add(node, field, value)
+    order = {tree.getpath(n): i for i, n in enumerate(root.iter())}
+    units.sort(key=lambda u: (order[u["path"]], u["kind"] == "attribute"))
+    return units
+
+
+def split_unit(unit: dict, max_chars: int, legacy: bool = False) -> list[dict]:
     value = unit["text"]
     if len(value) <= max_chars:
         return [dict(unit, part=0, parts=1, original_id=unit["id"])]
     # Prefer sentence boundaries, then clauses and words; a run without any (CJK prose) is cut at the
     # limit. Codes are never split.
-    sentences = SENTENCE_END.split(value)
+    sentences = (SENTENCE_END_V1 if legacy else SENTENCE_END).split(value)
     pieces: list[str] = []
     current = ""
     for sentence in sentences:
-        atoms = [sentence] if len(sentence) <= max_chars else CLAUSE.findall(sentence)
+        atoms = (
+            [sentence]
+            if len(sentence) <= max_chars
+            else (WORD_V1 if legacy else CLAUSE).findall(sentence)
+        )
         for atom in atoms:
             chunks = (
                 [atom]
-                if len(atom) <= max_chars or MARKER.fullmatch(atom)
+                if legacy or len(atom) <= max_chars or MARKER.fullmatch(atom)
                 else [atom[i : i + max_chars] for i in range(0, len(atom), max_chars)]
             )
             for chunk in chunks:
@@ -410,12 +482,12 @@ def split_unit(unit: dict, max_chars: int) -> list[dict]:
     ]
 
 
-def group_units(units: list[dict], max_chars: int = 3500) -> list[list[dict]]:
+def group_units(units: list[dict], max_chars: int = 3500, legacy: bool = False) -> list[list[dict]]:
     groups: list[list[dict]] = []
     current: list[dict] = []
     size = 0
     for unit in units:
-        for part in split_unit(unit, max_chars):
+        for part in split_unit(unit, max_chars, legacy):
             if current and (
                 size + len(part["text"]) > max_chars
                 or current[-1]["section"] != part["section"]
@@ -438,7 +510,10 @@ def apply_unit(root: etree._Element, unit: dict, translation: str, namespaces: d
     node = matches[0]
     validate_codes(unit["text"], translation)
     if unit["kind"] in {"block", "run"}:
-        _, slots = linearize(node) if unit["kind"] == "block" else linearize_run(node, unit["run"])
+        value, slots = linearize(node) if unit["kind"] == "block" else linearize_run(node, unit["run"])
+        if MARKER.findall(value) != MARKER.findall(unit["text"]) and unit["kind"] == "block":
+            # A unit cut before ruby readings were kept out of the text (segmentation 1).
+            value, slots = linearize(node, legacy=True)
         strings = MARKER.split(translation)
         if len(strings) != len(slots):
             raise ValueError("Nombre de fragments inline incohérent.")

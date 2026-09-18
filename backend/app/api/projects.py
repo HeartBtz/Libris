@@ -11,6 +11,7 @@ from starlette.concurrency import run_in_threadpool
 from app.api.common import row
 from app.config import settings
 from app.engines.epub import parse_book
+from app.engines.epub.book import SEGMENTATION
 from app.engines.epub.check import epubcheck
 from app.engines.memory.identities import canonical_bible
 from app.engines.translation.memory import memory_key, translation_memory_enabled
@@ -18,7 +19,6 @@ from app.jobs.queue import ACTIVE, HELD, emit, enqueue
 from app.models import (
     Chapter,
     Entity,
-    Glossary,
     Job,
     Membership,
     Memory,
@@ -26,109 +26,56 @@ from app.models import (
     Project,
     Provider,
     Segment,
-    TranslationVersion,
     User,
 )
 from app.models.common import uid
-from app.progress import project_progress
+from app.progress import book_facts, books_progress, project_progress, project_stats
 from app.schemas import InstructionInput, JobInput, ProjectConfig, SeriesBatchInput
 from app.security import DB, CurrentUser, access
 
 router = APIRouter(prefix="/api/projects")
-# The table of contents and the package metadata are translated but are not sections of the book.
-COUNTED = ("narrative", "auxiliary")
 
 
-def stats(db, project: Project) -> dict:
-    total, done, validated, flagged, errors, refused = db.execute(
-        select(
-            func.count(Segment.id),
-            func.count(Segment.id).filter(Segment.translation != "", Segment.retained_source.is_(False)),
-            func.count(Segment.id).filter(Segment.validated.is_(True)),
-            func.count(Segment.id).filter(Segment.status == "check"),
-            func.count(Segment.id).filter(Segment.status == "error"),
-            func.count(Segment.id).filter(Segment.status == "refused"),
-        ).where(Segment.project_id == project.id)
-    ).one()
-    review_job = next(
-        (
-            candidate
-            for candidate in db.scalars(
-                select(Job)
-                .where(
-                    Job.project_id == project.id,
-                    Job.operation.in_(["translate", "resolve_validations"]),
-                )
-                .order_by(Job.created_at.desc())
-            )
-            if candidate.checkpoint.get("step") == "final_review"
-            or candidate.checkpoint.get("final_review_targets")
-            or candidate.checkpoint.get("final_review_done")
-        ),
-        None,
-    )
-    review_checkpoint = review_job.checkpoint if review_job else {}
-    review_done = len(set(review_checkpoint.get("final_review_done", [])))
-    review_total = int(
-        review_checkpoint.get("total")
-        or len(review_checkpoint.get("final_review_targets", []))
-        or flagged
-        or total
-    )
-    return {
-        "reviewed_segments": review_done,
-        "review_total": review_total,
-        "analyzed_segments": db.scalar(
-            select(func.count(func.distinct(Memory.segment_id))).where(
-                Memory.project_id == project.id, Memory.kind == "analysis"
-            )
-        ),
-        "synthesized_chapters": db.scalar(
-            select(func.count(Chapter.id)).where(
-                Chapter.project_id == project.id, Chapter.analyzed.is_(True), Chapter.kind.in_(COUNTED)
-            )
-        ),
-        "total": total,
-        "retained_source": db.scalar(
-            select(func.count(Segment.id)).where(
-                Segment.project_id == project.id, Segment.retained_source.is_(True)
-            )
-        ),
-        "translated": done,
-        "validated": validated,
-        "flagged": flagged,
-        "errors": errors,
-        "refused": refused,
-        "chapters": db.scalar(
-            select(func.count())
-            .select_from(Chapter)
-            .where(Chapter.project_id == project.id, Chapter.kind.in_(COUNTED))
-        ),
-        "glossary": db.scalar(
-            select(func.count()).select_from(Glossary).where(Glossary.project_id == project.id)
-        ),
-        # Passages first translated from the translation memory, without a model call.
-        "translation_memory_reused": db.scalar(
-            select(func.count(func.distinct(TranslationVersion.segment_id)))
-            .join(Segment, Segment.id == TranslationVersion.segment_id)
-            .where(
-                Segment.project_id == project.id,
-                TranslationVersion.origin == "translation_memory",
-                TranslationVersion.applied.is_(True),
-            )
-        ),
-    }
+def project_views(db, projects: list[Project], *, bible: bool = True) -> list[dict]:
+    facts = book_facts(db, [project.id for project in projects])
+    progress = books_progress(db, projects, facts)
+    return [
+        dict(
+            row(project, ("original_path", "bible")),
+            stats=facts[project.id].stats,
+            progress=progress[project.id],
+            **({"bible": canonical_bible(db, project)} if bible else {}),
+            translation_memory=translation_memory_enabled(project),
+        )
+        for project in projects
+    ]
 
 
 def project_view(db, project: Project) -> dict:
-    values = stats(db, project)
-    return dict(
-        row(project, ("original_path",)),
-        stats=values,
-        progress=project_progress(db, project, values),
-        bible=canonical_bible(db, project),
-        translation_memory=translation_memory_enabled(project),
-    )
+    return project_views(db, [project])[0]
+
+
+def check_series_access(db, project: Project, user: User, series_name: str) -> None:
+    """A shared editor may not pull the conventions of the owner's books they cannot read.
+
+    The owner's other volumes of a series feed the prompts of this book (terms, decisions): joining
+    a series is reading it.
+    """
+    wanted = " ".join(series_name.split()).casefold()
+    if project.owner_id == user.id or not wanted:
+        return
+    readable = set(db.scalars(select(Membership.project_id).where(Membership.user_id == user.id)))
+    for other_id, other_series in db.execute(
+        select(Project.id, Project.series_name).where(
+            Project.owner_id == project.owner_id, Project.id != project.id, Project.series_name != ""
+        )
+    ):
+        if " ".join(other_series.split()).casefold() == wanted and other_id not in readable:
+            raise HTTPException(
+                403,
+                "Seul le propriétaire peut rattacher ce livre à cette série : elle contient des livres "
+                "que vous ne pouvez pas lire.",
+            )
 
 
 def discard_book_file(project: Project) -> None:
@@ -136,7 +83,7 @@ def discard_book_file(project: Project) -> None:
     Path(project.original_path).unlink(missing_ok=True)
 
 
-def import_book(db, owner_id: str, data: bytes) -> Project:
+def import_book(db, owner_id: str, data: bytes, segmentation: int = SEGMENTATION) -> Project:
     original_hash = hashlib.sha256(data).hexdigest()
     if db.get_bind().dialect.name == "postgresql":
         lock_digest = hashlib.sha256(f"{owner_id}:{original_hash}".encode()).digest()
@@ -152,7 +99,7 @@ def import_book(db, owner_id: str, data: bytes) -> Project:
                 "Restaurez-le depuis les archives.",
             )
         raise HTTPException(409, f"Cet EPUB est déjà importé dans « {existing.title} ».")
-    parsed = parse_book(data)
+    parsed = parse_book(data, segmentation=segmentation)
     project_id = uid()
     book_path = settings().data_dir / "books" / f"{project_id}.epub"
     project = Project(
@@ -203,8 +150,9 @@ def projects(user: CurrentUser, db: DB, include_archived: bool = False):
     query = select(Project).where(or_(Project.owner_id == user.id, Project.id.in_(member)))
     if not include_archived:
         query = query.where(Project.archived_at.is_(None))
-    books = db.scalars(query.order_by(Project.updated_at.desc()))
-    return [project_view(db, p) for p in books]
+    books = list(db.scalars(query.order_by(Project.updated_at.desc())))
+    # Polled every few seconds by the interface: the bible stays on the book's own page.
+    return project_views(db, books, bible=False)
 
 
 @router.post("", status_code=201)
@@ -236,6 +184,10 @@ def configure_series(body: SeriesBatchInput, user: CurrentUser, db: DB):
     if body.mode == "sequential" and body.first_volume + len(body.project_ids) - 1 > 10000:
         raise HTTPException(422, "La numérotation dépasse le volume 10000.")
     projects = [access(db, project_id, user, write=True) for project_id in body.project_ids]
+    if body.mode != "clear":
+        for project in projects:
+            if project.series_name != series_name:
+                check_series_access(db, project, user, series_name)
     for offset, project in enumerate(projects):
         project.series_name = "" if body.mode == "clear" else series_name
         if body.mode == "sequential":
@@ -243,7 +195,7 @@ def configure_series(body: SeriesBatchInput, user: CurrentUser, db: DB):
         elif body.mode == "clear":
             project.volume_number = None
     db.commit()
-    return [project_view(db, project) for project in projects]
+    return project_views(db, projects)
 
 
 @router.get("/{project_id}")
@@ -256,7 +208,6 @@ def final_review_info(project_id: str, user: CurrentUser, db: DB):
     from app.providers.search import search_config
 
     project = access(db, project_id, user)
-    values = stats(db, project)
     return {
         "automatic": settings().final_review_enabled,
         "web_enabled": bool(search_config()["enabled"]),
@@ -265,7 +216,7 @@ def final_review_info(project_id: str, user: CurrentUser, db: DB):
             Segment.translation != "", Segment.human.is_(False),
             Segment.validated.is_(False), Segment.retained_source.is_(False),
         )),
-        "summary": project_progress(db, project, values)["review"],
+        "summary": project_progress(db, project)["review"],
     }
 
 
@@ -281,6 +232,8 @@ def configure(project_id: str, body: ProjectConfig, user: CurrentUser, db: DB):
         raise HTTPException(409, "Mettez le travail en pause avant de modifier sa configuration.")
     if body.provider_id and not db.get(Provider, body.provider_id):
         raise HTTPException(422, "Provider inconnu.")
+    if "series_name" in changed:
+        check_series_access(db, project, user, body.series_name)
     for key, value in values.items():
         setattr(project, key, value)
     # Clients that predate the setting omit it: the stored choice is then kept.
@@ -389,7 +342,7 @@ def start_job(project_id: str, body: JobInput, user: CurrentUser, db: DB):
         if held and held.operation == "analyze":
             return {**row(held), "message": "Ce travail existe déjà. Utilisez Reprendre s’il est en pause."}
         if not held:
-            coverage = stats(db, project)
+            coverage = project_stats(db, project)
             if (
                 coverage["total"]
                 and coverage["analyzed_segments"] == coverage["total"]

@@ -1,5 +1,7 @@
 """Bounded final review: assess, optionally revise once, verify, then apply atomically."""
 
+import json
+
 import httpx
 from sqlalchemy import delete, select
 
@@ -15,6 +17,19 @@ from app.providers.search import search_config
 from app.schemas import FinalReviewResult
 
 CHECK_CODES = ("unchanged", "length", "repetition", "locked_term")
+SEARCH_RESPONSE_LIMIT = 2 * 1024**2
+
+
+async def bounded_body(response: httpx.Response, limit: int) -> bytes:
+    declared = response.headers.get("content-length", "")
+    if declared.isdigit() and int(declared) > limit:
+        raise ValueError("Réponse de recherche trop volumineuse.")
+    body = bytearray()
+    async for chunk in response.aiter_bytes():
+        body += chunk
+        if len(body) > limit:
+            raise ValueError("Réponse de recherche trop volumineuse.")
+    return bytes(body)
 
 
 async def web_evidence(queries: list[str]) -> dict:
@@ -23,18 +38,20 @@ async def web_evidence(queries: list[str]) -> dict:
     evidence: dict = {"enabled": bool(url), "queries": [], "sources": [], "unavailable": False}
     if not url:
         return evidence
-    async with httpx.AsyncClient(timeout=15, follow_redirects=False) as client:
+    # Proxy variables of the server must not reroute the queries, and an oversized answer is not read.
+    async with httpx.AsyncClient(timeout=15, follow_redirects=False, trust_env=False) as client:
         for query in queries[:2]:
             query = query.strip()[:200]
             if not query:
                 continue
             evidence["queries"].append(query)
             try:
-                response = await client.get(
-                    url.rstrip("/") + "/search", params={"q": query, "format": "json"}
-                )
-                response.raise_for_status()
-                for item in response.json().get("results", [])[:3]:
+                async with client.stream(
+                    "GET", url.rstrip("/") + "/search", params={"q": query, "format": "json"}
+                ) as response:
+                    response.raise_for_status()
+                    body = await bounded_body(response, SEARCH_RESPONSE_LIMIT)
+                for item in json.loads(body).get("results", [])[:3]:
                     link = str(item.get("url", ""))
                     if link.startswith(("https://", "http://")):
                         evidence["sources"].append(

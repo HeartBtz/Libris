@@ -15,6 +15,17 @@ This document records the publication review for Libris 0.1.0. It is a bounded e
 - `pip-audit` and production `npm audit` reported no known vulnerabilities during 0.1.0 preparation.
 - Trivy image scans reported no Critical vulnerabilities during 0.1.0 preparation. Two High Debian findings were remediated by explicitly updating `libpcre2-8-0` during image builds.
 
+## Follow-up of the 2026-09-18 audit (0.5)
+
+- `/openapi.json` requires a session and can be disabled with `OPENAPI_ENABLED=false` (S-4).
+- Non-administrators list providers without their address: only identifier, type, name and model. Changing the address or type of a provider that holds a key requires entering the key again (HTTP 409 otherwise), so a stored key is never sent to a new host (S-4).
+- The SearXNG client ignores proxy environment variables and does not read answers above 2 MiB, like every other outbound client (S-5). Queries chosen by the model remain an exfiltration channel under prompt injection; enable web search only towards a SearXNG instance you control.
+- A shared editor cannot attach a book to a series of the owner that contains books the editor cannot read, which would otherwise pull their terms and decisions into prompts (S-7).
+- Authenticated resource exhaustion (S-3): live event streams are bounded per account and per process and poll the database outside the event loop; the declared unpacked size and the whole-archive compression ratio are checked before an EPUB is unpacked; chapter previews reuse a bounded cache; project restores run in the thread pool; EPUBCheck runs are bounded since 0.4.1 (#49).
+- Project archives are validated against a versioned schema before anything is written. Restoring never recreates owners, members, permissions or providers: the restoring user becomes the owner, and interrupted jobs come back paused, without provider.
+- Glossary TBX files are parsed by the same XML reader as EPUB content: entity declarations are refused, DTDs and the network are never loaded.
+- Error messages can be answered in English; the translation only rewrites the `detail` text and never adds internal information.
+
 ## Operator responsibilities
 
 - Keep `.env`, PostgreSQL backups, book storage and model traces private.

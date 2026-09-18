@@ -4,13 +4,13 @@ import pytest
 import respx
 from sqlalchemy import select
 
-from app.api.projects import stats as project_stats
 from app.config import settings
 from app.db import SessionLocal
 from app.engines.translation import final_review, pipeline
 from app.jobs.queue import claim, enqueue
 from app.jobs.worker import execute
 from app.models import Issue, Job, Project, Segment
+from app.progress import project_stats
 from app.providers.llm import ProviderUnavailable
 from app.schemas import FinalReviewResult, TranslationResult
 

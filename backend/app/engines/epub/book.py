@@ -8,7 +8,14 @@ from urllib.parse import unquote, urlsplit, urlunsplit
 from lxml import etree
 
 from app.engines.epub.archive import inspect_archive, relative_resource, xml
-from app.engines.epub.text import apply_unit, extract_units, group_units, plain, skipped_text
+from app.engines.epub.text import (
+    apply_unit,
+    extract_units,
+    extract_units_v1,
+    group_units,
+    plain,
+    skipped_text,
+)
 from app.languages import primary, right_to_left
 
 NS = {
@@ -306,7 +313,13 @@ def structure(entries: dict[str, bytes]) -> tuple[str, etree._Element, list[str]
     return opf_path, package, list(dict.fromkeys(spine))
 
 
-def parse_book(data: bytes, max_chars: int = 3500) -> dict:
+SEGMENTATION = 2
+
+
+def parse_book(data: bytes, max_chars: int = 3500, segmentation: int = SEGMENTATION) -> dict:
+    """Cut the book into passages. `segmentation=1` reproduces the cut of Libris up to v0.4, which the
+    archives of that time rely on to put their translations back on the same passages."""
+    legacy = segmentation < 2
     entries = inspect_archive(data)
     opf_path, package, spine = structure(entries)
     for name, value in entries.items():
@@ -344,7 +357,7 @@ def parse_book(data: bytes, max_chars: int = 3500) -> dict:
         for ref in package.xpath("//o:spine/o:itemref[@linear='no']", namespaces=NS)
     }
     story = [path for path in spine if path not in auxiliary and path not in navigation]
-    resources = list(dict.fromkeys([*story, *spine, *extra]))
+    resources = list(dict.fromkeys([*spine, *extra] if legacy else [*story, *spine, *extra]))
     chapters = []
     word_count = 0
     untranslated: dict[str, dict] = {}
@@ -352,7 +365,7 @@ def parse_book(data: bytes, max_chars: int = 3500) -> dict:
         if path not in entries:
             continue  # Spine documents were checked; a dangling entry elsewhere does not prevent translation.
         root = xml(entries[path])
-        units = extract_units(root, path)
+        units = extract_units_v1(root, path) if legacy else extract_units(root, path)
         for kind, count in skipped_text(root).items():
             entry = untranslated.setdefault(kind, {"count": 0, "resources": []})
             entry["count"] += count
@@ -361,7 +374,7 @@ def parse_book(data: bytes, max_chars: int = 3500) -> dict:
             "//*[local-name()='title']"
         )
         title = "".join(title_nodes[0].itertext()).strip() if title_nodes else path
-        groups = group_units(units, max_chars)
+        groups = group_units(units, max_chars, legacy)
         if not groups:
             continue
         word_count += sum(len(plain(u["text"]).split()) for u in units)
@@ -375,7 +388,7 @@ def parse_book(data: bytes, max_chars: int = 3500) -> dict:
                 "kind": kind,
             }
         )
-    described = metadata_units(package, opf_path)
+    described = [] if legacy else metadata_units(package, opf_path)
     if described:
         chapters.append(
             {
@@ -404,6 +417,7 @@ def parse_book(data: bytes, max_chars: int = 3500) -> dict:
             "resources": len(entries),
             # Kept as in the original on purpose; listed so that nothing disappears without a word.
             "untranslated": untranslated,
+            "segmentation": segmentation,
         },
     }
 

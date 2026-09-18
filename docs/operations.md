@@ -70,6 +70,8 @@ En mode Hybrid/OpenViking, un catalogue nommé est publié et actualisé :
 
 Dans **Book Bible → Mémoire OpenViking**, les liens ouvrent les fichiers réellement lus sur l’instance distante à travers le backend. **Synchroniser le livre et le graphe** fonctionne même pendant une analyse. **Vérifier dans OpenViking** distingue lecture et présence dans l’index.
 
+Depuis la 0.6, un volume de série publie dans l’espace de sa série (`…/series/<série>/volumes/<volume>`) et un volume unique dans `…/standalone/<volume>` ; la page de série montre le backlog et propose resynchronisation, reconstruction depuis SQL et réindexation. Détails : [guide OpenViking](openviking.md).
+
 Les documents globaux sont séparés du retrieval narratif, limité aux événements admissibles sous `/events`. Les fichiers de catalogue sont des projections contextuelles compactes ; SQL conserve les données complètes et exactes.
 
 ## Archive de projet
@@ -105,9 +107,11 @@ Le worker borne lui-même la croissance de la base : une passe au démarrage, pu
 |---|---|---|
 | `RETENTION_REQUEST_BODIES_DAYS` | `30` | vide le prompt, la réponse brute et la trace de contexte des requêtes LLM terminées plus anciennes. La ligne reste : tokens, coût, durée, statut, erreur et réponse validée (utilisée par le cache) sont conservés. |
 | `RETENTION_EVENTS_DAYS` | `7` | supprime les événements de progression plus anciens, en gardant toujours les 500 derniers de chaque livre. |
-| `RETENTION_OUTBOX_SENT_DAYS` | `7` | supprime les envois OpenViking déjà transmis. |
+| `RETENTION_OUTBOX_SENT_DAYS` | `7` | supprime les envois OpenViking déjà transmis. La recherche OpenViking et la reconstruction s’appuient sur les mémoires SQL, pas sur ces lignes. |
 | `RETENTION_BIBLE_REVISIONS` | `20` | garde les 20 dernières révisions automatiques de la Book Bible par livre ; les révisions humaines sont toutes conservées. |
 | `RETENTION_JOB_STATE_DAYS` | `30` | pour les jobs terminés, échoués ou annulés depuis plus longtemps, supprime l'état par passage qui ne sert qu'à la reprise (`job_segment_state` : passages finis, cibles, groupes réparés, lots de synthèse et de cohérence). Les issues de la revue finale (`reviewed`) sont gardées : elles alimentent l'historique de relecture du livre. Les jobs en pause ou en attente ne sont jamais touchés ; si un job échoué ou annulé est repris après ce délai, ses passages déjà terminés ne sont pas retraduits, sauf retraduction forcée, qui les refait. |
+
+La même passe supprime les fichiers des imports expirés (`DATA_DIR/staging`, `IMPORT_SESSION_HOURS`) ; la réponse d’un import confirmé est gardée une semaine de plus pour qu’une confirmation répétée reste idempotente.
 
 Les jobs terminés avant la 0.5 comptent à partir de leur création. `0` désactive une règle. Pour mesurer avant d'appliquer : `docker compose exec api python -m app.maintenance.retention --dry-run`. Conséquence visible : l'inspecteur de requêtes n'affiche plus le prompt des requêtes de plus de 30 jours.
 

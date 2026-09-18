@@ -242,7 +242,15 @@ services_stopped=true
 "${compose[@]}" stop api worker codex
 schema_unchanged=false
 migration_started=true
-if ! "${compose[@]}" up --no-build --wait --force-recreate migrate; then
+# `up --wait` returns as soon as a one-shot container is running, not when it has finished: wait for
+# the migration's own exit, so the revision check below never races it (0.5.0 deployment).
+if ! "${compose[@]}" up --no-build --detach --force-recreate migrate; then
+	rollback 1
+fi
+migrate_container="$("${compose[@]}" ps --all --quiet migrate)"
+migrate_exit="$(docker wait "$migrate_container")" || migrate_exit=unknown
+if [[ "$migrate_exit" != 0 ]]; then
+	echo "Migration exited with status $migrate_exit; see: docker logs $migrate_container" >&2
 	rollback 1
 fi
 if ! migrated_revision="$("${compose[@]}" exec -T database sh -lc 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Atc "SELECT version_num FROM alembic_version ORDER BY version_num;"')"; then

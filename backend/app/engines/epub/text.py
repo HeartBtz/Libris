@@ -33,11 +33,50 @@ def tag(node: etree._Element) -> str:
     return etree.QName(node).localname if isinstance(node.tag, str) else ""
 
 
+EPUB_TYPE = "{http://www.idpf.org/2007/ops}type"
+NAVIGATION = {"nav", "navMap", "navPoint", "navList", "navTarget", "docTitle", "docAuthor"}
+
+
+def page_list(node: etree._Element) -> bool:
+    # Page numbers are anchors for print pagination, not text: translating "1", "2", "3" buys nothing.
+    # Extraction only: books imported earlier keep rebuilding from the units they already have.
+    return any(
+        tag(n) == "pageList" or (tag(n) == "nav" and "page-list" in n.get(EPUB_TYPE, "").split())
+        for n in [node, *node.iterancestors()]
+    )
+
+
 def excluded(node: etree._Element) -> bool:
     return any(
         tag(n) in EXCLUDED or n.get("translate") == "no" or "notranslate" in n.get("class", "").split()
         for n in [node, *node.iterancestors()]
     )
+
+
+def outside_markers(value: str) -> str:
+    """Text of a unit that sits outside its top-level inline elements."""
+    depth, kept = 0, []
+    for part in re.split(r"(⟦/?[tx]\d+⟧)", value):
+        if re.fullmatch(r"⟦t\d+⟧", part):
+            depth += 1
+        elif re.fullmatch(r"⟦/t\d+⟧", part):
+            depth -= 1
+        elif depth == 0 and not re.fullmatch(r"⟦x\d+⟧", part):
+            kept.append(part)
+    return "".join(kept)
+
+
+def validate_navigation(unit: dict, translated: str) -> None:
+    # A table-of-contents entry is "<li><a>label</a></li>": text next to the link is invalid there, and
+    # EPUBCheck would only say so at export time, far from the passage that caused it.
+    navigation = unit.get("nav") or (
+        unit.get("tag") == "li" and re.search(r"(?:nav|toc)[^/]*$", unit.get("resource", ""), re.I)
+    )
+    if navigation and not outside_markers(unit["text"]).strip() and outside_markers(translated).strip():
+        raise ValueError(
+            "Dans un sommaire, le texte doit rester à l’intérieur du lien : "
+            f"« {outside_markers(translated).strip()[:80]} » est placé à côté."
+        )
 
 
 def linearize(root: etree._Element) -> tuple[str, list[tuple[etree._Element, str]]]:
@@ -179,11 +218,12 @@ def extract_units(root: etree._Element, resource: str) -> list[dict]:
                 "attribute": attribute,
                 "section": section,
                 "tag": tag(node),
+                **({"nav": True} if any(tag(n) in NAVIGATION for n in [node, *node.iterancestors()]) else {}),
             }
         )
 
     for node in root.iter():
-        if not isinstance(node.tag, str) or excluded(node):
+        if not isinstance(node.tag, str) or excluded(node) or page_list(node):
             continue
         name = tag(node)
         if name in {"h1", "h2", "h3", "hr"}:
@@ -201,7 +241,7 @@ def extract_units(root: etree._Element, resource: str) -> list[dict]:
             continue
         for field in ("text", "tail"):
             parent = node if field == "text" else node.getparent()
-            if parent is None or excluded(parent) or (tree.getpath(node), field) in used:
+            if parent is None or excluded(parent) or page_list(parent) or (tree.getpath(node), field) in used:
                 continue
             if tag(parent) in {"html", "head", "meta", "link"}:
                 continue

@@ -42,6 +42,8 @@ trap 'rm -rf "$work"' EXIT
 docker exec "$database" sh -c 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc' > "$work/database.dump" \
 	|| fail "pg_dump failed"
 # Streamed through the host: the destination may be a network share that containers cannot write to.
+# The whole volume: EPUBs in books/, TXT and JSON sources in sources/ (staging/ holds only imports
+# not yet confirmed).
 docker run --rm --network none --volume "$books_volume:/data:ro" --entrypoint tar "$tools_image" \
 	-czf - -C /data . > "$work/books.tar.gz" || fail "archiving volume $books_volume failed"
 if [[ "$include_env" == true ]]; then

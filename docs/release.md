@@ -34,7 +34,7 @@ Verify each destination independently. A green source pipeline does not prove th
 
 ## Production
 
-After all publication jobs pass, run the protected manual `deploy-production` job. It deploys only to the existing CT116-OpenCode production stack, creates a PostgreSQL backup, restarts the API and worker from the tested commit image and verifies `/health`. Confirm the reported version and worker checkpoint recovery directly on CT116 before announcing completion.
+The protected `deploy-production` job then runs automatically, and only after the image runtime test, the vulnerability scan and the GitLab publication have succeeded: a failed gate leaves production untouched. It deploys only to the existing CT116-OpenCode production stack, creates a PostgreSQL backup, restarts the API and worker from the tested commit image and verifies `/health`. Confirm the reported version and worker checkpoint recovery directly on CT116 before announcing completion.
 
 ## Rollback
 

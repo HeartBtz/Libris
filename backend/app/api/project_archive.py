@@ -51,8 +51,8 @@ SCHEMA_VERSION = 2
 NOT_ARCHIVED = {
     Project: {"id", "owner_id", "provider_id", "original_path", "original_hash", "archived_at", "updated_at"},
     Chapter: {"project_id"},
-    # The structure comes from the EPUB itself; `translation` is derived from the units.
-    Segment: {"project_id", "chapter_id", "section", "units", "translation"},
+    # The structure comes from the EPUB itself; `translation` and `source_key` are derived from the units.
+    Segment: {"project_id", "chapter_id", "section", "units", "translation", "source_key"},
     TranslationVersion: {"id", "author_id"},
     Glossary: {"id", "project_id"},
     Entity: {"project_id"},
@@ -102,6 +102,7 @@ class ArchivedChapter(Archived):
     summary: dict = Field(default_factory=dict)
     instructions: str = Field(default="", max_length=10000)
     analyzed: bool = False
+    kind: Literal["narrative", "auxiliary", "navigation", "metadata"] | None = None
 
 
 class ArchivedSegment(Archived):
@@ -411,6 +412,9 @@ def restore_archive(db, project: Project, archive: ProjectArchive) -> None:
         chapter.summary = saved.summary
         chapter.instructions = saved.instructions
         chapter.analyzed = saved.analyzed
+        # Archives written before chapter kinds keep the kind the fresh import derived from the EPUB.
+        if saved.kind:
+            chapter.kind = saved.kind
         if saved.created_at:
             chapter.created_at = saved.created_at
 

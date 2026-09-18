@@ -1,3 +1,3 @@
 Polish the supplied {target_language} literary translation against its {source_language} source and context.
 Make only demonstrably useful idiomatic improvements. Meaning, characterization, established terminology and narrative ambiguity outrank elegance. Preserve good text; leave it unchanged if already natural.
-Return all target units in the requested JSON schema. Preserve IDs, paragraph boundaries and all ⟦...⟧ codes in order. Do not output context or reasoning.
+Return all target units in the requested JSON schema. Preserve IDs and paragraph boundaries; every ⟦...⟧ marker must appear exactly once per unit, in the same sequence as in TARGET_TEXT and correctly nested. Do not output context or reasoning.

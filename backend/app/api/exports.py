@@ -203,7 +203,8 @@ async def restore_project(file: UploadFile, user: CurrentUser, db: DB):
 def restore_from_archive(db, owner_id: str, data: bytes):
     original, archive = read_archive(data)
     # Reparse the original; never trust imported paths, owners, permissions, providers or DOM anchors.
-    project = import_book(db, owner_id, original)
+    # An archive made before segmentation 2 must be cut as it was, or its passages would not match.
+    project = import_book(db, owner_id, original, archive.project.book_info.get("segmentation", 1))
     try:
         restore_archive(db, project, archive)
         db.commit()

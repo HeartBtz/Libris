@@ -11,7 +11,22 @@ from sqlalchemy import exists, func, select
 
 from app.api.common import row
 from app.jobs import segment_state as state
-from app.models import Chapter, Glossary, Job, JobSegmentState, Memory, Project, Provider, RequestLog, Segment
+from app.models import (
+    Chapter,
+    Glossary,
+    Job,
+    JobSegmentState,
+    Memory,
+    Project,
+    Provider,
+    RequestLog,
+    Segment,
+    TranslationVersion,
+)
+
+# Changed in v0.5 (#54), deliberately: the navigation document, the NCX and the package metadata are
+# translated but no longer counted as chapters, and the list reports translation-memory reuse.
+COUNTED = ("narrative", "auxiliary")
 
 HELD = ("pending", "waiting", "analyzing", "translating", "reviewing", "syncing", "paused", "blocked")
 
@@ -29,19 +44,22 @@ def _percent(done: int, total: int) -> int:
 
 def _estimate(db, project: Project, stage: str, done: int, total: int) -> dict:
     operations = STAGE_OPERATIONS.get(stage, ())
-    spent_cost = db.scalar(
-        select(
-            func.sum(
-                (
-                    RequestLog.prompt_tokens * Provider.input_cost
-                    + RequestLog.completion_tokens * Provider.output_cost
+    spent_cost = (
+        db.scalar(
+            select(
+                func.sum(
+                    (
+                        RequestLog.prompt_tokens * Provider.input_cost
+                        + RequestLog.completion_tokens * Provider.output_cost
+                    )
+                    / 1_000_000
                 )
-                / 1_000_000
             )
+            .join(Provider, RequestLog.provider_id == Provider.id)
+            .where(RequestLog.project_id == project.id, RequestLog.status == "success")
         )
-        .join(Provider, RequestLog.provider_id == Provider.id)
-        .where(RequestLog.project_id == project.id, RequestLog.status == "success")
-    ) or 0
+        or 0
+    )
     if not operations or not done or done >= total:
         return {
             "remaining_seconds": 0 if done >= total else None,
@@ -187,9 +205,7 @@ def project_progress(db, project: Project, stats: dict) -> dict:
         )
     ):
         active = "translation"
-    elif active_job and (
-        active_job.operation == "analyze" or step in {"chapter_analysis", "book_bible"}
-    ):
+    elif active_job and (active_job.operation == "analyze" or step in {"chapter_analysis", "book_bible"}):
         active = "analysis"
     elif not translation_started and analysis_done < analysis_total:
         active = "analysis"
@@ -287,10 +303,7 @@ def stats(db, project: Project) -> dict:
         else 0
     )
     review_total = int(
-        review_checkpoint.get("total")
-        or review_checkpoint.get("review_targets")
-        or flagged
-        or total
+        review_checkpoint.get("total") or review_checkpoint.get("review_targets") or flagged or total
     )
     return {
         "reviewed_segments": review_done,
@@ -301,7 +314,9 @@ def stats(db, project: Project) -> dict:
             )
         ),
         "synthesized_chapters": db.scalar(
-            select(func.count(Chapter.id)).where(Chapter.project_id == project.id, Chapter.analyzed.is_(True))
+            select(func.count(Chapter.id)).where(
+                Chapter.project_id == project.id, Chapter.analyzed.is_(True), Chapter.kind.in_(COUNTED)
+            )
         ),
         "total": total,
         "retained_source": db.scalar(
@@ -315,10 +330,21 @@ def stats(db, project: Project) -> dict:
         "errors": errors,
         "refused": refused,
         "chapters": db.scalar(
-            select(func.count()).select_from(Chapter).where(Chapter.project_id == project.id)
+            select(func.count())
+            .select_from(Chapter)
+            .where(Chapter.project_id == project.id, Chapter.kind.in_(COUNTED))
         ),
         "glossary": db.scalar(
             select(func.count()).select_from(Glossary).where(Glossary.project_id == project.id)
+        ),
+        "translation_memory_reused": db.scalar(
+            select(func.count(func.distinct(TranslationVersion.segment_id)))
+            .join(Segment, Segment.id == TranslationVersion.segment_id)
+            .where(
+                Segment.project_id == project.id,
+                TranslationVersion.origin == "translation_memory",
+                TranslationVersion.applied.is_(True),
+            )
         ),
     }
 
@@ -329,4 +355,5 @@ def legacy_list_item(db, project: Project) -> dict:
         row(project, ("original_path", "bible")),
         stats=values,
         progress=project_progress(db, project, values),
+        translation_memory=(project.config or {}).get("translation_memory", True),
     )

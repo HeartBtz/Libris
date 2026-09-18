@@ -1,12 +1,16 @@
+import asyncio
 import hashlib
 import json
+import weakref
 
 from sqlalchemy import delete, func, or_, select
 
 from app.db import SessionLocal
-from app.engines.context.builder import build_context
+from app.engines.context.builder import ContextTooLarge, build_context
+from app.engines.context.series import enforced_glossary
 from app.engines.memory.store import propose_terms, remember
 from app.engines.quality.checks import checks, locked_term_error, validate_translation
+from app.engines.translation.memory import remembered_translation
 from app.engines.translation.versions import save_version
 from app.jobs import segment_state as state
 from app.jobs.concurrency import blocking, book_share, in_parallel, job_lock
@@ -37,11 +41,9 @@ def restore_project_provider(job_id: str, owner: str, provider_id: str | None) -
         return job
 
 
-def accepted_terms(project_id: str) -> list[Glossary]:
+def accepted_terms(project_id: str) -> list:
     with SessionLocal() as db:
-        return list(
-            db.scalars(select(Glossary).where(Glossary.project_id == project_id, Glossary.accepted.is_(True)))
-        )
+        return enforced_glossary(db, db.get(Project, project_id))
 
 
 async def translation_call(
@@ -52,17 +54,22 @@ async def translation_call(
     extra: dict | None = None,
     needs: list[str] | None = None,
 ) -> TranslationResult:
-    built = await build_context(
-        project.id,
-        segment.id,
-        operation,
-        deep=job.options.get("deep", False),
-        instruction=job.options.get("instruction", ""),
-        extra=extra,
-        needs=needs,
-        provider_id=job.provider_id,
-    )
     glossary = await blocking(accepted_terms, project.id)
+    try:
+        built = await build_context(
+            project.id,
+            segment.id,
+            operation,
+            deep=job.options.get("deep", False),
+            instruction=job.options.get("instruction", ""),
+            extra=extra,
+            needs=needs,
+            provider_id=job.provider_id,
+        )
+    except ContextTooLarge as too_large:
+        from app.engines.translation.repair import translate_in_parts
+
+        return await translate_in_parts(project, segment, operation, job, extra, glossary, too_large)
 
     def validate(result: TranslationResult):
         validate_translation(segment.units, result)
@@ -105,7 +112,7 @@ def persist(
             db, segment.id, [u.model_dump() for u in result.units], origin, segment.revision, stage=stage
         )
         if applied:
-            if origin == "translation":
+            if origin in {"translation", "translation_memory"}:
                 state.mark(db, current_job.id, state.STARTED, segment.id)
             current = db.get(Segment, segment.id)
             current.uncertainties = result.uncertainties
@@ -221,9 +228,7 @@ def _complete_passage(job: Job, owner: str, project: Project, sid: str) -> None:
         segment = db.get(Segment, sid)
         if segment.human:
             return
-        terms = list(
-            db.scalars(select(Glossary).where(Glossary.project_id == project.id, Glossary.accepted.is_(True)))
-        )
+        terms = enforced_glossary(db, project)
         findings = checks(
             segment.units,
             segment.translated_units,
@@ -295,13 +300,35 @@ def _flag_passage(job: Job, owner: str, sid: str, exc: Exception) -> None:
         db.commit()
 
 
+def same_source(job_id: str, key: str) -> asyncio.Lock:
+    """Identical passages of one job run one after the other: the second reuses the first's translation
+    instead of racing it to the model and ending up translated differently."""
+    lock = _same_source.get((job_id, key))
+    if lock is None:
+        lock = _same_source[(job_id, key)] = asyncio.Lock()
+    return lock
+
+
+_same_source: weakref.WeakValueDictionary[tuple[str, str], asyncio.Lock] = weakref.WeakValueDictionary()
+
+
 async def translate_passage(job: Job, owner: str, sid: str, force: bool) -> None:
     loaded = await blocking(_passage, job, sid, force)
     if loaded is None:
         return
     project, segment, restarted = loaded
+    if force or segment.translation or not segment.source_key:
+        return await _translate_passage(job, owner, project, segment, force, restarted, None)
+    async with same_source(job.id, segment.source_key):
+        # Looked up once the identical passage before it, if any, is finished.
+        reused = await blocking(remembered_translation, project, segment)
+        return await _translate_passage(job, owner, project, segment, force, restarted, reused)
+
+
+async def _translate_passage(job, owner, project, segment, force, restarted, reused) -> None:
+    sid = segment.id
     needs = None
-    if job.options.get("deep"):
+    if job.options.get("deep") and reused is None:
         built = await build_context(project.id, sid, "context_planner", provider_id=job.provider_id)
         plan = await llm.complete(
             project_id=project.id,
@@ -316,8 +343,9 @@ async def translate_passage(job: Job, owner: str, sid: str, force: bool) -> None
         needs = plan.needs
     try:
         if not segment.translation or (force and not restarted):
-            result = await translation_call(project, segment, "translation", job, needs=needs)
-            if not await blocking(persist, job, owner, segment, result, "translation", "translated"):
+            result = reused or await translation_call(project, segment, "translation", job, needs=needs)
+            origin = "translation_memory" if reused else "translation"
+            if not await blocking(persist, job, owner, segment, result, origin, "translated"):
                 await blocking(finish_segment, job.id, owner, sid)
                 return  # Human/stale version: proposal is in history, never overwrites active text.
         if project.quality != "fast" or job.operation == "review":

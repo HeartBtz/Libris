@@ -188,9 +188,9 @@ def test_accepting_explicit_replacement_preserves_epub_markers(seeded):
         segment = next(
             item
             for item in db.scalars(select(Segment).where(Segment.project_id == pid).order_by(Segment.position))
-            if any("Silver Tower" in unit["text"] for unit in item.units)
+            if len(item.units) == 1 and "Silver Tower" in item.units[0]["text"]
         )
-        source = next(unit for unit in segment.units if "Silver Tower" in unit["text"])
+        source = segment.units[0]
         segment.translated_units = [{"id": source["id"], "text": source["text"]}]
         segment.translation = segment.translated_units[0]["text"]
         segment.status = "check"

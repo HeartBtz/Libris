@@ -11,8 +11,10 @@ from starlette.concurrency import run_in_threadpool
 from app.api.common import row
 from app.config import settings
 from app.engines.epub import parse_book
+from app.engines.epub.book import SEGMENTATION
 from app.engines.epub.check import epubcheck
 from app.engines.memory.identities import canonical_bible
+from app.engines.translation.memory import memory_key, translation_memory_enabled
 from app.jobs.queue import ACTIVE, HELD, emit, enqueue
 from app.models import (
     Chapter,
@@ -43,6 +45,7 @@ def project_views(db, projects: list[Project], *, bible: bool = True) -> list[di
             stats=facts[project.id].stats,
             progress=progress[project.id],
             **({"bible": canonical_bible(db, project)} if bible else {}),
+            translation_memory=translation_memory_enabled(project),
         )
         for project in projects
     ]
@@ -80,7 +83,7 @@ def discard_book_file(project: Project) -> None:
     Path(project.original_path).unlink(missing_ok=True)
 
 
-def import_book(db, owner_id: str, data: bytes) -> Project:
+def import_book(db, owner_id: str, data: bytes, segmentation: int = SEGMENTATION) -> Project:
     original_hash = hashlib.sha256(data).hexdigest()
     if db.get_bind().dialect.name == "postgresql":
         lock_digest = hashlib.sha256(f"{owner_id}:{original_hash}".encode()).digest()
@@ -96,7 +99,7 @@ def import_book(db, owner_id: str, data: bytes) -> Project:
                 "Restaurez-le depuis les archives.",
             )
         raise HTTPException(409, f"Cet EPUB est déjà importé dans « {existing.title} ».")
-    parsed = parse_book(data)
+    parsed = parse_book(data, segmentation=segmentation)
     project_id = uid()
     book_path = settings().data_dir / "books" / f"{project_id}.epub"
     project = Project(
@@ -114,7 +117,11 @@ def import_book(db, owner_id: str, data: bytes) -> Project:
     position = 0
     for number, item in enumerate(parsed["chapters"]):
         chapter = Chapter(
-            project_id=project.id, position=number, title=item["title"], resource=item["resource"]
+            project_id=project.id,
+            position=number,
+            title=item["title"],
+            resource=item["resource"],
+            kind=item["kind"],
         )
         db.add(chapter)
         db.flush()
@@ -126,6 +133,7 @@ def import_book(db, owner_id: str, data: bytes) -> Project:
                     position=position,
                     units=group,
                     source="\n\n".join(u["text"] for u in group),
+                    source_key=memory_key(group),
                     section=group[0]["section"][:100],
                 )
             )
@@ -215,7 +223,7 @@ def final_review_info(project_id: str, user: CurrentUser, db: DB):
 @router.put("/{project_id}")
 def configure(project_id: str, body: ProjectConfig, user: CurrentUser, db: DB):
     project = access(db, project_id, user, write=True)
-    values = body.model_dump()
+    values = body.model_dump(exclude={"translation_memory"})
     changed = {key for key, value in values.items() if getattr(project, key) != value}
     provider_selected = project.provider_id is None and body.provider_id is not None
     if changed - {"series_name", "volume_number"} and db.scalar(
@@ -228,6 +236,9 @@ def configure(project_id: str, body: ProjectConfig, user: CurrentUser, db: DB):
         check_series_access(db, project, user, body.series_name)
     for key, value in values.items():
         setattr(project, key, value)
+    # Clients that predate the setting omit it: the stored choice is then kept.
+    if "translation_memory" in body.model_fields_set:
+        project.config = {**project.config, "translation_memory": body.translation_memory}
     for job in db.scalars(select(Job).where(Job.project_id == project_id, Job.status.in_(HELD))):
         if "provider_id" in changed:
             job.provider_id = body.provider_id

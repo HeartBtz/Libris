@@ -7,12 +7,13 @@ from sqlalchemy import delete, select
 
 from app.db import SessionLocal
 from app.engines.context.builder import build_context
+from app.engines.context.series import enforced_glossary
 from app.engines.quality.checks import checks, validate_translation
 from app.engines.translation.versions import save_version
 from app.jobs import segment_state as state
 from app.jobs.concurrency import blocking, book_share, in_parallel, job_lock
 from app.jobs.queue import checkpoint, emit, fence
-from app.models import Glossary, Issue, Job, Project, Segment
+from app.models import Issue, Job, Project, Segment
 from app.providers.llm import LLMError, ProviderAuthenticationRequired, ProviderUnavailable, llm
 from app.providers.search import search_config
 from app.schemas import FinalReviewResult
@@ -123,9 +124,7 @@ def _review_inputs(job: Job, owner: str, sid: str):
             state.mark(db, job.id, state.REVIEWED, sid, outcome="protected")
             db.commit()
             return None
-        terms = list(
-            db.scalars(select(Glossary).where(Glossary.project_id == project.id, Glossary.accepted.is_(True)))
-        )
+        terms = enforced_glossary(db, project)
         old_issues = list(db.scalars(select(Issue).where(Issue.segment_id == sid, Issue.resolved.is_(False))))
         technical = [{"code": issue.code, "message": issue.message} for issue in old_issues]
         return project, segment, terms, technical

@@ -9,7 +9,18 @@ from dataclasses import dataclass, field
 from sqlalchemy import func, select
 
 from app.jobs import segment_state as state
-from app.models import Chapter, Glossary, Job, JobSegmentState, Memory, Project, Provider, RequestLog, Segment
+from app.models import (
+    Chapter,
+    Glossary,
+    Job,
+    JobSegmentState,
+    Memory,
+    Project,
+    Provider,
+    RequestLog,
+    Segment,
+    TranslationVersion,
+)
 
 HELD = ("pending", "waiting", "analyzing", "translating", "reviewing", "syncing", "paused", "blocked")
 
@@ -43,10 +54,17 @@ def _cost():
     ) / 1_000_000
 
 
+# The table of contents, the NCX and the package metadata are translated but are not sections of the book.
+COUNTED_CHAPTERS = ("narrative", "auxiliary")
+
+
 def book_facts(db, project_ids: list[str]) -> dict[str, BookFacts]:
     facts = {pid: BookFacts() for pid in project_ids}
     if not project_ids:
         return facts
+    reused = select(TranslationVersion.segment_id).where(
+        TranslationVersion.origin == "translation_memory", TranslationVersion.applied.is_(True)
+    )
     segments = {
         pid: values
         for pid, *values in db.execute(
@@ -59,6 +77,8 @@ def book_facts(db, project_ids: list[str]) -> dict[str, BookFacts]:
                 func.count(Segment.id).filter(Segment.status == "error"),
                 func.count(Segment.id).filter(Segment.status == "refused"),
                 func.count(Segment.id).filter(Segment.retained_source.is_(True)),
+                # Passages first translated from the translation memory, without a model call.
+                func.count(Segment.id).filter(Segment.id.in_(reused)),
             )
             .where(Segment.project_id.in_(project_ids))
             .group_by(Segment.project_id)
@@ -79,7 +99,7 @@ def book_facts(db, project_ids: list[str]) -> dict[str, BookFacts]:
                 func.count(Chapter.id),
                 func.count(Chapter.id).filter(Chapter.analyzed.is_(True)),
             )
-            .where(Chapter.project_id.in_(project_ids))
+            .where(Chapter.project_id.in_(project_ids), Chapter.kind.in_(COUNTED_CHAPTERS))
             .group_by(Chapter.project_id)
         )
     }
@@ -133,7 +153,7 @@ def book_facts(db, project_ids: list[str]) -> dict[str, BookFacts]:
             for index, stage in enumerate(STAGE_OPERATIONS)
         }
     for pid in project_ids:
-        total, done, validated, flagged, errors, refused, retained = segments.get(pid, (0,) * 7)
+        total, done, validated, flagged, errors, refused, retained, reused_count = segments.get(pid, (0,) * 8)
         chapter_count, synthesized = chapters.get(pid, (0, 0))
         review_job = next(
             (
@@ -164,6 +184,7 @@ def book_facts(db, project_ids: list[str]) -> dict[str, BookFacts]:
             "refused": refused,
             "chapters": chapter_count,
             "glossary": glossary.get(pid, 0),
+            "translation_memory_reused": reused_count,
         }
     return facts
 

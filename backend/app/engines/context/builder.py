@@ -7,10 +7,19 @@ from sqlalchemy import select
 from app.db import SessionLocal
 from app.engines.context.config import memory_config
 from app.engines.context.providers import ContextItem, HybridContextProvider
+from app.engines.context.series import prior_volumes, series_decisions, series_terms
 from app.engines.memory.identities import effective_names, plausible_name
 from app.jobs.concurrency import blocking
 from app.models import Chapter, CharacterRelation, Entity, Glossary, Memory, Project, Provider, Segment
-from app.providers.llm import LLMError, estimate_tokens, load_prompt
+from app.providers.llm import LLMError, estimate_tokens, json_schema, load_prompt
+from app.schemas import (
+    AskResult,
+    ChapterAnalysis,
+    ContextNeeds,
+    FinalReviewResult,
+    ReviewResult,
+    TranslationResult,
+)
 
 
 def mentioned(name: str, text: str) -> bool:
@@ -34,11 +43,54 @@ def context_query(source: str, neighbors: str, names: list[str]) -> str:
 NEIGHBORS = {"PREVIOUS_CONTEXT", "NEXT_CONTEXT"}
 
 
-def fit_neighbors(values: list[dict], limit: int, previous: bool) -> list[dict]:
+def section(name: str, content: str) -> str:
+    # json.dumps leaves "<" and ">" alone: a book quoting "</TARGET_TEXT>" would close the section and
+    # speak as the prompt. The JSON escapes decode to the same characters for the model.
+    escaped = content.replace("<", "\\u003c").replace(">", "\\u003e")
+    return f"<{name}>\n{escaped}\n</{name}>"
+
+
+def cost(name: str, content: str) -> int:
+    """Tokens a section costs once serialized in the request, escapes included."""
+    return estimate_tokens(json.dumps(section(name, content), ensure_ascii=False))
+
+
+RESPONSE_MODELS = {
+    "translation": TranslationResult,
+    "translation_revision": TranslationResult,
+    "polishing": TranslationResult,
+    "translation_review": ReviewResult,
+    "final_review": FinalReviewResult,
+    "chapter_analysis": ChapterAnalysis,
+    "context_planner": ContextNeeds,
+    "ask": AskResult,
+}
+
+
+def schema_size(operation: str) -> int:
+    model = RESPONSE_MODELS.get(operation, ChapterAnalysis)
+    return estimate_tokens(json.dumps(json_schema(model), ensure_ascii=False))
+
+
+def response_reserve(operation: str) -> int:
+    """What llm.complete adds around the prompt: the response schema, its margin and the envelope."""
+    return schema_size(operation) + 512 + 64
+
+
+class ContextTooLarge(LLMError):
+    """The passage and its mandatory rules do not fit the provider window, whatever the optional context."""
+
+    def __init__(self, message: str, *, available: int, fixed: int, target: int):
+        super().__init__(message)
+        self.available, self.fixed, self.target = available, fixed, target
+
+
+def fit_neighbors(values: list[dict], limit: int, previous: bool, name: str = "") -> list[dict]:
     """Keep the passages closest to the target; shorten the last one rather than lose the neighbourhood."""
 
     def size(items):
-        return estimate_tokens(json.dumps(items, ensure_ascii=False))
+        content = json.dumps(items, ensure_ascii=False)
+        return cost(name, content) if name else estimate_tokens(content)
 
     values = [dict(value) for value in values]
     while len(values) > 1 and size(values) > limit:
@@ -50,7 +102,7 @@ def fit_neighbors(values: list[dict], limit: int, previous: bool) -> list[dict]:
         while fields and size(values) > limit:
             longest = max(fields, key=lambda key: len(item[key]))
             keep = len(item[longest]) * 3 // 4
-            if keep < 120:
+            if keep < 40:
                 return []
             # The end of what precedes and the start of what follows are the useful halves.
             item[longest] = item[longest][-keep:] if previous else item[longest][:keep]
@@ -139,80 +191,25 @@ def _prepare(
         glossary = db.scalars(
             select(Glossary).where(Glossary.project_id == project_id, Glossary.accepted.is_(True))
         ).all()
-        applicable = [g for g in glossary if mentioned(g.source, local_source)]
-        series_terms = []
-        series_decisions = []
-        if project.series_name and project.volume_number:
-            prior_projects = list(
-                db.scalars(
-                    select(Project).where(
-                        Project.owner_id == project.owner_id,
-                        Project.series_name == project.series_name,
-                        Project.source_language == project.source_language,
-                        Project.target_language == project.target_language,
-                        Project.volume_number.is_not(None),
-                        Project.volume_number < project.volume_number,
-                    ).order_by(Project.volume_number.desc())
-                )
-            )
-            prior = {candidate.id: candidate for candidate in prior_projects}
-            used_sources = {term.source.casefold() for term in glossary}
-            if prior:
-                for term in db.scalars(
-                    select(Glossary)
-                    .join(Project, Glossary.project_id == Project.id)
-                    .where(
-                        Glossary.project_id.in_(prior),
-                        Glossary.accepted.is_(True),
-                    )
-                    .order_by(
-                        Project.volume_number.desc(),
-                        Project.created_at.desc(),
-                        Glossary.created_at.desc(),
-                    )
-                ):
-                    source_key = term.source.casefold()
-                    if source_key not in used_sources and mentioned(term.source, local_source):
-                        source_project = prior[term.project_id]
-                        series_terms.append(
-                            {
-                                "source": term.source,
-                                "translation": term.translation,
-                                "locked": term.locked,
-                                "source_volume": source_project.volume_number,
-                                "source_project": source_project.title,
-                            }
-                        )
-                        used_sources.add(source_key)
-                memories = list(db.scalars(
-                    select(Memory).where(
-                        Memory.project_id.in_(prior),
-                        Memory.kind == "human_decision",
-                        Memory.validated.is_(True),
-                    )
-                ))
-                memories.sort(
-                    key=lambda memory: (
-                        prior[memory.project_id].volume_number,
-                        prior[memory.project_id].created_at,
-                        memory.created_at,
-                    ),
-                    reverse=True,
-                )
-                for memory in memories:
-                    source = str(memory.content.get("source", ""))
-                    source_key = source.casefold()
-                    if source and source_key not in used_sources and mentioned(source, local_source):
-                        source_project = prior[memory.project_id]
-                        series_decisions.append(
-                            {
-                                "source": source,
-                                "translation": memory.content.get("translation", ""),
-                                "source_volume": source_project.volume_number,
-                                "source_project": source_project.title,
-                            }
-                        )
-                        used_sources.add(source_key)
+        prior = prior_volumes(db, project)
+        local_locked = {g.source.casefold() for g in glossary if g.locked}
+        local_sources = {g.source.casefold() for g in glossary}
+        # A locked series term outranks this book's unlocked entry (showing both would offer two names);
+        # an unlocked one yields to any local entry.
+        series_terms_used = [
+            term
+            for term in series_terms(db, prior)
+            if term["source"].casefold() not in local_locked
+            and (term["locked"] or term["source"].casefold() not in local_sources)
+            and mentioned(term["source"], local_source)
+        ]
+        series_locked = {t["source"].casefold() for t in series_terms_used if t["locked"]}
+        applicable = [
+            g
+            for g in glossary
+            if mentioned(g.source, local_source) and (g.locked or g.source.casefold() not in series_locked)
+        ]
+        series_decisions_used = series_decisions(db, prior, local_source, set(local_sources), mentioned)
         entities = db.scalars(
             select(Entity).where(Entity.project_id == project_id, Entity.merged_into_id.is_(None))
         ).all()
@@ -239,9 +236,13 @@ def _prepare(
             if e.identity_validated or e.validated
         ]
         mandatory["SERIES_CONVENTIONS"] = {
-            "scope": "Only accepted terminology and human decisions from earlier volumes. Local book rules win on conflict.",
-            "terms": series_terms,
-            "human_decisions": series_decisions,
+            "scope": (
+                "Accepted terminology and human decisions from earlier volumes only. Locked terms are "
+                "mandatory unless LOCKED_GLOSSARY or USER_RULES decide otherwise; unlocked terms yield "
+                "to this book's own choices."
+            ),
+            "terms": series_terms_used,
+            "human_decisions": series_decisions_used,
         }
         if extra:
             mandatory.update(extra)
@@ -421,13 +422,26 @@ def _assemble(prepared: _Prepared, retrieved: list[ContextItem], trace: dict, op
     provider, system, version, mandatory = prepared.provider, prepared.system, prepared.version, prepared.mandatory
     candidates = [*prepared.candidates, *retrieved]
     previous, following = prepared.previous, prepared.following
-    # Schema and message-envelope reserve is separate from output reservation.
-    budget = provider.context_window - provider.max_output_tokens - 6000
-    mandatory_size = estimate_tokens(system) + estimate_tokens(json.dumps(mandatory, ensure_ascii=False))
+    # The response schema and the margin llm.complete checks are reserved besides the output itself.
+    reserve = response_reserve(operation)
+    budget = provider.context_window - provider.max_output_tokens - reserve
+    sizes = {key: cost(key, json.dumps(value, ensure_ascii=False)) for key, value in mandatory.items()}
+    target_size = sizes["TARGET_TEXT"]
+    system_size = estimate_tokens(json.dumps(system, ensure_ascii=False))
+    mandatory_size = system_size + sum(sizes.values())
     if mandatory_size > budget:
-        raise LLMError(
-            "La cible et les règles obligatoires dépassent le budget conservateur. "
-            "Augmentez la fenêtre ou réduisez les instructions ; aucun texte n’a été retiré."
+        fixed = mandatory_size - target_size
+        raise ContextTooLarge(
+            f"Fenêtre de {provider.context_window} tokens trop petite pour ce passage : après "
+            f"{provider.max_output_tokens} tokens réservés à la réponse et {reserve} au format de réponse, "
+            f"il reste {max(budget, 0)} tokens, alors que le prompt système ({system_size}), le texte du "
+            f"passage ({target_size}) et les règles obligatoires ({fixed - system_size}) en demandent "
+            f"{mandatory_size} (estimation prudente : 1 token par octet). Choisissez un fournisseur avec "
+            f"une fenêtre d’au moins {mandatory_size + provider.max_output_tokens + reserve + 2000} tokens "
+            "ou réduisez sa sortie maximale ; aucun texte n’a été retiré.",
+            available=budget,
+            fixed=fixed,
+            target=target_size,
         )
     remaining = optional_budget = min(budget - mandatory_size, memory_config()["context_budget"])
     retrieval_remaining = memory_config()["retrieval_budget"]
@@ -445,17 +459,17 @@ def _assemble(prepared: _Prepared, retrieved: list[ContextItem], trace: dict, op
             reason = "duplicate_or_empty"
         elif item.relevance < 0.05:
             reason = "low_relevance"
-        length = estimate_tokens(item.content)
+        length = cost(item.source, item.content)
         if item.source.startswith("OPENVIKING_") and length > retrieval_remaining:
             reason = "retrieval_budget"
         if not reason and item.source in NEIGHBORS:
             before = item.source == "PREVIOUS_CONTEXT"
             allowance = min(remaining, previous_share if before else neighbor_remaining)
             if length > allowance:
-                values = fit_neighbors(json.loads(item.content), allowance, before)
+                values = fit_neighbors(json.loads(item.content), allowance, before, item.source)
                 if values:
                     item.content = json.dumps(values, ensure_ascii=False)
-                    length = estimate_tokens(item.content)
+                    length = cost(item.source, item.content)
                 else:
                     reason = "budget"
             if not reason:
@@ -472,12 +486,14 @@ def _assemble(prepared: _Prepared, retrieved: list[ContextItem], trace: dict, op
             seen.add(normalized)
             kept.append(detail)
     if (previous or following) and not any(i["source"] in {"PREVIOUS_CONTEXT", "NEXT_CONTEXT"} for i in kept):
-        raise LLMError("Fenêtre trop petite pour conserver le voisinage du passage. Augmentez le contexte.")
-    sections = []
-    for item in kept:
-        sections.append(f"<{item['source']}>\n{item['content']}\n</{item['source']}>")
-    for key, value in mandatory.items():
-        sections.append(f"<{key}>\n{json.dumps(value, ensure_ascii=False)}\n</{key}>")
+        raise LLMError(
+            f"Fenêtre de {provider.context_window} tokens trop petite pour garder le voisinage du passage : "
+            f"une fois le passage et les règles placés, il reste {optional_budget} tokens de contexte, "
+            "moins qu’un extrait des passages voisins. Choisissez un fournisseur avec une fenêtre plus "
+            "grande ou réduisez sa sortie maximale."
+        )
+    sections = [section(item["source"], item["content"]) for item in kept]
+    sections += [section(key, json.dumps(value, ensure_ascii=False)) for key, value in mandatory.items()]
     messages = [{"role": "system", "content": system}, {"role": "user", "content": "\n\n".join(sections)}]
     return BuiltContext(
         messages,
@@ -489,7 +505,8 @@ def _assemble(prepared: _Prepared, retrieved: list[ContextItem], trace: dict, op
             "discarded": dropped,
             "mandatory": mandatory,
             "tokenizer": "conservative_utf8_bytes",
-            "input_estimate": mandatory_size + optional_budget - remaining,
+            # What llm.complete counts before sending: the serialized messages and the schema.
+            "input_estimate": estimate_tokens(json.dumps(messages, ensure_ascii=False)) + schema_size(operation),
             "output_reservation": provider.max_output_tokens,
             "context_window": provider.context_window,
         },

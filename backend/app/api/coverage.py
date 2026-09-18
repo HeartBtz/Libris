@@ -8,6 +8,7 @@ from app.engines.memory.identities import upsert_profiles
 from app.engines.memory.relations import collect
 from app.engines.memory.store import remember
 from app.engines.translation.versions import save_version
+from app.jobs import segment_state as state
 from app.jobs.queue import HELD, emit
 from app.models import Chapter, Issue, Job, Memory, Segment
 from app.schemas import ChapterAnalysis
@@ -106,11 +107,8 @@ def retain_source(sid: str, body: RevisionInput, user: CurrentUser, db: DB):
         raise HTTPException(409, "Le passage a changé. Rechargez sa version.")
     segment.status, segment.error = "source_retained", ""
     # A resumed forced job must respect this explicit decision instead of repeating the refused call.
-    for job in db.scalars(select(Job).where(Job.project_id == project.id, Job.status.in_(HELD))):
-        job.checkpoint = {
-            **job.checkpoint,
-            "finished_ids": list(dict.fromkeys([*job.checkpoint.get("finished_ids", []), sid])),
-        }
+    for job_id in db.scalars(select(Job.id).where(Job.project_id == project.id, Job.status.in_(HELD))):
+        state.mark(db, job_id, state.FINISHED, sid)
     for issue in db.scalars(select(Issue).where(Issue.segment_id == sid, Issue.code == "content_refusal")):
         if not issue.message.startswith("analyze"):
             issue.resolved = True

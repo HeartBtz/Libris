@@ -1,6 +1,7 @@
 from sqlalchemy import func, select
 
-from app.models import Job, Project, Provider, RequestLog, Segment
+from app.jobs import segment_state as state
+from app.models import Job, JobSegmentState, Project, Provider, RequestLog, Segment
 
 HELD = ("pending", "waiting", "analyzing", "translating", "reviewing", "syncing", "paused", "blocked")
 
@@ -92,19 +93,27 @@ def project_progress(db, project: Project, stats: dict) -> dict:
     review_targets: set[str] = set()
     review_done_ids: set[str] = set()
     outcomes: dict[str, dict] = {}
-    review_checkpoints = db.scalars(
-        select(Job.checkpoint)
+    review_rows = (
+        select(JobSegmentState.segment_id)
+        .join(Job, Job.id == JobSegmentState.job_id)
         .where(
             Job.project_id == project.id,
             Job.operation.in_(("analyze", "translate", "resolve_validations")),
+            JobSegmentState.step.in_((state.REVIEW_TARGET, state.REVIEWED)),
         )
-        .order_by(Job.created_at.desc())
     )
-    for candidate_checkpoint in review_checkpoints:
-        review_targets.update(candidate_checkpoint.get("final_review_targets", []))
-        review_done_ids.update(candidate_checkpoint.get("final_review_done", []))
-        for sid, value in candidate_checkpoint.get("final_review_outcomes", {}).items():
-            outcomes.setdefault(sid, value)
+    # Newest job first: its outcome for a passage wins over an older review of the same passage.
+    for sid, step, outcome, data in db.execute(
+        review_rows.add_columns(JobSegmentState.step, JobSegmentState.outcome, JobSegmentState.data).order_by(
+            Job.created_at.desc()
+        )
+    ):
+        if step == state.REVIEW_TARGET:
+            review_targets.add(sid)
+            continue
+        review_done_ids.add(sid)
+        if outcome:
+            outcomes.setdefault(sid, {**data, "outcome": outcome})
     if review_targets:
         review_done_ids.intersection_update(review_targets)
     review_done = len(review_done_ids) or stats["reviewed_segments"]
@@ -188,8 +197,7 @@ def project_progress(db, project: Project, stats: dict) -> dict:
         sid: (status, human, validated)
         for sid, status, human, validated in db.execute(
             select(Segment.id, Segment.status, Segment.human, Segment.validated).where(
-                Segment.project_id == project.id,
-                Segment.id.in_(review_targets or review_done_ids),
+                Segment.project_id == project.id, Segment.id.in_(review_rows)
             )
         )
     }

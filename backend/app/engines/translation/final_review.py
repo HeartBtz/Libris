@@ -7,6 +7,7 @@ from app.db import SessionLocal
 from app.engines.context.builder import build_context
 from app.engines.quality.checks import checks, validate_translation
 from app.engines.translation.versions import save_version
+from app.jobs import segment_state as state
 from app.jobs.queue import checkpoint, emit, fence
 from app.models import Glossary, Issue, Job, Project, Segment
 from app.providers.llm import LLMError, ProviderAuthenticationRequired, ProviderUnavailable, llm
@@ -51,6 +52,7 @@ async def web_evidence(queries: list[str]) -> dict:
 async def resolve_validations(job: Job, owner: str) -> None:
     from app.engines.translation.pipeline import translation_call
 
+    stored = checkpoint(job.id, owner)
     with SessionLocal() as db:
         conditions = [
             Segment.project_id == job.project_id,
@@ -63,44 +65,32 @@ async def resolve_validations(job: Job, owner: str) -> None:
             conditions.append(~Segment.status.in_(("error", "refused", "blocked")))
         else:
             conditions.append(Segment.status == "check")
-        ids = list(
-            db.scalars(
-                select(Segment.id)
-                .where(*conditions)
-                .order_by(Segment.position)
-            )
-        )
-    stored = checkpoint(job.id, owner)
-    if "final_review_targets" in stored.checkpoint:
-        ids = stored.checkpoint["final_review_targets"]
-    else:
-        checkpoint(job.id, owner, {"final_review_targets": ids})
-    reviewed = set(stored.checkpoint.get("final_review_done", []))
+        # The targets are frozen on the first run: a resumed review must not grow or shrink its scope.
+        if "review_targets" in stored.checkpoint:
+            ids = state.in_book_order(db, job.id, state.REVIEW_TARGET)
+        else:
+            ids = list(db.scalars(select(Segment.id).where(*conditions).order_by(Segment.position)))
+            current = fence(db, job.id, owner)
+            state.mark_all(db, job.id, state.REVIEW_TARGET, ids)
+            current.checkpoint = {**current.checkpoint, "review_targets": len(ids)}
+            db.commit()
+        reviewed = state.marked(db, job.id, state.REVIEWED)
     for index, sid in enumerate(ids):
         if sid in reviewed:  # resumed job: no checkpoint write and no event for what is already done
             continue
-        current_job = checkpoint(
+        checkpoint(
             job.id,
             owner,
             {"step": "final_review", "current": index + 1, "total": len(ids), "segment_id": sid},
         )
-        if sid in current_job.checkpoint.get("final_review_done", []):
-            continue
         with SessionLocal() as db:
+            if state.is_marked(db, job.id, state.REVIEWED, sid):
+                continue
             segment = db.get(Segment, sid)
             project = db.get(Project, job.project_id)
             if segment.human or segment.validated or segment.retained_source:
-                current_job = fence(db, job.id, owner)
-                outcomes = dict(current_job.checkpoint.get("final_review_outcomes", {}))
-                outcomes[sid] = {"outcome": "protected", "revised": False}
-                current_job.checkpoint = {
-                    **current_job.checkpoint,
-                    "final_review_done": [
-                        *current_job.checkpoint.get("final_review_done", []),
-                        sid,
-                    ],
-                    "final_review_outcomes": outcomes,
-                }
+                fence(db, job.id, owner)
+                state.mark(db, job.id, state.REVIEWED, sid, outcome="protected")
                 db.commit()
                 continue
             terms = list(
@@ -179,19 +169,10 @@ async def resolve_validations(job: Job, owner: str) -> None:
                 if not verified.issues and not verified.uncertainties and not findings:
                     candidate, verdict = units, verified
             with SessionLocal() as db:
-                current_job = fence(db, job.id, owner)
+                fence(db, job.id, owner)
                 current = db.scalar(select(Segment).where(Segment.id == sid).with_for_update())
                 if current.revision != segment.revision or current.human or current.validated:
-                    outcomes = dict(current_job.checkpoint.get("final_review_outcomes", {}))
-                    outcomes[sid] = {"outcome": "protected", "revised": False}
-                    current_job.checkpoint = {
-                        **current_job.checkpoint,
-                        "final_review_done": [
-                            *current_job.checkpoint.get("final_review_done", []),
-                            sid,
-                        ],
-                        "final_review_outcomes": outcomes,
-                    }
+                    state.mark(db, job.id, state.REVIEWED, sid, outcome="protected")
                     db.commit()
                     continue
                 if candidate is not None:
@@ -217,16 +198,9 @@ async def resolve_validations(job: Job, owner: str) -> None:
                 current.uncertainties = verdict.uncertainties
                 current.status = "check" if remaining or verdict.issues else "ok"
                 outcome = "resolved" if current.status == "ok" else "needs_human"
-                outcomes = dict(current_job.checkpoint.get("final_review_outcomes", {}))
-                outcomes[sid] = {
-                    "outcome": outcome,
-                    "revised": candidate is not None,
-                }
-                current_job.checkpoint = {
-                    **current_job.checkpoint,
-                    "final_review_done": [*current_job.checkpoint.get("final_review_done", []), sid],
-                    "final_review_outcomes": outcomes,
-                }
+                state.mark(
+                    db, job.id, state.REVIEWED, sid, outcome=outcome, data={"revised": candidate is not None}
+                )
                 emit(
                     db,
                     project.id,
@@ -244,18 +218,8 @@ async def resolve_validations(job: Job, owner: str) -> None:
         except (LLMError, ValueError) as exc:
             # A review refusal or invalid response must not stop the entire book or erase its translation.
             with SessionLocal() as db:
-                current_job = fence(db, job.id, owner)
-                outcomes = dict(current_job.checkpoint.get("final_review_outcomes", {}))
-                outcomes[sid] = {
-                    "outcome": "failed",
-                    "revised": False,
-                    "reason": type(exc).__name__,
-                }
-                current_job.checkpoint = {
-                    **current_job.checkpoint,
-                    "final_review_done": [*current_job.checkpoint.get("final_review_done", []), sid],
-                    "final_review_outcomes": outcomes,
-                }
+                fence(db, job.id, owner)
+                state.mark(db, job.id, state.REVIEWED, sid, outcome="failed", data={"reason": type(exc).__name__})
                 emit(
                     db,
                     project.id,

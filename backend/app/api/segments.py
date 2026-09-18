@@ -6,6 +6,7 @@ from sqlalchemy import Text, cast, select
 from app.api.common import row
 from app.engines.context.builder import build_context
 from app.engines.translation.versions import save_version
+from app.jobs import segment_state as state
 from app.jobs.queue import HELD, emit, enqueue
 from app.models import Issue, Job, RequestLog, Segment, TranslationVersion
 from app.providers.llm import llm
@@ -117,15 +118,12 @@ def edit(sid: str, body: EditInput, user: CurrentUser, db: DB):
     for issue in db.scalars(select(Issue).where(Issue.segment_id == sid, Issue.code == "content_refusal")):
         if not issue.message.startswith("analyze"):
             issue.resolved = True
-    for job in db.scalars(
-        select(Job).where(
+    for job_id in db.scalars(
+        select(Job.id).where(
             Job.project_id == segment.project_id, Job.status.in_(HELD), Job.operation != "analyze"
         )
     ):
-        job.checkpoint = {
-            **job.checkpoint,
-            "finished_ids": list(dict.fromkeys([*job.checkpoint.get("finished_ids", []), sid])),
-        }
+        state.mark(db, job_id, state.FINISHED, sid)
     db.commit()
     db.refresh(segment)
     return row(segment)

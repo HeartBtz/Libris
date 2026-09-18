@@ -3,6 +3,7 @@
 from app.db import SessionLocal
 from app.engines.context.builder import build_context
 from app.engines.quality.checks import checks, locked_term_error, validate_translation
+from app.jobs import segment_state as state
 from app.jobs.execution import execution
 from app.jobs.queue import checkpoint, fence
 from app.models import Segment
@@ -15,9 +16,10 @@ async def repair_translation(project, segment, operation, job, extra, terms):
     if not scope or len(segment.units) <= 1 or len(segment.units) > 128:
         raise InvalidResponseExhausted("Réparation par petits groupes impossible pour ce passage.")
     jid, owner = scope
-    key = f"{segment.id}:{segment.revision}:{operation}"
-    completed = checkpoint(jid, owner).checkpoint.get("repair", {})
-    completed = completed.get(key, {})
+    prefix = f"{segment.revision}:{operation}:"
+    checkpoint(jid, owner)
+    with SessionLocal() as db:
+        completed = state.batches(db, jid, state.REPAIR, segment.id)
     merged, uncertainties, events, new_terms = [], [], [], []
     for start in range(0, len(segment.units), 4):
         group = segment.units[start : start + 4]
@@ -35,7 +37,7 @@ async def repair_translation(project, segment, operation, job, extra, terms):
             if error := locked_term_error(findings):
                 raise ValueError(error)
 
-        data = completed.get(str(start))
+        data = completed.get(prefix + str(start))
         if data:
             result = TranslationResult.model_validate(data)
             validate(result)
@@ -68,20 +70,8 @@ async def repair_translation(project, segment, operation, job, extra, terms):
                 temperature=0.1,
             )
             with SessionLocal() as db:
-                current_job = fence(db, jid, owner)
-                repair = dict(current_job.checkpoint.get("repair", {}))
-                batches = dict(repair.get(key, {}))
-                batches[str(start)] = result.model_dump()
-                repair[key] = batches
-                current_job.checkpoint = {
-                    **current_job.checkpoint,
-                    "repair": repair,
-                    "repair_progress": {
-                        "segment_id": segment.id,
-                        "units_done": min(start + 4, len(segment.units)),
-                        "units_total": len(segment.units),
-                    },
-                }
+                fence(db, jid, owner)
+                state.mark(db, jid, state.REPAIR, segment.id, key=prefix + str(start), data=result.model_dump())
                 db.commit()
         merged.extend(result.units)
         uncertainties.extend(result.uncertainties)

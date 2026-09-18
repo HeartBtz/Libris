@@ -7,6 +7,7 @@ from app.engines.context.builder import build_context
 from app.engines.memory.identities import identities
 from app.engines.memory.relations import collect
 from app.engines.memory.store import characters, propose_terms, remember
+from app.jobs import segment_state as state
 from app.jobs.queue import checkpoint, fence
 from app.models import BibleRevision, Chapter, Job, Memory, Project, Segment
 from app.providers.llm import llm, load_prompt
@@ -112,13 +113,13 @@ async def analyze(job: Job, owner: str) -> None:
                 )
             )
         for offset in range(0, len(evidence), 4):
-            current_job = checkpoint(
+            checkpoint(
                 job.id, owner, {"batch_current": offset // 4 + 1, "batch_total": (len(evidence) + 3) // 4}
             )
             batch_key = f"{cid}:{offset}"
-            if batch_key in current_job.checkpoint.get("analysis_batches", []):
-                continue
             with SessionLocal() as db:
+                if state.is_marked(db, job.id, state.BIBLE, key=batch_key):
+                    continue
                 current = db.get(Project, project.id)
                 bible = current.bible
                 registry = [
@@ -162,12 +163,7 @@ async def analyze(job: Job, owner: str) -> None:
                 db.add(BibleRevision(project_id=project.id, content=result.model_dump()))
                 if not current.bible_validated:
                     current.bible = result.model_dump()
-                current_job.checkpoint = {
-                    **current_job.checkpoint,
-                    "analysis_batches": list(
-                        dict.fromkeys([*current_job.checkpoint.get("analysis_batches", []), batch_key])
-                    ),
-                }
+                state.mark(db, job.id, state.BIBLE, key=batch_key)
                 current_job.outage_count = 0
                 db.commit()
         with SessionLocal() as db:

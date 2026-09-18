@@ -4,6 +4,7 @@ from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.orm import Session
 
 from app.db import SessionLocal
+from app.jobs.segment_state import FINISHED, mark
 from app.models import AppSetting, Event, Job, Project, Provider, RequestLog
 from app.models.common import uid
 
@@ -167,8 +168,7 @@ def fence(db: Session, job_id: str, owner: str) -> Job:
 def finish_segment(job_id: str, owner: str, segment_id: str) -> None:
     with SessionLocal() as db:
         job = fence(db, job_id, owner)
-        completed = list(dict.fromkeys([*job.checkpoint.get("finished_ids", []), segment_id]))
-        job.checkpoint = {**job.checkpoint, "finished_ids": completed}
+        mark(db, job_id, FINISHED, segment_id)
         job.outage_count = 0
         db.commit()
 

@@ -91,3 +91,20 @@ class Issue(Identified, Base):
     code: Mapped[str] = mapped_column(String(50))
     message: Mapped[str] = mapped_column(Text)
     resolved: Mapped[bool] = mapped_column(Boolean, default=False)
+
+
+class JobSegmentState(Base):
+    """What a job has settled, passage by passage or batch by batch.
+
+    Kept out of `jobs.checkpoint`, which only holds a cursor and counters: a list per passage there was
+    rewritten on every step and sent back with every job listing, whatever the size of the book.
+    """
+
+    __tablename__ = "job_segment_state"
+    job_id: Mapped[str] = mapped_column(ForeignKey("jobs.id", ondelete="CASCADE"), primary_key=True)
+    step: Mapped[str] = mapped_column(String(30), primary_key=True)
+    # Empty for book-level batches (bible consolidation, consistency samples).
+    segment_id: Mapped[str] = mapped_column(String(36), primary_key=True, default="")
+    key: Mapped[str] = mapped_column(String(100), primary_key=True, default="")
+    outcome: Mapped[str] = mapped_column(String(30), default="")
+    data: Mapped[dict] = mapped_column(JSON, default=dict)

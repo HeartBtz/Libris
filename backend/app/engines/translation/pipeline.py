@@ -8,6 +8,7 @@ from app.engines.context.builder import build_context
 from app.engines.memory.store import propose_terms, remember
 from app.engines.quality.checks import checks, locked_term_error, validate_translation
 from app.engines.translation.versions import save_version
+from app.jobs import segment_state as state
 from app.jobs.queue import checkpoint, fence, finish_segment
 from app.models import Entity, Glossary, Issue, Job, Project, Segment
 from app.providers.llm import (
@@ -100,12 +101,7 @@ def persist(
         )
         if applied:
             if origin == "translation":
-                current_job.checkpoint = {
-                    **current_job.checkpoint,
-                    "started_ids": list(
-                        dict.fromkeys([*current_job.checkpoint.get("started_ids", []), segment.id])
-                    ),
-                }
+                state.mark(db, current_job.id, state.STARTED, segment.id)
             current = db.get(Segment, segment.id)
             current.uncertainties = result.uncertainties
             current.narrative = {
@@ -116,12 +112,7 @@ def persist(
             if result.events:
                 remember(db, project, current, current.narrative, "narrative")
         else:
-            current_job.checkpoint = {
-                **current_job.checkpoint,
-                "finished_ids": list(
-                    dict.fromkeys([*current_job.checkpoint.get("finished_ids", []), segment.id])
-                ),
-            }
+            state.mark(db, current_job.id, state.FINISHED, segment.id)
         db.commit()
         return applied
 
@@ -133,7 +124,8 @@ async def translate(job: Job, owner: str) -> None:
         for key in ("segment_id", "chapter_id", "refused_only", "segment_ids")
     )
     continue_pipeline = job.options.get("continue_pipeline") or not scoped
-    recovery_targets = job.checkpoint.get("automatic_recovery_targets", [])
+    with SessionLocal() as db:
+        recovery_targets = db.scalar(state.segments(job.id, state.RECOVERY_TARGET).limit(1))
     recovery_pass = bool(
         recovery_targets
         and job.checkpoint.get("automatic_recovery_started")
@@ -144,7 +136,7 @@ async def translate(job: Job, owner: str) -> None:
         project = db.get(Project, job.project_id)
         query = select(Segment.id).where(Segment.project_id == job.project_id).order_by(Segment.position)
         if recovery_pass:
-            query = query.where(Segment.id.in_(recovery_targets))
+            query = query.where(Segment.id.in_(state.segments(job.id, state.RECOVERY_TARGET)))
         elif job.options.get("chapter_id"):
             query = query.where(Segment.chapter_id == job.options["chapter_id"])
         if job.options.get("segment_id"):
@@ -156,7 +148,7 @@ async def translate(job: Job, owner: str) -> None:
         ids = list(db.scalars(query))
         # A resumed job skips what is done without a checkpoint write and an event per passage; the
         # checks inside the loop still catch a human edit made while the job runs.
-        settled = set(job.checkpoint.get("finished_ids", []))
+        settled = state.marked(db, job.id, state.FINISHED)
         if not force and job.operation != "review":
             settled.update(
                 db.scalars(
@@ -182,9 +174,9 @@ async def translate(job: Job, owner: str) -> None:
             if segment.stage == "done" and not force and job.operation != "review":
                 continue
             # A forced rerun is checkpointed per job, including proposal-only runs on human text.
-            finished = job.checkpoint.get("finished_ids", [])
-            if sid in finished:
+            if state.is_marked(db, job.id, state.FINISHED, sid):
                 continue
+            restarted = state.is_marked(db, job.id, state.STARTED, sid)
         needs = None
         if job.options.get("deep"):
             built = await build_context(project.id, sid, "context_planner", provider_id=job.provider_id)
@@ -201,7 +193,7 @@ async def translate(job: Job, owner: str) -> None:
             needs = plan.needs
         try:
             if not segment.translation or (
-                force and sid not in job.checkpoint.get("started_ids", [])
+                force and not restarted
             ):
                 result = await translation_call(project, segment, "translation", job, needs=needs)
                 if not persist(job, owner, segment, result, "translation", "translated"):
@@ -296,16 +288,10 @@ async def translate(job: Job, owner: str) -> None:
                 segment.status = "check" if findings or segment.critique else "ok"
                 segment.stage = "done"
                 segment.error = ""
-                current_job.checkpoint = {
-                    **current_job.checkpoint,
-                    "consecutive_failures": 0,
-                    "finished_ids": list(
-                        dict.fromkeys([*current_job.checkpoint.get("finished_ids", []), sid])
-                    ),
-                }
+                current_job.checkpoint = {**current_job.checkpoint, "consecutive_failures": 0}
                 current_job.outage_count = 0
+                state.mark(db, job.id, state.FINISHED, sid)
                 db.commit()
-            finish_segment(job.id, owner, sid)
         except Exception as exc:
             from app.jobs.queue import JobStopped
 
@@ -340,16 +326,13 @@ async def translate(job: Job, owner: str) -> None:
                     current_job.checkpoint = {
                         **current_job.checkpoint,
                         "consecutive_failures": current_job.checkpoint.get("consecutive_failures", 0) + 1,
-                        "finished_ids": list(
-                            dict.fromkeys([*current_job.checkpoint.get("finished_ids", []), sid])
-                        ),
                     }
+                    state.mark(db, job.id, state.FINISHED, sid)
                     failures = current_job.checkpoint["consecutive_failures"]
                     stop_after_failures = failures >= 10 and not job.options.get("automatic_recovery")
                     if stop_after_failures:
                         current_job.stop_reason = "consecutive_failures"
                     db.commit()
-                finish_segment(job.id, owner, sid)
                 if stop_after_failures:
                     raise LLMError(
                         "Arrêt après 10 passages consécutifs en échec. Vérifiez le provider avant de reprendre."
@@ -417,17 +400,12 @@ async def translate(job: Job, owner: str) -> None:
                 )
             )
             current_job = fence(db, job.id, owner)
+            state.mark_all(db, job.id, state.RECOVERY_TARGET, targets)
+            state.forget(db, job.id, (state.FINISHED, state.STARTED), targets)
             current_job.checkpoint = {
                 **current_job.checkpoint,
                 "step": "automatic_recovery",
                 "automatic_recovery_started": True,
-                "automatic_recovery_targets": targets,
-                "finished_ids": [
-                    sid for sid in current_job.checkpoint.get("finished_ids", []) if sid not in targets
-                ],
-                "started_ids": [
-                    sid for sid in current_job.checkpoint.get("started_ids", []) if sid not in targets
-                ],
                 "current": 0,
                 "total": len(targets),
                 "segment_id": None,
@@ -503,7 +481,7 @@ async def consistency(job: Job, owner: str) -> None:
         # checks still cover every unit. Coverage is persisted and not represented as exhaustive LLM QA.
         offsets = sorted({1, max(1, len(evidence) // 2), max(1, len(evidence) - 3)})
         for offset in offsets:
-            current_job = checkpoint(
+            checkpoint(
                 job.id,
                 owner,
                 {
@@ -530,8 +508,9 @@ async def consistency(job: Job, owner: str) -> None:
             batch_key = hashlib.sha256(
                 json.dumps(payload, sort_keys=True, ensure_ascii=False).encode()
             ).hexdigest()
-            if batch_key in current_job.checkpoint.get("consistency_batches", []):
-                continue
+            with SessionLocal() as db:
+                if state.is_marked(db, job.id, state.CONSISTENCY, key=batch_key):
+                    continue
             system, _ = load_prompt("consistency_check", project.source_language, project.target_language)
             review = await llm.complete(
                 project_id=project.id,
@@ -558,11 +537,6 @@ async def consistency(job: Job, owner: str) -> None:
                                 message=issue.description + " → " + issue.suggestion,
                             )
                         )
-                current_job.checkpoint = {
-                    **current_job.checkpoint,
-                    "consistency_batches": list(
-                        dict.fromkeys([*current_job.checkpoint.get("consistency_batches", []), batch_key])
-                    ),
-                }
+                state.mark(db, job.id, state.CONSISTENCY, key=batch_key)
                 current_job.outage_count = 0
                 db.commit()

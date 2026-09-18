@@ -5,7 +5,7 @@ from typing import Literal
 
 from fastapi import APIRouter, HTTPException, UploadFile
 from pydantic import BaseModel
-from sqlalchemy import delete, func, or_, select, update
+from sqlalchemy import delete, exists, func, or_, select, update
 from starlette.concurrency import run_in_threadpool
 
 from app.api.common import row
@@ -13,12 +13,14 @@ from app.config import settings
 from app.engines.epub import parse_book
 from app.engines.epub.check import epubcheck
 from app.engines.memory.identities import canonical_bible
+from app.jobs import segment_state as state
 from app.jobs.queue import ACTIVE, HELD, emit, enqueue
 from app.models import (
     Chapter,
     Entity,
     Glossary,
     Job,
+    JobSegmentState,
     Membership,
     Memory,
     Outbox,
@@ -46,28 +48,38 @@ def stats(db, project: Project) -> dict:
             func.count(Segment.id).filter(Segment.status == "refused"),
         ).where(Segment.project_id == project.id)
     ).one()
+    reviewed = exists().where(
+        JobSegmentState.job_id == Job.id,
+        JobSegmentState.step.in_((state.REVIEW_TARGET, state.REVIEWED)),
+    )
     review_job = next(
         (
             candidate
-            for candidate in db.scalars(
-                select(Job)
+            for candidate, has_review in db.execute(
+                select(Job, reviewed)
                 .where(
                     Job.project_id == project.id,
                     Job.operation.in_(["translate", "resolve_validations"]),
                 )
                 .order_by(Job.created_at.desc())
             )
-            if candidate.checkpoint.get("step") == "final_review"
-            or candidate.checkpoint.get("final_review_targets")
-            or candidate.checkpoint.get("final_review_done")
+            if has_review or candidate.checkpoint.get("step") == "final_review"
         ),
         None,
     )
     review_checkpoint = review_job.checkpoint if review_job else {}
-    review_done = len(set(review_checkpoint.get("final_review_done", [])))
+    review_done = (
+        db.scalar(
+            select(func.count())
+            .select_from(JobSegmentState)
+            .where(JobSegmentState.job_id == review_job.id, JobSegmentState.step == state.REVIEWED)
+        )
+        if review_job
+        else 0
+    )
     review_total = int(
         review_checkpoint.get("total")
-        or len(review_checkpoint.get("final_review_targets", []))
+        or review_checkpoint.get("review_targets")
         or flagged
         or total
     )

@@ -60,7 +60,8 @@ def test_default_estimate_without_history(seeded):
         chapters = db.query(Chapter).filter(Chapter.project_id == pid).count()
         chars = sum(len(s.source) for s in segments)
         db.commit()
-    before = SessionLocal().query(RequestLog).count()
+    with SessionLocal() as db:
+        before = db.query(RequestLog).count()
     response = estimate(pid, "analyze")
     assert response.status_code == 200, response.text
     result = response.json()
@@ -77,7 +78,8 @@ def test_default_estimate_without_history(seeded):
     assert result["cost"] == pytest.approx(expected, abs=1e-4)
     assert "Mock" in result["currency_note"]
     assert {step["operation"] for step in result["breakdown"]} == {"chapter_analysis", "book_analysis"}
-    assert SessionLocal().query(RequestLog).count() == before  # never asks the model
+    with SessionLocal() as db:
+        assert db.query(RequestLog).count() == before  # never asks the model
 
 
 def test_done_and_validated_passages_are_excluded(seeded):

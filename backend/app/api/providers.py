@@ -19,9 +19,16 @@ def public(provider: Provider) -> dict:
     return dict(row(provider, ("encrypted_key",)), has_api_key=bool(provider.encrypted_key))
 
 
+# What a non-administrator needs to pick a provider for a book; the address stays with the admins.
+SHARED_FIELDS = ("id", "created_at", "kind", "name", "model")
+
+
 @router.get("")
-def providers(_user: CurrentUser, db: DB):
-    return [public(p) for p in db.scalars(select(Provider).order_by(Provider.name))]
+def providers(user: CurrentUser, db: DB):
+    listed = db.scalars(select(Provider).order_by(Provider.name))
+    if user.admin:
+        return [public(p) for p in listed]
+    return [{key: getattr(p, key) for key in SHARED_FIELDS} for p in listed]
 
 
 def require_key(kind: str, key: str) -> None:
@@ -43,6 +50,14 @@ def update(provider_id: str, body: ProviderInput, _admin: Admin, db: DB):
     provider = db.get(Provider, provider_id)
     if not provider:
         raise HTTPException(404, "Provider introuvable.")
+    moved = (body.base_url, body.kind) != (provider.base_url, provider.kind)
+    if moved and provider.encrypted_key and body.api_key is None and body.kind != "codex_chatgpt":
+        # The stored key was entrusted to one host: sending it elsewhere takes the key itself.
+        raise HTTPException(
+            409,
+            "Ressaisissez la clé API pour changer l’adresse ou le type de ce provider : "
+            "la clé enregistrée n’est jamais envoyée à un nouvel hôte.",
+        )
     for key, value in body.model_dump(exclude={"api_key"}).items():
         setattr(provider, key, value)
     if body.api_key is not None:

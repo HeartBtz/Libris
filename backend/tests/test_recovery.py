@@ -6,6 +6,7 @@ from sqlalchemy import select
 
 from app.db import SessionLocal
 from app.engines.translation import critique_queue, pipeline, repair
+from app.jobs import segment_state as state
 from app.jobs import worker
 from app.jobs.execution import execution
 from app.jobs.queue import claim, enqueue
@@ -212,7 +213,7 @@ async def test_automatic_pipeline_retries_missing_segments_once(seeded, monkeypa
     with SessionLocal() as db:
         current = db.get(Job, jid)
         segment = db.get(Segment, sid)
-        assert current.checkpoint["automatic_recovery_targets"] == [sid]
+        assert state.marked(db, jid, state.RECOVERY_TARGET) == {sid}
         assert current.checkpoint["automatic_recovery_completed"] is True
         assert current.checkpoint["automatic_recovery_remaining"] == (0 if recovered else 1)
         assert bool(segment.translation) is recovered

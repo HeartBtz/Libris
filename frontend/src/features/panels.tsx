@@ -41,7 +41,6 @@ registerTranslations({
   Langues: "Languages",
   "Langue source": "Source language",
   "Langue cible (code BCP 47)": "Target language (BCP 47 code)",
-  "Traduction et modèle": "Translation and model",
   "Choisir…": "Choose…",
   Qualité: "Quality",
   Rapide: "Fast",
@@ -51,8 +50,15 @@ registerTranslations({
   "Moteur de contexte": "Context engine",
   "Interne — recommandé": "Internal — recommended",
   "Mémoire de traduction": "Translation memory",
-  "Réutilise les traductions validées de passages identiques ou très proches, dans ce livre et sa série.":
-    "Reuses validated translations of identical or very similar passages, in this book and its series.",
+  "Réutiliser les passages identiques déjà traduits (vos livres, même paire de langues)":
+    "Reuse identical passages already translated (your books, same language pair)",
+  "{count} passage repris de la mémoire de traduction": "{count} passage reused from the translation memory",
+  "{count} passages repris de la mémoire de traduction": "{count} passages reused from the translation memory",
+  "Stratégie du livre": "Book strategy",
+  "Conservés tels quels à l’import": "Kept as in the original at import",
+  "Ces éléments ne sont pas envoyés au modèle et restent identiques dans l’EPUB exporté.":
+    "These elements are not sent to the model and stay unchanged in the exported EPUB.",
+  "{kind} · {count}": "{kind} · {count}",
   "Instructions globales": "Global instructions",
   "Conserver les suffixes -san, -chan, -sama. Tutoyer entre Alice et Bob…":
     "Preserve -san, -chan, and -sama suffixes. Use informal address between Alice and Bob…",
@@ -231,7 +237,7 @@ export function ProjectSettings({
   run: Run;
   refresh: () => void;
 }) {
-  const { t } = useI18n();
+  const { t, tp } = useI18n();
   const { confirm } = useDialogs();
   const [value, setValue] = useState(project);
   const [providers, setProviders] = useState<ProviderSummary[]>([]);
@@ -335,7 +341,7 @@ export function ProjectSettings({
             </Field>
           </FormGrid>
         </Card>
-        <Card title={t("Traduction et modèle")}>
+        <Card title={t("Stratégie du livre")}>
           <div className="stack">
             <FormGrid columns={3}>
               <Field label="Provider">
@@ -367,9 +373,21 @@ export function ProjectSettings({
             {supportsMemory && (
               <Switch
                 label={t("Mémoire de traduction")}
-                description={t(
-                  "Réutilise les traductions validées de passages identiques ou très proches, dans ce livre et sa série.",
-                )}
+                description={
+                  <>
+                    {t("Réutiliser les passages identiques déjà traduits (vos livres, même paire de langues)")}
+                    {!!project.stats.translation_memory_reused && (
+                      <>
+                        {" · "}
+                        {tp(
+                          project.stats.translation_memory_reused,
+                          "{count} passage repris de la mémoire de traduction",
+                          "{count} passages repris de la mémoire de traduction",
+                        )}
+                      </>
+                    )}
+                  </>
+                }
                 checked={!!value.translation_memory}
                 onChange={(e) => field("translation_memory", e.target.checked)}
               />
@@ -400,6 +418,21 @@ export function ProjectSettings({
           <Members project={project} run={run} />
         ) : (
           <Callout tone="neutral">{t("Seul le propriétaire du livre gère le partage et la suppression.")}</Callout>
+        )}
+        {!!project.book_info.untranslated && !!Object.keys(project.book_info.untranslated).length && (
+          <Card
+            title={t("Conservés tels quels à l’import")}
+            description={t("Ces éléments ne sont pas envoyés au modèle et restent identiques dans l’EPUB exporté.")}
+          >
+            <ul className="untranslated-list">
+              {Object.entries(project.book_info.untranslated).map(([kind, entry]) => (
+                <li key={kind}>
+                  <Badge>{t("{kind} · {count}", { kind, count: entry.count })}</Badge>
+                  <span className="subtle">{entry.resources.slice(0, 4).join(", ")}{entry.resources.length > 4 ? "…" : ""}</span>
+                </li>
+              ))}
+            </ul>
+          </Card>
         )}
         <details className="disclosure">
           <summary>{t("Rapport de validation à l’import")}</summary>
@@ -580,7 +613,7 @@ export function Glossary({ project, run, tick }: { project: Project; run: Run; t
         <div className="panel-actions">
           <FileButton
             label={t("Importer un glossaire")}
-            accept=".json,.csv,.tbx"
+            accept=".json,.csv,.tbx,.xml,.tsv,.txt"
             onFiles={([file]) =>
               void run(async () => {
                 const data = new FormData();

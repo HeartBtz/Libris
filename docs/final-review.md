@@ -12,7 +12,7 @@ Une traduction de livre complet lance automatiquement une revue finale après le
 
 Un passage résolu quitte la file sans être déclaré « validé humainement ». Les alertes globales non recalculées restent présentes. Les décisions humaines, y compris celles prises pendant l'inférence, ont priorité.
 
-Chaque passage fait l'objet d'au plus un cycle logique de correction par job. Les appels peuvent avoir les retries habituels du provider. Checkpoints et cache permettent la reprise après interruption ; une réponse invalide ou un refus de relecture laisse le passage à l'humain et n'arrête pas la revue du livre.
+Chaque passage fait l'objet d'au plus un cycle logique de correction par job. Les appels peuvent avoir les retries habituels du provider. Plusieurs passages sont relus à la fois, dans la limite de la capacité du provider (`WORKER_BOOK_PARALLELISM`). L'état de chaque passage (`job_segment_state`) et le cache permettent la reprise après interruption ; une réponse invalide ou un refus de relecture laisse le passage à l'humain et n'arrête pas la revue du livre.
 
 ## Recherche web optionnelle : SearXNG
 

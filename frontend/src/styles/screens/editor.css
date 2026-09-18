@@ -505,3 +505,10 @@
     margin-left: 0;
   }
 }
+
+.chapter-kind {
+  display: block;
+  color: var(--text-subtle);
+  font-size: var(--text-xs);
+  font-weight: 400;
+}

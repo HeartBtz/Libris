@@ -18,6 +18,7 @@ export interface Stats {
   refused: number;
   chapters: number;
   glossary: number;
+  translation_memory_reused?: number;
 }
 export interface Project {
   id: string;
@@ -33,7 +34,6 @@ export interface Project {
   quality: string;
   context_backend: string;
   instructions: string;
-  /** Present only on servers that support reusing validated translations. */
   translation_memory?: boolean;
   status: string;
   stats: Stats;
@@ -43,6 +43,7 @@ export interface Project {
     images: number;
     size: number;
     validation?: unknown;
+    untranslated?: Record<string, { count: number; resources: string[] }>;
   };
   /** Only the project detail carries the Book Bible; the list omits it. */
   bible?: Record<string, unknown>;
@@ -117,6 +118,8 @@ export interface Chapter {
   resource: string;
   instructions: string;
   analyzed: boolean;
+  /** Navigation and metadata sections are translated but not counted in the book's chapters. */
+  kind?: "narrative" | "auxiliary" | "navigation" | "metadata";
 }
 export interface Unit {
   id: string;

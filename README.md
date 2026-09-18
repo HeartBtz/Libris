@@ -129,7 +129,7 @@ scripts/deploy.sh --api-only
 scripts/deploy.sh --worker-when-idle
 ```
 
-`--force-worker` is reserved for resumable fixes that must be deployed immediately. Persistent checkpoints prevent completed segments from being repeated, but the interrupted in-flight request is audited and may be retried.
+`--force-worker` is reserved for resumable fixes that must be deployed immediately. Persistent checkpoints prevent completed segments from being repeated, but the requests interrupted in flight (several per book when its provider allows parallel calls) are audited and may be retried.
 
 Open **http://localhost:8088** on the Docker host. The initial username is `admin`; find the generated password in the local `.env` under `BOOTSTRAP_PASSWORD`.
 

@@ -60,6 +60,10 @@ registerTranslations({
   "Masquer les sections": "Hide sections",
   "Afficher les sections": "Show sections",
   Analysé: "Analyzed",
+  "Métadonnées du livre": "Book metadata",
+  navigation: "navigation",
+  "hors lecture": "outside reading order",
+  "quatrième, sujets": "blurb, subjects",
   "Chargement des passages…": "Loading passages…",
   "Expression source": "Source expression",
   "Traduction à conserver": "Translation to keep",
@@ -211,6 +215,17 @@ export function Editor({
   const segments = loaded?.key === key ? loaded.items : null;
   const lastSegments = loaded?.items || [];
   if (!chapter) return null;
+  // The server names the metadata section in French; the kind tells the interface what it is.
+  const chapterTitle = (item: Chapter) => (item.kind === "metadata" ? t("Métadonnées du livre") : item.title);
+  const kindLabel = (item: Chapter) =>
+    item.kind === "navigation"
+      ? t("navigation")
+      : item.kind === "auxiliary"
+        ? t("hors lecture")
+        : item.kind === "metadata"
+          ? t("quatrième, sujets")
+          : "";
+  const countedChapters = chapters.filter((item) => item.kind !== "navigation" && item.kind !== "metadata").length;
   const guarded = async (change: () => void) => {
     if (await confirmLeave()) change();
   };
@@ -218,7 +233,7 @@ export function Editor({
     <nav className="chapter-nav" aria-label={t("Sections du livre")}>
       <div className="chapter-nav-header">
         <span>{t("Sections du livre")}</span>
-        <span className="subtle tabular">{chapters.length}</span>
+        <span className="subtle tabular">{countedChapters}</span>
       </div>
       <ol>
         {chapters.map((c) => (
@@ -230,7 +245,10 @@ export function Editor({
               onClick={() => onChapter(c.id)}
             >
               <span className="chapter-number tabular">{String(c.position + 1).padStart(2, "0")}</span>
-              <span className="chapter-title">{c.title}</span>
+              <span className="chapter-title">
+                {chapterTitle(c)}
+                {kindLabel(c) && <span className="chapter-kind">{kindLabel(c)}</span>}
+              </span>
               {c.analyzed && <span className="chapter-dot" title={t("Analysé")} />}
             </button>
           </li>
@@ -258,13 +276,14 @@ export function Editor({
               <Select value={chapterId} onChange={(event) => onChapter(event.target.value)}>
                 {chapters.map((item) => (
                   <option key={item.id} value={item.id}>
-                    {String(item.position + 1).padStart(2, "0")} · {item.title}
+                    {String(item.position + 1).padStart(2, "0")} · {chapterTitle(item)}
+                    {kindLabel(item) && ` (${kindLabel(item)})`}
                   </option>
                 ))}
               </Select>
             </label>
           ) : (
-            <h2 className="editor-chapter-title">{chapter.title}</h2>
+            <h2 className="editor-chapter-title">{chapterTitle(chapter)}</h2>
           )}
           <div className="editor-toolbar-actions">
             <label className="editor-filter">

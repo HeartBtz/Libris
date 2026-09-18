@@ -1,12 +1,17 @@
 import asyncio
 import json
+import threading
 import time
+from collections import Counter
+from collections.abc import Callable
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy import func, select
 
 from app.api.common import row
+from app.api.monitoring import WASTED_STATUSES
+from app.config import settings
 from app.db import SessionLocal
 from app.models import Event, Provider, RequestLog
 from app.security import DB, Admin, CurrentUser, access, current_user
@@ -24,10 +29,13 @@ def model_statistics(_admin: Admin, db: DB):
             func.count(RequestLog.id),
             func.coalesce(func.sum(RequestLog.prompt_tokens), 0),
             func.coalesce(func.sum(RequestLog.completion_tokens), 0),
+            func.coalesce(
+                func.sum(RequestLog.prompt_tokens).filter(RequestLog.status.in_(WASTED_STATUSES)), 0
+            ),
         ).group_by(RequestLog.model)
     ).all()
     configured = set(db.scalars(select(Provider.model))) - {model for model, *_ in used}
-    rows = sorted([*used, *((model, 0, 0, 0) for model in configured)], key=lambda item: item[0])
+    rows = sorted([*used, *((model, 0, 0, 0, 0) for model in configured)], key=lambda item: item[0])
     return [
         {
             "model": model,
@@ -35,8 +43,10 @@ def model_statistics(_admin: Admin, db: DB):
             "input_tokens": input_tokens,
             "output_tokens": output_tokens,
             "total_tokens": input_tokens + output_tokens,
+            "wasted_input_tokens": wasted,
+            "wasted_share": wasted / input_tokens if input_tokens else 0,
         }
-        for model, requests, input_tokens, output_tokens in rows
+        for model, requests, input_tokens, output_tokens, wasted in rows
     ]
 
 
@@ -54,6 +64,7 @@ def metrics(pid: str, user: CurrentUser, db: DB):
                 RequestLog.status == "running", RequestLog.created_at > time.time() - Provider.timeout - 30
             ),
             func.count().filter(RequestLog.cached.is_(True)),
+            func.sum(RequestLog.prompt_tokens).filter(RequestLog.status.in_(WASTED_STATUSES)),
         )
         .select_from(RequestLog)
         .outerjoin(Provider, RequestLog.provider_id == Provider.id)
@@ -75,13 +86,26 @@ def metrics(pid: str, user: CurrentUser, db: DB):
         .outerjoin(Provider, RequestLog.provider_id == Provider.id)
         .where(RequestLog.project_id == pid)
     )
-    return dict(
+    result = dict(
         zip(
-            ("requests", "input_tokens", "output_tokens", "duration", "errors", "active", "cache_hits"),
+            (
+                "requests",
+                "input_tokens",
+                "output_tokens",
+                "duration",
+                "errors",
+                "active",
+                "cache_hits",
+                "wasted_input_tokens",
+            ),
             [v or 0 for v in values],
         ),
         cost=cost or 0,
     )
+    # Input spent on calls whose answer was never applied: errors, refusals, interruptions.
+    spent = result["input_tokens"]
+    result["wasted_share"] = result["wasted_input_tokens"] / spent if spent else 0
+    return result
 
 
 @router.get("/projects/{pid}/requests")
@@ -123,38 +147,102 @@ def stream_cursor(db, pid: str, after: int | None, resumed: str | None) -> int:
         raise HTTPException(422, "Identifiant d’événement invalide.") from None
 
 
+class StreamSlots:
+    """Open event streams, per account and for the whole process.
+
+    Each stream holds a connection and polls the database: without a bound, one account opening
+    many tabs (or a script) could hold every worker thread and connection of the API.
+    """
+
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.by_user: Counter[str] = Counter()
+
+    def acquire(self, user_id: str) -> Callable[[], None]:
+        limits = settings()
+        with self.lock:
+            if self.by_user[user_id] >= limits.event_streams_per_user:
+                raise HTTPException(
+                    429,
+                    f"Trop de suivis en direct ouverts pour ce compte ({limits.event_streams_per_user} au "
+                    "maximum). Fermez des onglets Libris, puis rechargez la page.",
+                )
+            if self.by_user.total() >= limits.event_streams_total:
+                raise HTTPException(
+                    429, "Le serveur suit déjà trop de livres en direct. Réessayez dans quelques instants."
+                )
+            self.by_user[user_id] += 1
+        released = False
+
+        def release() -> None:
+            nonlocal released
+            with self.lock:
+                if not released:
+                    released = True
+                    self.by_user[user_id] -= 1
+                    if self.by_user[user_id] <= 0:
+                        del self.by_user[user_id]
+
+        return release
+
+
+streams = StreamSlots()
+
+
+class BoundedStream(StreamingResponse):
+    """A streaming response that gives its slot back however the connection ends."""
+
+    def __init__(self, content, release: Callable[[], None], **options):
+        super().__init__(content, **options)
+        self.release = release
+
+    async def __call__(self, scope, receive, send):
+        try:
+            await super().__call__(scope, receive, send)
+        finally:
+            self.release()
+
+
+def new_events(pid: str, token: str | None, last_id: int) -> list[tuple[int, dict]] | None:
+    """Events after `last_id`, or None once the account may no longer read the book."""
+    with SessionLocal() as session:
+        try:
+            access(session, pid, current_user(session, token))
+        except HTTPException:
+            return None
+        return [
+            (event.id, event.payload)
+            for event in session.scalars(
+                select(Event).where(Event.project_id == pid, Event.id > last_id).order_by(Event.id).limit(100)
+            )
+        ]
+
+
 @router.get("/projects/{pid}/events")
 def events(pid: str, request: Request, user: CurrentUser, db: DB, after: int | None = Query(None, ge=0)):
     access(db, pid, user)
     last_id = stream_cursor(db, pid, after, request.headers.get("Last-Event-ID"))
     db.close()
+    release = streams.acquire(user.id)
+    token = request.cookies.get("epub_session")
 
     async def stream():
         nonlocal last_id
         while not await request.is_disconnected():
-            with SessionLocal() as session:
-                try:
-                    account = current_user(session, request.cookies.get("epub_session"))
-                    access(session, pid, account)
-                except HTTPException:
-                    return
-                rows = list(
-                    session.scalars(
-                        select(Event)
-                        .where(Event.project_id == pid, Event.id > last_id)
-                        .order_by(Event.id)
-                        .limit(100)
-                    )
-                )
-            for event in rows:
-                last_id = event.id
-                yield f"id: {event.id}\ndata: {json.dumps(event.payload, ensure_ascii=False)}\n\n"
+            # Database calls are synchronous: run them off the event loop that serves every request.
+            rows = await asyncio.to_thread(new_events, pid, token, last_id)
+            if rows is None:
+                return
+            for event_id, payload in rows:
+                last_id = event_id
+                yield f"id: {event_id}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
             if not rows:
                 yield ": heartbeat\n\n"
             await asyncio.sleep(2)
 
-    return StreamingResponse(
+    return BoundedStream(
         stream(),
+        release,
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )

@@ -8,6 +8,7 @@ from test_pipeline import mock_completion
 from test_resilience import prepare
 
 from app.api.projects import import_book
+from app.config import settings
 from app.db import SessionLocal
 from app.jobs.execution import execution
 from app.jobs.queue import claim, enqueue, suspend
@@ -16,8 +17,10 @@ from app.models import Job, Project, Provider
 
 
 @respx.mock
-async def test_two_books_are_processed_concurrently_without_mixing_jobs(seeded, book_bytes):
+async def test_two_books_are_processed_concurrently_without_mixing_jobs(seeded, book_bytes, monkeypatch):
     pid, user_id, provider_id = seeded
+    # One call per book: each book's single call waits for the other's, which must get the second slot.
+    monkeypatch.setattr(settings(), "worker_book_parallelism", 1)
     with SessionLocal() as db:
         second = import_book(db, user_id, book_bytes + b"\nsecond")
         second.provider_id = provider_id

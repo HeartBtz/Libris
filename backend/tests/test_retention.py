@@ -6,8 +6,9 @@ from test_pipeline import mock_completion
 
 from app.config import settings
 from app.db import SessionLocal
+from app.jobs import segment_state as state
 from app.maintenance import retention
-from app.models import BibleRevision, Event, Outbox, RequestLog
+from app.models import BibleRevision, Event, Job, JobSegmentState, Outbox, RequestLog, Segment
 
 OLD = time.time() - 90 * 86400
 
@@ -36,7 +37,7 @@ def seed(pid: str, provider_id: str) -> None:
 def test_retention_empties_bodies_and_trims_logs_but_keeps_what_counts(seeded):
     pid, _, provider_id = seeded
     seed(pid, provider_id)
-    expected = {"request_bodies": 2, "events": 41, "outbox": 1, "bible_revisions": 4}
+    expected = {"request_bodies": 2, "events": 41, "outbox": 1, "bible_revisions": 4, "job_state": 0}
     assert retention.apply(dry_run=True) == expected
     with SessionLocal() as db:  # a dry run writes nothing
         assert db.scalar(select(func.count()).select_from(Event).where(Event.project_id == pid)) == retention.KEPT_EVENTS + 41
@@ -59,9 +60,13 @@ def test_retention_empties_bodies_and_trims_logs_but_keeps_what_counts(seeded):
 def test_zero_disables_a_rule(seeded, monkeypatch):
     pid, _, provider_id = seeded
     seed(pid, provider_id)
-    for name in ("retention_request_bodies_days", "retention_events_days", "retention_outbox_sent_days", "retention_bible_revisions"):
+    old_job_state(pid)
+    for name in (
+        "retention_request_bodies_days", "retention_events_days", "retention_outbox_sent_days",
+        "retention_bible_revisions", "retention_job_state_days",
+    ):
         monkeypatch.setattr(settings(), name, 0)
-    assert retention.apply() == {"request_bodies": 0, "events": 0, "outbox": 0, "bible_revisions": 0}
+    assert retention.apply() == dict.fromkeys(("request_bodies", "events", "outbox", "bible_revisions", "job_state"), 0)
 
 
 @respx.mock
@@ -80,3 +85,51 @@ async def test_a_cache_hit_points_to_the_original_request_instead_of_copying_the
         assert original.messages and not hit.messages and hit.context == {"cached_from": original.id}
     retention.request_bodies(30, False, time.time() + 40 * 86400)  # bodies emptied later on…
     assert await llm.complete(**arguments) == first and route.call_count == 1  # …the cache still answers
+
+
+def old_job_state(pid: str) -> dict[str, str]:
+    """One job per case, each with settled passages and review outcomes."""
+    jobs = {}
+    with SessionLocal() as db:
+        sids = db.scalars(select(Segment.id).where(Segment.project_id == pid)).all()
+        cases = {
+            "ended_long_ago": ("completed", OLD, None),
+            "ended_before_the_column": ("cancelled", None, OLD),
+            "ended_recently": ("failed", time.time(), OLD),
+            "paused_long_ago": ("paused", None, OLD),
+        }
+        for name, (status, finished_at, created_at) in cases.items():
+            job = Job(project_id=pid, operation="translate", status=status, finished_at=finished_at)
+            if created_at:
+                job.created_at = created_at
+            db.add(job)
+            db.flush()
+            for step in (state.FINISHED, state.STARTED, state.REVIEW_TARGET):
+                state.mark_all(db, job.id, step, sids)
+            state.mark(db, job.id, state.REPAIR, sids[0], key="0:translation:0", data={"units": []})
+            state.mark(db, job.id, state.BIBLE, key="c:0")
+            for sid in sids:
+                state.mark(db, job.id, state.REVIEWED, sid, outcome="resolved")
+            jobs[name] = job.id
+        db.commit()
+    return jobs
+
+
+def test_old_finished_jobs_keep_only_their_review_outcomes(seeded):
+    pid = seeded[0]
+    jobs = old_job_state(pid)
+    with SessionLocal() as db:
+        passages = len(db.scalars(select(Segment.id).where(Segment.project_id == pid)).all())
+    prunable = 2 * (3 * passages + 2)  # the two jobs ended long ago
+    assert retention.apply(dry_run=True)["job_state"] == prunable
+    with SessionLocal() as db:
+        assert db.scalar(select(func.count()).select_from(JobSegmentState)) == 4 * (4 * passages + 2)
+    assert retention.apply()["job_state"] == prunable
+    assert retention.apply()["job_state"] == 0
+    with SessionLocal() as db:
+        for name, job_id in jobs.items():
+            steps = set(db.scalars(select(JobSegmentState.step).where(JobSegmentState.job_id == job_id)))
+            if name in {"ended_long_ago", "ended_before_the_column"}:
+                assert steps == {state.REVIEWED}, name  # the review history of the book is intact
+            else:
+                assert len(steps) == 6, name  # a recent or resumable job keeps everything

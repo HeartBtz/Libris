@@ -26,6 +26,7 @@ from app.api import (
 from app.config import settings
 from app.db import SessionLocal
 from app.diagnostics import safe_trace
+from app.limits import BodyLimit
 from app.models import User
 from app.models.common import uid
 from app.providers.llm import LLMError
@@ -57,6 +58,7 @@ async def lifespan(_app: FastAPI):
 
 app = FastAPI(title="Libris", version=__version__, lifespan=lifespan, docs_url=None, redoc_url=None)
 login_attempts = throttle.attempts  # kept for callers that reset the throttle
+app.add_middleware(BodyLimit)
 
 
 @app.middleware("http")

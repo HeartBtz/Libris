@@ -205,8 +205,9 @@ class OpenAIProvider:
                         model=provider.model,
                         fingerprint=fingerprint,
                         parameters=params,
-                        messages=actual_messages,
-                        context=compact_trace(context or {}),
+                        # The prompt is the one of the original request: point to it, do not copy it.
+                        messages=[],
+                        context={"cached_from": cached.id},
                         parsed=parsed.model_dump(),
                         status="success",
                         cached=True,

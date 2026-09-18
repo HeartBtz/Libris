@@ -126,6 +126,7 @@ class OpenAIProvider:
         context: dict | None = None,
         temperature: float | None = None,
         validator=None,
+        use_cache: bool = True,
     ) -> T:
         with SessionLocal() as db:
             provider = db.get(Provider, provider_id)
@@ -177,7 +178,8 @@ class OpenAIProvider:
             ).encode()
         ).hexdigest()
         with SessionLocal() as db:
-            cached = db.scalar(
+            # A forced rerun asks the model again; its fresh answer is stored and cacheable as usual.
+            cached = use_cache and db.scalar(
                 select(RequestLog)
                 .where(
                     RequestLog.project_id == project_id,
@@ -185,6 +187,7 @@ class OpenAIProvider:
                     RequestLog.status == "success",
                 )
                 .order_by(RequestLog.created_at.desc())
+                .limit(1)
             )
             if cached:
                 parsed = response_model.model_validate(cached.parsed)

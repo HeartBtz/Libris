@@ -292,3 +292,34 @@ async def test_worker_intervals_follow_the_configuration(monkeypatch):
     # The heartbeat renews a 60 s lease: a value that could let it expire is refused at start-up.
     with pytest.raises(ValidationError):
         Settings(worker_heartbeat_seconds=45)
+
+
+@respx.mock
+async def test_forced_retranslation_asks_the_provider_again(seeded):
+    pid = seeded[0]
+    route = respx.post("https://llm.test/v1/chat/completions").mock(side_effect=mock_completion)
+
+    async def run(force):
+        jid = prepare(pid, force=force)
+        await execute(*claim())
+        with SessionLocal() as db:
+            assert db.get(Job, jid).status == "completed"
+        return route.call_count
+
+    first = await run(False)
+    assert first > 0
+    with SessionLocal() as db:
+        for segment in db.scalars(select(Segment).where(Segment.project_id == pid)):
+            segment.translation, segment.translated_units, segment.stage = "", [], "pending"
+        db.commit()
+    # Same context, no force: every translation is served from the cache.
+    assert await run(False) == first
+    with SessionLocal() as db:
+        assert db.scalar(select(RequestLog).where(RequestLog.cached.is_(True)).limit(1)) is not None
+    # Forced: the model is asked again for each passage, and the fresh answers are logged as real calls.
+    forced = await run(True)
+    with SessionLocal() as db:
+        passages = len(list(db.scalars(select(Segment.id).where(Segment.project_id == pid))))
+        fresh = list(db.scalars(select(RequestLog).where(RequestLog.cached.is_(False), RequestLog.status == "success")))
+    assert forced - first >= passages  # at least one real provider call per passage
+    assert len(fresh) == forced

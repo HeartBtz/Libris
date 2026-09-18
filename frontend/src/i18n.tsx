@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState } from "react";
+import { createContext, useContext, useEffect, useMemo, useState } from "react";
 
 export const locales = ["fr", "en"] as const;
 export type Locale = (typeof locales)[number];
@@ -107,24 +107,80 @@ const english: Catalog = {
 
 let activeLocale: Locale = "fr";
 
+export type Vars = Record<string, string | number>;
+
 export function registerTranslations(translations: Record<string, string>) {
   Object.assign(featureTranslations, translations);
 }
 
-export function message(key: string): string {
-  if (activeLocale === "en") return featureTranslations[key] || english[key as MessageKey] || key;
+function lookup(locale: Locale, key: string): string {
+  if (locale === "en") return featureTranslations[key] || english[key as MessageKey] || key;
   return french[key as MessageKey] || key;
+}
+
+function interpolate(locale: Locale, text: string, vars?: Vars): string {
+  if (!vars) return text;
+  return text.replace(/\{(\w+)\}/g, (whole, name: string) => {
+    const value = vars[name];
+    if (value === undefined) return whole;
+    return typeof value === "number" ? formatNumber(value, undefined, locale) : value;
+  });
+}
+
+function translate(locale: Locale, key: string, vars?: Vars): string {
+  return interpolate(locale, lookup(locale, key), vars);
+}
+
+/** Chooses the grammatical form from the interface language, then translates that French form. */
+function translatePlural(locale: Locale, count: number, one: string, other: string, vars?: Vars): string {
+  const form = new Intl.PluralRules(locale).select(count) === "one" ? one : other;
+  return translate(locale, form, { count, ...vars });
+}
+
+export function message(key: string, vars?: Vars): string {
+  return translate(activeLocale, key, vars);
+}
+
+export function plural(count: number, one: string, other: string, vars?: Vars): string {
+  return translatePlural(activeLocale, count, one, other, vars);
 }
 
 export function getLocale(): Locale {
   return activeLocale;
 }
 
+export function formatNumber(
+  value: number,
+  options: Intl.NumberFormatOptions = { maximumFractionDigits: 1 },
+  locale: Locale = activeLocale,
+): string {
+  return new Intl.NumberFormat(locale, options).format(value);
+}
+
+/** `value` is already a percentage (0–100), as served by the API. */
+export function formatPercent(value: number, locale: Locale = activeLocale): string {
+  return new Intl.NumberFormat(locale, { style: "percent", maximumFractionDigits: 0 }).format(value / 100);
+}
+
+export function formatCompact(value: number, locale: Locale = activeLocale): string {
+  return new Intl.NumberFormat(locale, { notation: "compact", maximumFractionDigits: 1 }).format(value);
+}
+
+export function formatDateTime(timestamp: number, options?: Intl.DateTimeFormatOptions): string {
+  return new Date(timestamp * 1000).toLocaleString(
+    activeLocale,
+    options || { dateStyle: "medium", timeStyle: "short" },
+  );
+}
+
+type Translate = (key: string, vars?: Vars) => string;
+
 const I18nContext = createContext<{
   locale: Locale;
   setLocale: (locale: Locale) => void;
-  t: (key: string) => string;
-}>({ locale: "fr", setLocale: () => {}, t: message });
+  t: Translate;
+  tp: (count: number, one: string, other: string, vars?: Vars) => string;
+}>({ locale: "fr", setLocale: () => {}, t: message, tp: plural });
 
 export function I18nProvider({ children }: { children: React.ReactNode }) {
   const [locale, setLocale] = useState<Locale>(() => {
@@ -138,19 +194,20 @@ export function I18nProvider({ children }: { children: React.ReactNode }) {
     document.documentElement.lang = locale;
     localStorage.setItem("locale", locale);
   }, [locale]);
-  const changeLocale = (next: Locale) => {
-    activeLocale = next;
-    setLocale(next);
-  };
-  const t = (key: string) =>
-    locale === "en"
-      ? featureTranslations[key] || english[key as MessageKey] || key
-      : french[key as MessageKey] || key;
-  return (
-    <I18nContext.Provider value={{ locale, setLocale: changeLocale, t }}>
-      {children}
-    </I18nContext.Provider>
+  const value = useMemo(
+    () => ({
+      locale,
+      setLocale: (next: Locale) => {
+        activeLocale = next;
+        setLocale(next);
+      },
+      t: (key: string, vars?: Vars) => translate(locale, key, vars),
+      tp: (count: number, one: string, other: string, vars?: Vars) =>
+        translatePlural(locale, count, one, other, vars),
+    }),
+    [locale],
   );
+  return <I18nContext.Provider value={value}>{children}</I18nContext.Provider>;
 }
 
 export function useI18n() {

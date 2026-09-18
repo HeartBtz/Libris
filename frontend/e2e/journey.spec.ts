@@ -53,19 +53,30 @@ test("@journey import, mock provider, analysis, translation, validation and EPUB
     created.provider = (await provider.json()).id;
     await expect(page.getByRole("status").filter({ hasText: "Provider saved" })).toBeVisible();
 
-    // 2. Import the EPUB: a single import opens the book.
+    // 2. Import the EPUB as a standalone volume through the assistant, then open it.
     await page.getByRole("navigation", { name: "Primary navigation" }).getByRole("link", { name: "Library" }).click();
-    const imported = page.waitForResponse(
-      (response) => response.url().endsWith("/api/projects") && response.request().method() === "POST",
-    );
-    await page.locator("#epub-input").setInputFiles({
+    await page.getByRole("button", { name: "Add content", exact: true }).first().click();
+    const assistant = page.getByRole("dialog", { name: "Add content" });
+    await assistant.getByRole("radio", { name: /EPUB books/ }).check();
+    await assistant.getByRole("button", { name: "Continue" }).click();
+    await assistant.getByRole("radio", { name: /Standalone volume/ }).check();
+    await assistant.getByRole("button", { name: "Continue" }).click();
+    await assistant.locator('input[type="file"]').setInputFiles({
       name: `journey-${suffix}.epub`,
       mimeType: "application/epub+zip",
       buffer: readFileSync(fixture),
     });
+    await expect(assistant.getByText("1/1 files analyzed")).toBeVisible();
+    await assistant.getByRole("button", { name: "Continue" }).click();
+    await assistant.getByRole("button", { name: "Continue" }).click();
+    const imported = page.waitForResponse(
+      (response) => response.url().endsWith("/commit") && response.request().method() === "POST",
+    );
+    await assistant.getByRole("button", { name: "Import only" }).click();
     const project = await imported;
-    expect(project.status()).toBe(201);
-    created.project = (await project.json()).id;
+    expect(project.status()).toBe(200);
+    created.project = (await project.json()).projects[0].id;
+    await assistant.getByRole("button", { name: "Open the volume" }).click();
     await expect(page).toHaveURL(new RegExp(`#project/${created.project}$`));
     await expect(page.getByRole("heading", { level: 1 })).toContainText("The Silver Tower");
 

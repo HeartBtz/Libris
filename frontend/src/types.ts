@@ -50,6 +50,221 @@ export interface Project {
   /** Only the project detail carries the Book Bible; the list omits it. */
   bible?: Record<string, unknown>;
   progress?: ProjectProgress;
+  /** Absent on servers before 0.6; no series means a standalone volume. */
+  series_id?: string | null;
+  source_format?: SourceFormat;
+  /** `serial` is the continuous chapter container of a webnovel. */
+  project_kind?: "volume" | "serial";
+  external_id?: string | null;
+  import_meta?: Record<string, unknown>;
+}
+export type SourceFormat = "epub" | "txt" | "json";
+export type Quality = "fast" | "normal" | "high" | "maximum";
+export type ContextBackend = "internal" | "openviking" | "hybrid";
+export interface Series {
+  id: string;
+  owner_id: string;
+  name: string;
+  kind: "books" | "webnovel";
+  authors: string[];
+  source_language: string | null;
+  target_language: string | null;
+  provider_id: string | null;
+  quality: Quality | null;
+  context_backend: ContextBackend | null;
+  instructions: string;
+  bible_validated: boolean;
+  archived_at: number | null;
+  created_at: number;
+  updated_at: number;
+  /** Seen through a shared volume: read-only. */
+  shared: boolean;
+  volumes: number;
+  serial: boolean;
+  chapters: number;
+  formats: SourceFormat[];
+  progress: { total: number; translated: number; validated: number; percent: number; running: number };
+  issues: { flagged: number; errors: number; context_stale: number };
+  activity: number;
+  providers: { id: string; name: string; model: string }[];
+  memory: { backends: string[]; pending: number; failed: number };
+  missing_volumes: number[];
+  duplicate_volumes: number[];
+}
+export interface SeriesDetail extends Series {
+  bible: Record<string, unknown>;
+  /** Volumes in reading order. */
+  volume_list: Project[];
+}
+export interface SeriesChapter {
+  id: string;
+  project_id: string;
+  volume_title: string;
+  position: number;
+  title: string;
+  chapter_number: number | null;
+  external_id: string | null;
+  analyzed: boolean;
+  context_stale: boolean;
+  segments: number;
+  translated: number;
+  validated: number;
+  flagged: number;
+}
+export interface SeriesTerm {
+  id: string;
+  series_id: string;
+  source: string;
+  translation: string;
+  category: string;
+  description: string;
+  locked: boolean;
+  accepted: boolean;
+  origin: "human" | "volume";
+  first_project_id: string | null;
+  first_volume_number: number | null;
+}
+export interface GlossaryOverride {
+  project_id: string;
+  volume_title: string;
+  volume_number: number | null;
+  source: string;
+  translation: string;
+  locked: boolean;
+}
+export type EntityCategory = "character" | "location" | "organization" | "object";
+export interface SeriesEntityLink {
+  id: string;
+  series_entity_id: string;
+  entity_id: string;
+  project_id: string;
+  status: "linked" | "proposed" | "rejected";
+  confidence: number;
+  reason: string;
+  human: boolean;
+  local_name: string;
+  local_aliases: string[];
+  volume_title: string;
+  volume_number: number | null;
+}
+export interface SeriesEntity {
+  id: string;
+  series_id: string;
+  name: string;
+  category: EntityCategory;
+  aliases: string[];
+  data: Record<string, unknown>;
+  validated: boolean;
+  first_project_id: string | null;
+  first_volume_number: number | null;
+  merged_into_id: string | null;
+  links: SeriesEntityLink[];
+}
+export interface SeriesRelation {
+  id: string;
+  source_id: string;
+  target_id: string;
+  source: string;
+  target: string;
+  relation_type: string;
+  description: string;
+  evidence: string;
+  first_volume_number: number | null;
+  validated: boolean;
+}
+export interface AuditEntry {
+  id: string;
+  actor_id: string | null;
+  project_id: string | null;
+  action: string;
+  detail: Record<string, unknown>;
+  created_at: number;
+}
+export interface SeriesMemory {
+  backends: string[];
+  configured: boolean;
+  root_uri: string;
+  pending: number;
+  failed: number;
+  sent: number;
+  volumes: {
+    project_id: string;
+    title: string;
+    volume_number: number | null;
+    context_backend?: ContextBackend;
+    pending: number;
+    failed: number;
+    sent: number;
+  }[];
+}
+export type Confidence = "high" | "medium" | "low";
+/** One uploaded file as the server inspected it; nothing is imported yet. */
+export interface FileInspection {
+  index: number;
+  name: string;
+  size: number;
+  sha256: string;
+  duplicate:
+    | null
+    | { kind: "batch"; index: number; name: string }
+    | { kind: "library"; project_id: string; title: string };
+  format: "epub" | "txt";
+  title: string;
+  author: string;
+  language: string;
+  series: string;
+  series_index: number | null;
+  chapter_number: number | null;
+  number_confidence: Confidence;
+  number_reason: string;
+  warnings: string[];
+  errors: string[];
+  meta: Record<string, unknown>;
+}
+export interface VolumeProposal {
+  index: number;
+  title: string;
+  volume_number: number | null;
+  confidence: Confidence;
+  reason: string;
+  warnings: string[];
+  existing_volume: null | { project_id: string; title: string };
+}
+export interface ChapterProposal {
+  index: number;
+  title: string;
+  chapter_number: number | null;
+  confidence: Confidence;
+  reason: string;
+  existing_chapter: null | { chapter_id: string; title: string; same_content: boolean };
+}
+export interface Proposal {
+  series?: { name: string; confidence: Confidence; series_reason: string; existing_series_id: string | null };
+  items: (VolumeProposal | ChapterProposal)[];
+  duplicate_numbers: number[];
+  missing_numbers: number[];
+}
+export interface ImportResult {
+  series_id: string | null;
+  series_name: string;
+  projects: { id: string; title: string; volume_number: number | null; status: "created" | "updated" }[];
+  chapters: {
+    created: number;
+    unchanged: number;
+    replaced: number;
+    items: { index: number; chapter_id: string; status: string }[];
+  };
+  jobs: { project_id: string; job_id: string }[];
+  warnings: string[];
+  views?: Project[];
+}
+export interface ImportSession {
+  id: string;
+  format: "epub" | "txt";
+  files: FileInspection[];
+  expires_at: number;
+  result: ImportResult | null;
+  proposal?: Proposal;
 }
 export interface ProgressStage {
   key: "import" | "analysis" | "translation" | "review" | "export";
@@ -175,6 +390,8 @@ export interface Term {
   description: string;
   locked: boolean;
   accepted: boolean;
+  /** This volume deliberately departs from its series glossary for this term. */
+  series_override?: boolean;
 }
 export interface Version {
   id: string;

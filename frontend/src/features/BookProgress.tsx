@@ -10,6 +10,7 @@ registerTranslations({
   "{done}/{total} examinés · {remaining} à vérifier": "{done}/{total} reviewed · {remaining} to review",
   "Livre prêt à exporter": "Book ready to export",
   "EPUB importé": "EPUB imported",
+  "Chapitres importés": "Chapters imported",
   "{stage} de {title}": "{stage} for {title}",
   "Reprise prévue à {time}": "Retry scheduled at {time}",
   "En attente d’une place chez le provider": "Waiting for provider capacity",
@@ -40,7 +41,9 @@ export function BookProgress({ project, compact = false }: { project: Project; c
               })
           : stage.key === "export"
             ? t("Livre prêt à exporter")
-            : t("EPUB importé");
+            : project.source_format && project.source_format !== "epub"
+              ? t("Chapitres importés")
+              : t("EPUB importé");
   const complete = stage.key === "export" && stage.percent === 100;
   return (
     <div className={compact ? "book-progress book-progress-compact" : "book-progress"} title={detail}>

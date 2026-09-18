@@ -1,12 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { DragEvent, KeyboardEvent, ReactNode } from "react";
+import type { DragEvent } from "react";
 import { api, labels, send } from "../api";
-import { formatDateTime, registerTranslations, useI18n } from "../i18n";
-import type { Project, Run, User } from "../types";
+import { formatDateTime, formatPercent, registerTranslations, useI18n } from "../i18n";
+import type { Project, Run, Series, User } from "../types";
 import {
   Badge,
   Button,
-  Callout,
   Card,
   EmptyState,
   Icon,
@@ -14,6 +13,7 @@ import {
   Menu,
   Page,
   PageHeader,
+  ProgressBar,
   SearchInput,
   SegmentedControl,
   Select,
@@ -26,16 +26,12 @@ import {
 } from "../ui";
 import { BatchActions } from "./BatchActions";
 import { BookProgress } from "./BookProgress";
+import { ImportWizard } from "./ImportWizard";
+import type { WizardStart } from "./ImportWizard";
 
 registerTranslations({
-  "En attente": "Pending",
-  "Import / validation…": "Importing / validating…",
-  Importé: "Imported",
   Bibliothèque: "Library",
-  "Réimporter un projet (.zip)": "Reimport a project (.zip)",
-  "Import en cours…": "Importing…",
-  "Importer des EPUB": "Import EPUBs",
-  "Autres imports": "Other imports",
+  "Ajouter du contenu": "Add content",
   "Filtrer les livres": "Filter books",
   "Tous les livres": "All books",
   "En cours": "In progress",
@@ -43,25 +39,15 @@ registerTranslations({
   "Traduction complète": "Translation complete",
   Archives: "Archives",
   "Rechercher un livre": "Search for a book",
-  "Titre, auteur ou série…": "Title, author, or series…",
+  "Série, titre ou auteur…": "Series, title, or author…",
   "Trier par": "Sort by",
   "Trier par statut": "Sort by status",
   "Dernière activité": "Recent activity",
   Titre: "Title",
-  "Série et volume": "Series and volume",
-  Série: "Series",
-  "Toutes les séries": "All series",
   "{count} livre affiché": "{count} book shown",
   "{count} livres affichés": "{count} books shown",
-  "Série {series}": "Series {series}",
-  Collection: "Collection",
-  "{count} volume, classé dans l’ordre de lecture.": "{count} volume, in reading order.",
-  "{count} volumes, classés dans l’ordre de lecture.": "{count} volumes, in reading order.",
-  "Les conventions acceptées et les décisions humaines des volumes antérieurs alimentent les volumes suivants, sans importer leur narration.":
-    "Approved conventions and human decisions from earlier volumes inform later volumes without importing their narrative.",
-  "Volumes manquants dans cette bibliothèque : {volumes}.": "Missing volumes in this library: {volumes}.",
-  "Numéros dupliqués : {volumes}.": "Duplicate numbers: {volumes}.",
-  "Sélectionner toute la série": "Select the entire series",
+  "{count} série affichée": "{count} series shown",
+  "{count} séries affichées": "{count} series shown",
   "Sélectionner les livres affichés": "Select displayed books",
   "Sélectionner tous les livres actifs": "Select all active books",
   "Livre / auteur": "Book / author",
@@ -87,24 +73,52 @@ registerTranslations({
   "Essayez un autre titre ou affichez tous vos livres.": "Try another title or show all your books.",
   "Effacer les filtres": "Clear filters",
   "Votre premier livre commence ici.": "Your first book starts here.",
-  "Importez un EPUB pour examiner sa structure, préparer sa mémoire et traduire avec continuité.":
-    "Import an EPUB to inspect its structure, prepare its memory, and translate consistently.",
-  "EPUB 2 et 3 · images et balises préservées · endpoint compatible OpenAI":
-    "EPUB 2 and 3 · images and tags preserved · OpenAI-compatible endpoint",
-  "{count} projet": "{count} project",
-  "{count} projets": "{count} projects",
+  "Ajoutez des EPUB ou les chapitres TXT d’une webnovel : l’assistant les examine avant de créer quoi que ce soit.":
+    "Add EPUBs or the TXT chapters of a webnovel: the assistant examines them before creating anything.",
+  "Glissez-déposez des fichiers ici ou utilisez le bouton Ajouter du contenu.":
+    "Drag and drop files here or use the Add content button.",
+  "EPUB 2 et 3 · chapitres TXT · archives Libris · API JSON d’automatisation":
+    "EPUB 2 and 3 · TXT chapters · Libris archives · JSON automation API",
+  "{count} série": "{count} series",
+  "{count} séries": "{count} series",
+  "{count} volume unique": "{count} standalone volume",
+  "{count} volumes uniques": "{count} standalone volumes",
   "{count} archivé": "{count} archived",
   "{count} archivés": "{count} archived",
   "{count} passage traduit": "{count} passage translated",
   "{count} passages traduits": "{count} passages translated",
   "Chargement de la bibliothèque…": "Loading library…",
-  "Affichage": "View",
+  Affichage: "View",
   Tableau: "Table",
   Cartes: "Cards",
-  "Déposez vos fichiers EPUB pour les importer": "Drop your EPUB files to import them",
-  "Imports": "Imports",
-  "Masquer": "Hide",
-  "Glissez-déposez des EPUB ici ou utilisez le bouton d’import.": "Drag and drop EPUBs here or use the import button.",
+  "Déposez vos fichiers pour les ajouter": "Drop your files to add them",
+  Séries: "Series",
+  "Volumes uniques": "Standalone volumes",
+  "Des livres sans série. Rattachez-les depuis la page d’une série.":
+    "Books without a series. Attach them from a series page.",
+  Partagée: "Shared",
+  Webnovel: "Webnovel",
+  Livres: "Books",
+  "{count} volume": "{count} volume",
+  "{count} volumes": "{count} volumes",
+  "{count} chapitre": "{count} chapter",
+  "{count} chapitres": "{count} chapters",
+  "flux continu": "continuous flow",
+  "Traduction de {name}": "Translation of {name}",
+  "{percent} traduit · {validated}/{total} validés": "{percent} translated · {validated}/{total} validated",
+  "{count} en cours": "{count} running",
+  "{count} à vérifier": "{count} to review",
+  "{count} erreur": "{count} error",
+  "{count} erreurs": "{count} errors",
+  "{count} chapitre à revoir": "{count} chapter to recheck",
+  "{count} chapitres à revoir": "{count} chapters to recheck",
+  "Volumes manquants : {volumes}": "Missing volumes: {volumes}",
+  "Volumes en double : {volumes}": "Duplicate volumes: {volumes}",
+  "Mémoire : {backends}": "Memory: {backends}",
+  "{count} en attente": "{count} pending",
+  "{count} en échec": "{count} failed",
+  "Aucun provider": "No provider",
+  "Activité : {date}": "Activity: {date}",
 });
 
 type Filter = "all" | "active" | "attention" | "complete" | "archived";
@@ -117,23 +131,41 @@ function useLibraryPreference<T extends string>(key: string, fallback: T) {
   return [value, setValue] as const;
 }
 
+const seriesAttention = (s: Series) =>
+  !!(s.issues.flagged || s.issues.errors || s.issues.context_stale || s.memory.failed) ||
+  s.missing_volumes.length > 0 ||
+  s.duplicate_volumes.length > 0;
+const seriesComplete = (s: Series) => s.progress.total > 0 && s.progress.translated === s.progress.total;
+export const seriesStatus = (s: Series) =>
+  s.archived_at
+    ? "archived"
+    : s.progress.running
+      ? "running"
+      : seriesAttention(s)
+        ? "check"
+        : seriesComplete(s)
+          ? "completed"
+          : "ready";
+
 export function Library({ run, user }: { run: Run; user: User }) {
   const { locale, t, tp } = useI18n();
   const { confirm } = useDialogs();
   const [books, setBooks] = useState<Project[] | null>(null);
+  const [series, setSeries] = useState<Series[] | null>(null);
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<Filter>("all");
   const [sort, setSort] = useState("recent");
-  const [seriesFilter, setSeriesFilter] = useState("all");
   const [view, setView] = useLibraryPreference<"table" | "cards">("library-view", "table");
-  const [busy, setBusy] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [imports, setImports] = useState<{ name: string; state: string; tone: "neutral" | "success" | "danger" }[]>([]);
+  const [wizard, setWizard] = useState<WizardStart | null>(null);
   const dragDepth = useRef(0);
   const narrow = useMediaQuery("(max-width: 720px)");
   const layout = narrow ? "cards" : view;
   const all = books || [];
+  const known = new Set((series || []).map((s) => s.id));
+  // A volume whose series is not visible (not yet listed, or a series of another owner) stays reachable.
+  const standalone = all.filter((p) => !p.series_id || !known.has(p.series_id));
   const active = (p: Project) => ACTIVE.includes(p.status);
   const attention = (p: Project) =>
     !!(p.stats.flagged || p.stats.errors || p.stats.refused) || ["failed", "blocked", "waiting"].includes(p.status);
@@ -145,16 +177,15 @@ export function Library({ run, user }: { run: Run; user: User }) {
       .toLocaleLowerCase(locale);
   const compareText = (a: string, b: string) => a.localeCompare(b, locale, { numeric: true, sensitivity: "base" });
   const compareOptionalText = (a?: string | null, b?: string | null) => (a ? (b ? compareText(a, b) : -1) : b ? 1 : 0);
-  const availableBooks = all.filter((project) => !project.archived_at);
-  const archivedBooks = all.filter((project) => !!project.archived_at);
-  const seriesNames = Array.from(new Set(all.map((project) => project.series_name).filter(Boolean))).sort((a, b) =>
-    a.localeCompare(b, locale, { numeric: true }),
-  );
-  const visibleBooks = all
+  const matches = (p: Project) => normalize(`${p.title} ${p.author} ${p.series_name}`).includes(normalize(query));
+  const availableBooks = standalone.filter((project) => !project.archived_at);
+  const archivedBooks = standalone.filter((project) => !!project.archived_at);
+  const availableSeries = (series || []).filter((s) => !s.archived_at);
+  const archivedSeries = (series || []).filter((s) => !!s.archived_at);
+  const visibleBooks = standalone
     .filter(
       (p) =>
-        normalize(`${p.title} ${p.author} ${p.series_name}`).includes(normalize(query)) &&
-        (seriesFilter === "all" || p.series_name === seriesFilter) &&
+        matches(p) &&
         ((filter === "archived" && !!p.archived_at) ||
           (!p.archived_at &&
             (filter === "all" ||
@@ -165,29 +196,45 @@ export function Library({ run, user }: { run: Run; user: User }) {
     .sort((a, b) =>
       sort === "title"
         ? compareText(a.title, b.title)
-        : sort === "series"
-          ? compareText(a.series_name || a.title, b.series_name || b.title) ||
-            (a.volume_number ?? Number.MAX_SAFE_INTEGER) - (b.volume_number ?? Number.MAX_SAFE_INTEGER) ||
+        : sort === "status"
+          ? compareText(labels[a.archived_at ? "archived" : a.status], labels[b.archived_at ? "archived" : b.status]) ||
             compareText(a.title, b.title)
-          : sort === "status"
-            ? compareText(labels[a.archived_at ? "archived" : a.status], labels[b.archived_at ? "archived" : b.status]) ||
-              compareText(a.title, b.title)
-            : sort === "model"
-              ? compareOptionalText(a.progress?.model, b.progress?.model) || compareText(a.title, b.title)
-              : b.updated_at - a.updated_at,
+          : sort === "model"
+            ? compareOptionalText(a.progress?.model, b.progress?.model) || compareText(a.title, b.title)
+            : b.updated_at - a.updated_at,
+    );
+  const seriesMatches = (s: Series) =>
+    normalize(`${s.name} ${s.authors.join(" ")}`).includes(normalize(query)) ||
+    all.some((p) => p.series_id === s.id && matches(p));
+  const visibleSeries = (series || [])
+    .filter(
+      (s) =>
+        seriesMatches(s) &&
+        ((filter === "archived" && !!s.archived_at) ||
+          (!s.archived_at &&
+            (filter === "all" ||
+              (filter === "active" && s.progress.running > 0) ||
+              (filter === "attention" && seriesAttention(s)) ||
+              (filter === "complete" && seriesComplete(s))))),
+    )
+    .sort((a, b) =>
+      sort === "title"
+        ? compareText(a.name, b.name)
+        : sort === "status"
+          ? compareText(labels[seriesStatus(a)], labels[seriesStatus(b)]) || compareText(a.name, b.name)
+          : sort === "model"
+            ? compareOptionalText(a.providers[0]?.model, b.providers[0]?.model) || compareText(a.name, b.name)
+            : b.activity - a.activity,
     );
   const selectableBooks = visibleBooks.filter((project) => !project.archived_at);
-  const seriesBooks =
-    seriesFilter === "all"
-      ? []
-      : all
-          .filter((project) => project.series_name === seriesFilter)
-          .sort(
-            (a, b) =>
-              (a.volume_number ?? Number.MAX_SAFE_INTEGER) - (b.volume_number ?? Number.MAX_SAFE_INTEGER) ||
-              a.title.localeCompare(b.title, locale, { numeric: true }),
-          );
-  const load = useCallback(async () => setBooks(await api<Project[]>("/projects?include_archived=true")), []);
+  const load = useCallback(async () => {
+    const [projects, list] = await Promise.all([
+      api<Project[]>("/projects?include_archived=true"),
+      api<Series[]>("/series?include_archived=true"),
+    ]);
+    setBooks(projects);
+    setSeries(list);
+  }, []);
   useEffect(() => {
     void run.background(load);
     const timer = setInterval(() => {
@@ -201,34 +248,6 @@ export function Library({ run, user }: { run: Run; user: User }) {
       next.delete(id);
       return next;
     });
-  async function upload(files: File[], restore = false) {
-    setBusy(true);
-    setImports(files.map((f) => ({ name: f.name, state: t("En attente"), tone: "neutral" })));
-    let cursor = 0;
-    const created: string[] = [];
-    const update = (index: number, state: string, tone: "neutral" | "success" | "danger") =>
-      setImports((values) => values.map((v, i) => (i === index ? { ...v, state, tone } : v)));
-    const workers = Array.from({ length: Math.min(2, files.length) }, async () => {
-      while (cursor < files.length) {
-        const index = cursor++;
-        update(index, t("Import / validation…"), "neutral");
-        const form = new FormData();
-        form.append("file", files[index]);
-        try {
-          const p = await api<Project>(restore ? "/projects/import" : "/projects", { method: "POST", body: form });
-          created.push(p.id);
-          update(index, t("Importé"), "success");
-        } catch (e) {
-          update(index, e instanceof Error ? e.message : String(e), "danger");
-        }
-      }
-    });
-    await Promise.all(workers);
-    await run(load);
-    setSelected(new Set(created));
-    setBusy(false);
-    if (files.length === 1 && created.length === 1) location.hash = `project/${created[0]}`;
-  }
   async function archive(p: Project) {
     await run(async () => {
       await send(`/projects/${p.id}/${p.archived_at ? "restore" : "archive"}`);
@@ -256,9 +275,9 @@ export function Library({ run, user }: { run: Run; user: User }) {
     event.preventDefault();
     dragDepth.current = 0;
     setDragging(false);
-    if (busy) return;
-    const files = Array.from(event.dataTransfer.files).filter((file) => file.name.toLowerCase().endsWith(".epub"));
-    if (files.length) void upload(files);
+    if (wizard) return;
+    const files = Array.from(event.dataTransfer.files);
+    if (files.length) setWizard({ files });
   };
   const toggle = (p: Project, checked: boolean) =>
     setSelected((previous) => {
@@ -298,32 +317,38 @@ export function Library({ run, user }: { run: Run; user: User }) {
       ]}
     />
   );
-  const translatedTotal = availableBooks.reduce((n, p) => n + p.stats.translated, 0);
+  const translatedTotal = all.filter((p) => !p.archived_at).reduce((n, p) => n + p.stats.translated, 0);
+  const archivedCount = archivedBooks.length + archivedSeries.length;
   const summary = [
-    tp(availableBooks.length, "{count} projet", "{count} projets"),
-    archivedBooks.length ? tp(archivedBooks.length, "{count} archivé", "{count} archivés") : "",
+    tp(availableSeries.length, "{count} série", "{count} séries"),
+    tp(availableBooks.length, "{count} volume unique", "{count} volumes uniques"),
+    archivedCount ? tp(archivedCount, "{count} archivé", "{count} archivés") : "",
     tp(translatedTotal, "{count} passage traduit", "{count} passages traduits"),
   ]
     .filter(Boolean)
     .join(" · ");
+  const count = (bookTest: (p: Project) => boolean, seriesTest: (s: Series) => boolean) =>
+    availableBooks.filter(bookTest).length + availableSeries.filter(seriesTest).length;
   const filters: { value: Filter; label: string; count: number }[] = [
-    { value: "all", label: t("Tous les livres"), count: availableBooks.length },
-    { value: "active", label: t("En cours"), count: availableBooks.filter(active).length },
-    { value: "attention", label: t("À examiner"), count: availableBooks.filter(attention).length },
-    { value: "complete", label: t("Traduction complète"), count: availableBooks.filter(complete).length },
-    { value: "archived", label: t("Archives"), count: archivedBooks.length },
+    { value: "all", label: t("Tous les livres"), count: availableBooks.length + availableSeries.length },
+    { value: "active", label: t("En cours"), count: count(active, (s) => s.progress.running > 0) },
+    { value: "attention", label: t("À examiner"), count: count(attention, seriesAttention) },
+    { value: "complete", label: t("Traduction complète"), count: count(complete, seriesComplete) },
+    { value: "archived", label: t("Archives"), count: archivedCount },
   ];
+  const loading = books === null || series === null;
+  const empty = !loading && !all.length && !(series || []).length;
   return (
     <Page className={cx("library", dragging && "is-dragging")}>
       <div
         className="library-dropzone"
         onDragEnter={(event) => {
-          if (!event.dataTransfer.types.includes("Files")) return;
+          if (!event.dataTransfer.types.includes("Files") || wizard) return;
           dragDepth.current += 1;
           setDragging(true);
         }}
         onDragOver={(event) => {
-          if (event.dataTransfer.types.includes("Files")) event.preventDefault();
+          if (event.dataTransfer.types.includes("Files") && !wizard) event.preventDefault();
         }}
         onDragLeave={() => {
           dragDepth.current = Math.max(0, dragDepth.current - 1);
@@ -333,45 +358,11 @@ export function Library({ run, user }: { run: Run; user: User }) {
       >
         <PageHeader
           title={t("Bibliothèque")}
-          description={books ? summary : <Skeleton width={220} height={14} />}
+          description={loading ? <Skeleton width={220} height={14} /> : summary}
           actions={
-            <>
-              <FileButton
-                label={busy ? t("Import en cours…") : t("Importer des EPUB")}
-                accept=".epub"
-                multiple
-                disabled={busy}
-                primary
-                inputId="epub-input"
-                onFiles={(files) => void upload(files)}
-              />
-              <Menu
-                label={t("Autres imports")}
-                trigger={(props) => (
-                  <IconButton {...props} icon="more" variant="secondary" label={t("Autres imports")} />
-                )}
-                items={[
-                  {
-                    label: t("Réimporter un projet (.zip)"),
-                    icon: "upload",
-                    disabled: busy,
-                    onSelect: () => document.getElementById("restore-input")?.click(),
-                  },
-                ]}
-              />
-              <input
-                id="restore-input"
-                type="file"
-                accept=".zip"
-                hidden
-                disabled={busy}
-                onChange={(e) => {
-                  const files = Array.from(e.target.files || []);
-                  e.target.value = ""; // Let the same file be chosen again after a failed import.
-                  if (files[0]) void upload([files[0]], true);
-                }}
-              />
-            </>
+            <Button variant="primary" icon="plus" onClick={() => setWizard({})}>
+              {t("Ajouter du contenu")}
+            </Button>
           }
         />
         <div className="library-toolbar">
@@ -382,42 +373,32 @@ export function Library({ run, user }: { run: Run; user: User }) {
               onChange={setFilter}
               options={filters.map((item) => ({ value: item.value, label: item.label, count: item.count }))}
             />
-            {!narrow && <SegmentedControl
-              label={t("Affichage")}
-              value={view}
-              onChange={setView}
-              options={[
-                { value: "table", label: "", icon: "list", ariaLabel: t("Tableau") },
-                { value: "cards", label: "", icon: "grid", ariaLabel: t("Cartes") },
-              ]}
-            />}
+            {!narrow && (
+              <SegmentedControl
+                label={t("Affichage")}
+                value={view}
+                onChange={setView}
+                options={[
+                  { value: "table", label: "", icon: "list", ariaLabel: t("Tableau") },
+                  { value: "cards", label: "", icon: "grid", ariaLabel: t("Cartes") },
+                ]}
+              />
+            )}
           </div>
           <div className="library-filters">
             <label className="library-search">
               <span className="sr-only">{t("Rechercher un livre")}</span>
               <SearchInput
-                placeholder={t("Titre, auteur ou série…")}
+                placeholder={t("Série, titre ou auteur…")}
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
               />
-            </label>
-            <label className="toolbar-select">
-              <span className="sr-only">{t("Série")}</span>
-              <Select value={seriesFilter} onChange={(e) => setSeriesFilter(e.target.value)}>
-                <option value="all">{t("Toutes les séries")}</option>
-                {seriesNames.map((series) => (
-                  <option key={series} value={series}>
-                    {series}
-                  </option>
-                ))}
-              </Select>
             </label>
             <label className="toolbar-select">
               <span className="sr-only">{t("Trier par")}</span>
               <Select value={sort} onChange={(e) => setSort(e.target.value)}>
                 <option value="recent">{t("Dernière activité")}</option>
                 <option value="title">{t("Titre")}</option>
-                <option value="series">{t("Série et volume")}</option>
                 <option value="status">{t("Statut")}</option>
                 <option value="model">{t("Modèle")}</option>
               </Select>
@@ -425,46 +406,12 @@ export function Library({ run, user }: { run: Run; user: User }) {
           </div>
         </div>
         <p className="sr-only" role="status">
+          {tp(visibleSeries.length, "{count} série affichée", "{count} séries affichées")} ·{" "}
           {tp(visibleBooks.length, "{count} livre affiché", "{count} livres affichés")}
         </p>
-        {!!imports.length && (
-          <Card
-            className="import-progress"
-            title={t("Imports")}
-            actions={
-              !busy && (
-                <Button size="sm" variant="ghost" onClick={() => setImports([])}>
-                  {t("Masquer")}
-                </Button>
-              )
-            }
-          >
-            <ul role="status" className="import-list">
-              {imports.map((item, i) => (
-                <li key={i}>
-                  <Icon
-                    name={item.tone === "success" ? "check" : item.tone === "danger" ? "alert" : "upload"}
-                    className={`tone-text-${item.tone}`}
-                  />
-                  <span className="import-name">{item.name}</span>
-                  <span className={cx("import-state", `tone-text-${item.tone}`)}>{item.state}</span>
-                </li>
-              ))}
-            </ul>
-          </Card>
-        )}
-        {!!seriesBooks.length && (
-          <SeriesOverview
-            series={seriesFilter}
-            books={seriesBooks}
-            onSelectAll={() =>
-              setSelected(new Set(seriesBooks.filter((project) => !project.archived_at).map((project) => project.id)))
-            }
-          />
-        )}
-        {books === null ? (
+        {loading ? (
           <LibrarySkeleton label={t("Chargement de la bibliothèque…")} />
-        ) : !all.length ? (
+        ) : empty ? (
           <div className="library-empty">
             <EmptyState
               icon="upload"
@@ -472,25 +419,20 @@ export function Library({ run, user }: { run: Run; user: User }) {
               description={
                 <>
                   {t(
-                    "Importez un EPUB pour examiner sa structure, préparer sa mémoire et traduire avec continuité.",
+                    "Ajoutez des EPUB ou les chapitres TXT d’une webnovel : l’assistant les examine avant de créer quoi que ce soit.",
                   )}{" "}
-                  {t("Glissez-déposez des EPUB ici ou utilisez le bouton d’import.")}
+                  {t("Glissez-déposez des fichiers ici ou utilisez le bouton Ajouter du contenu.")}
                 </>
               }
               action={
-                <Button
-                  variant="primary"
-                  icon="upload"
-                  disabled={busy}
-                  onClick={() => document.getElementById("epub-input")?.click()}
-                >
-                  {t("Importer des EPUB")}
+                <Button variant="primary" icon="plus" onClick={() => setWizard({})}>
+                  {t("Ajouter du contenu")}
                 </Button>
               }
             />
-            <p className="subtle">{t("EPUB 2 et 3 · images et balises préservées · endpoint compatible OpenAI")}</p>
+            <p className="subtle">{t("EPUB 2 et 3 · chapitres TXT · archives Libris · API JSON d’automatisation")}</p>
           </div>
-        ) : !visibleBooks.length ? (
+        ) : !visibleBooks.length && !visibleSeries.length ? (
           <Card>
             <EmptyState
               icon="search"
@@ -501,7 +443,6 @@ export function Library({ run, user }: { run: Run; user: User }) {
                   onClick={() => {
                     setQuery("");
                     setFilter("all");
-                    setSeriesFilter("all");
                   }}
                 >
                   {t("Effacer les filtres")}
@@ -509,106 +450,135 @@ export function Library({ run, user }: { run: Run; user: User }) {
               }
             />
           </Card>
-        ) : layout === "table" ? (
-          <Card padded={false} className="library-table-card">
-            <Table className="library-table">
-              <thead>
-                <tr>
-                  <th className="cell-tight">
-                    <input
-                      type="checkbox"
-                      aria-label={
-                        query || filter !== "all"
-                          ? t("Sélectionner les livres affichés")
-                          : t("Sélectionner tous les livres actifs")
-                      }
-                      checked={!!selectableBooks.length && selectableBooks.every((p) => selected.has(p.id))}
-                      onChange={(e) =>
-                        setSelected(e.target.checked ? new Set(selectableBooks.map((p) => p.id)) : new Set())
-                      }
-                    />
-                  </th>
-                  <th>{t("Livre / auteur")}</th>
-                  <th className="col-languages">{t("Langues")}</th>
-                  <th className="col-progress">{t("Avancement")}</th>
-                  <th aria-sort={sort === "status" ? "ascending" : "none"}>
-                    <button
-                      className="table-sort"
-                      type="button"
-                      aria-label={t("Trier par statut")}
-                      aria-pressed={sort === "status"}
-                      onClick={() => setSort("status")}
-                    >
-                      {t("Statut")}
-                      <Icon name="chevronDown" size={12} />
-                    </button>
-                  </th>
-                  <th className="col-model">{t("Modèle")}</th>
-                  <th className="col-modified">{t("Modifié")}</th>
-                  <th className="cell-tight">
-                    <span className="sr-only">{t("Actions pour {title}", { title: "" })}</span>
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {visibleBooks.map((p) => (
-                  <tr key={p.id} className={p.archived_at ? "is-archived" : undefined}>
-                    <td className="cell-tight">
-                      <input
-                        type="checkbox"
-                        aria-label={t("Sélectionner {title}", { title: p.title })}
-                        disabled={!!p.archived_at}
-                        checked={selected.has(p.id)}
-                        onChange={(e) => toggle(p, e.target.checked)}
-                      />
-                    </td>
-                    <td>
-                      <BookTitle project={p} />
-                    </td>
-                    <td className="col-languages">
-                      <Languages project={p} />
-                    </td>
-                    <td className="col-progress">
-                      <BookProgress project={p} compact />
-                    </td>
-                    <td>
-                      <BookStatus project={p} />
-                    </td>
-                    <td className="col-model muted">{p.progress?.model || "—"}</td>
-                    <td className="col-modified muted tabular">
-                      {formatDateTime(p.updated_at, { dateStyle: "medium" })}
-                    </td>
-                    <td className="cell-tight">{bookActions(p)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </Table>
-          </Card>
         ) : (
-          <ul className="book-grid">
-            {visibleBooks.map((p) => (
-              <li key={p.id} className={cx("book-card", !!p.archived_at && "is-archived", selected.has(p.id) && "is-selected")}>
-                <div className="book-card-top">
-                  <input
-                    type="checkbox"
-                    aria-label={t("Sélectionner {title}", { title: p.title })}
-                    disabled={!!p.archived_at}
-                    checked={selected.has(p.id)}
-                    onChange={(e) => toggle(p, e.target.checked)}
-                  />
-                  <BookStatus project={p} />
-                  <span className="grow" />
-                  {bookActions(p)}
+          <>
+            {visibleSeries.length > 0 && (
+              <section className="library-section" aria-labelledby="library-series-title">
+                <h2 id="library-series-title" className="section-title">
+                  {t("Séries")} <span className="section-count tabular">{visibleSeries.length}</span>
+                </h2>
+                <ul className={cx("series-grid", layout === "table" && "is-dense")}>
+                  {visibleSeries.map((s) => (
+                    <SeriesCard key={s.id} series={s} />
+                  ))}
+                </ul>
+              </section>
+            )}
+            {visibleBooks.length > 0 && (
+              <section className="library-section" aria-labelledby="library-standalone-title">
+                <div className="section-heading">
+                  <h2 id="library-standalone-title" className="section-title">
+                    {t("Volumes uniques")} <span className="section-count tabular">{visibleBooks.length}</span>
+                  </h2>
+                  <p className="subtle">{t("Des livres sans série. Rattachez-les depuis la page d’une série.")}</p>
                 </div>
-                <BookTitle project={p} />
-                <BookProgress project={p} compact />
-                <div className="book-card-footer">
-                  <Languages project={p} />
-                  <span className="subtle tabular">{formatDateTime(p.updated_at, { dateStyle: "medium" })}</span>
-                </div>
-              </li>
-            ))}
-          </ul>
+                {layout === "table" ? (
+                  <Card padded={false} className="library-table-card">
+                    <Table className="library-table">
+                      <thead>
+                        <tr>
+                          <th className="cell-tight">
+                            <input
+                              type="checkbox"
+                              aria-label={
+                                query || filter !== "all"
+                                  ? t("Sélectionner les livres affichés")
+                                  : t("Sélectionner tous les livres actifs")
+                              }
+                              checked={!!selectableBooks.length && selectableBooks.every((p) => selected.has(p.id))}
+                              onChange={(e) =>
+                                setSelected(e.target.checked ? new Set(selectableBooks.map((p) => p.id)) : new Set())
+                              }
+                            />
+                          </th>
+                          <th>{t("Livre / auteur")}</th>
+                          <th className="col-languages">{t("Langues")}</th>
+                          <th className="col-progress">{t("Avancement")}</th>
+                          <th aria-sort={sort === "status" ? "ascending" : "none"}>
+                            <button
+                              className="table-sort"
+                              type="button"
+                              aria-label={t("Trier par statut")}
+                              aria-pressed={sort === "status"}
+                              onClick={() => setSort("status")}
+                            >
+                              {t("Statut")}
+                              <Icon name="chevronDown" size={12} />
+                            </button>
+                          </th>
+                          <th className="col-model">{t("Modèle")}</th>
+                          <th className="col-modified">{t("Modifié")}</th>
+                          <th className="cell-tight">
+                            <span className="sr-only">{t("Actions pour {title}", { title: "" })}</span>
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {visibleBooks.map((p) => (
+                          <tr key={p.id} className={p.archived_at ? "is-archived" : undefined}>
+                            <td className="cell-tight">
+                              <input
+                                type="checkbox"
+                                aria-label={t("Sélectionner {title}", { title: p.title })}
+                                disabled={!!p.archived_at}
+                                checked={selected.has(p.id)}
+                                onChange={(e) => toggle(p, e.target.checked)}
+                              />
+                            </td>
+                            <td>
+                              <BookTitle project={p} />
+                            </td>
+                            <td className="col-languages">
+                              <Languages project={p} />
+                            </td>
+                            <td className="col-progress">
+                              <BookProgress project={p} compact />
+                            </td>
+                            <td>
+                              <BookStatus project={p} />
+                            </td>
+                            <td className="col-model muted">{p.progress?.model || "—"}</td>
+                            <td className="col-modified muted tabular">
+                              {formatDateTime(p.updated_at, { dateStyle: "medium" })}
+                            </td>
+                            <td className="cell-tight">{bookActions(p)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </Table>
+                  </Card>
+                ) : (
+                  <ul className="book-grid">
+                    {visibleBooks.map((p) => (
+                      <li
+                        key={p.id}
+                        className={cx("book-card", !!p.archived_at && "is-archived", selected.has(p.id) && "is-selected")}
+                      >
+                        <div className="book-card-top">
+                          <input
+                            type="checkbox"
+                            aria-label={t("Sélectionner {title}", { title: p.title })}
+                            disabled={!!p.archived_at}
+                            checked={selected.has(p.id)}
+                            onChange={(e) => toggle(p, e.target.checked)}
+                          />
+                          <BookStatus project={p} />
+                          <span className="grow" />
+                          {bookActions(p)}
+                        </div>
+                        <BookTitle project={p} />
+                        <BookProgress project={p} compact />
+                        <div className="book-card-footer">
+                          <Languages project={p} />
+                          <span className="subtle tabular">{formatDateTime(p.updated_at, { dateStyle: "medium" })}</span>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </section>
+            )}
+          </>
         )}
         {selected.size > 0 && (
           <BatchActions
@@ -623,21 +593,114 @@ export function Library({ run, user }: { run: Run; user: User }) {
                 return next;
               })
             }
-            scopeLabel={seriesFilter !== "all" ? t("Série {series}", { series: seriesFilter }) : undefined}
           />
         )}
         {dragging && (
           <div className="drop-overlay" aria-hidden="true">
             <Icon name="upload" size={28} />
-            <span>{t("Déposez vos fichiers EPUB pour les importer")}</span>
+            <span>{t("Déposez vos fichiers pour les ajouter")}</span>
           </div>
         )}
       </div>
+      {wizard && (
+        <ImportWizard
+          run={run}
+          start={wizard}
+          admin={user.admin}
+          onClose={() => setWizard(null)}
+          onImported={() => void run.background(load)}
+        />
+      )}
     </Page>
   );
 }
 
-function BookTitle({ project }: { project: Project }) {
+export function SeriesCard({ series }: { series: Series }) {
+  const { t, tp } = useI18n();
+  const s = series;
+  const counts = [
+    tp(s.volumes, "{count} volume", "{count} volumes"),
+    tp(s.chapters, "{count} chapitre", "{count} chapitres"),
+    s.serial ? t("flux continu") : "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  const provider = s.providers.map((p) => `${p.name} · ${p.model}`).join(", ");
+  return (
+    <li className={cx("series-card", !!s.archived_at && "is-archived")}>
+      <div className="series-card-head">
+        <div className="series-card-heading">
+          <a className="series-card-title" href={`#series/${s.id}`}>
+            {s.name}
+          </a>
+          <span className="book-meta">
+            {s.authors.length ? s.authors.join(", ") : t("Auteur non renseigné")} · {counts}
+          </span>
+        </div>
+        <div className="series-card-badges">
+          <Badge tone={s.kind === "webnovel" ? "info" : "neutral"}>{s.kind === "webnovel" ? t("Webnovel") : t("Livres")}</Badge>
+          {s.formats.map((format) => (
+            <Badge key={format}>{format.toUpperCase()}</Badge>
+          ))}
+          {s.shared && <Badge tone="accent">{t("Partagée")}</Badge>}
+          {s.archived_at ? <Badge>{t("Archivé")}</Badge> : <StatusPill status={seriesStatus(s)} />}
+        </div>
+      </div>
+      <div className="series-card-progress">
+        <div className="book-progress-label">
+          <span>
+            {t("{percent} traduit · {validated}/{total} validés", {
+              percent: formatPercent(s.progress.percent),
+              validated: s.progress.validated,
+              total: s.progress.total,
+            })}
+          </span>
+          {s.progress.running > 0 && <strong>{t("{count} en cours", { count: s.progress.running })}</strong>}
+        </div>
+        <ProgressBar
+          size="sm"
+          value={s.progress.percent}
+          tone={seriesComplete(s) ? "success" : "accent"}
+          label={t("Traduction de {name}", { name: s.name })}
+        />
+      </div>
+      {(seriesAttention(s) || s.memory.pending > 0) && (
+        <div className="series-card-issues">
+          {s.issues.flagged > 0 && <Badge tone="warning">{t("{count} à vérifier", { count: s.issues.flagged })}</Badge>}
+          {s.issues.errors > 0 && (
+            <Badge tone="danger">{tp(s.issues.errors, "{count} erreur", "{count} erreurs")}</Badge>
+          )}
+          {s.issues.context_stale > 0 && (
+            <Badge tone="warning">
+              {tp(s.issues.context_stale, "{count} chapitre à revoir", "{count} chapitres à revoir")}
+            </Badge>
+          )}
+          {s.missing_volumes.length > 0 && (
+            <Badge tone="warning">{t("Volumes manquants : {volumes}", { volumes: s.missing_volumes.join(", ") })}</Badge>
+          )}
+          {s.duplicate_volumes.length > 0 && (
+            <Badge tone="danger">{t("Volumes en double : {volumes}", { volumes: s.duplicate_volumes.join(", ") })}</Badge>
+          )}
+          {s.memory.pending > 0 && <Badge>{t("{count} en attente", { count: s.memory.pending })}</Badge>}
+          {s.memory.failed > 0 && <Badge tone="danger">{t("{count} en échec", { count: s.memory.failed })}</Badge>}
+        </div>
+      )}
+      <div className="series-card-footer">
+        <span className="series-card-provider" title={provider}>
+          <Icon name="sparkles" size={12} /> {provider || t("Aucun provider")}
+        </span>
+        {s.memory.backends.length > 0 && (
+          <span>{t("Mémoire : {backends}", { backends: s.memory.backends.join(", ") })}</span>
+        )}
+        <span className="subtle tabular">
+          {t("Activité : {date}", { date: formatDateTime(s.activity, { dateStyle: "medium" }) })}
+        </span>
+      </div>
+    </li>
+  );
+}
+
+export function BookTitle({ project }: { project: Project }) {
   const { t } = useI18n();
   return (
     <div className="book-title-cell">
@@ -660,7 +723,7 @@ function BookTitle({ project }: { project: Project }) {
   );
 }
 
-function Languages({ project }: { project: Project }) {
+export function Languages({ project }: { project: Project }) {
   return (
     <span className="language-pair">
       <span>{project.source_language.toUpperCase()}</span>
@@ -670,67 +733,9 @@ function Languages({ project }: { project: Project }) {
   );
 }
 
-function BookStatus({ project }: { project: Project }) {
+export function BookStatus({ project }: { project: Project }) {
   const { t } = useI18n();
   return project.archived_at ? <Badge>{t("Archivé")}</Badge> : <StatusPill status={project.status} />;
-}
-
-function SeriesOverview({
-  series,
-  books,
-  onSelectAll,
-}: {
-  series: string;
-  books: Project[];
-  onSelectAll: () => void;
-}) {
-  const { t, tp } = useI18n();
-  const numbered = books.map((project) => project.volume_number).filter((value): value is number => value !== null);
-  const duplicates = Array.from(new Set(numbered.filter((volume, index) => numbered.indexOf(volume) !== index)));
-  const missing = numbered.length
-    ? Array.from({ length: Math.max(...numbered) }, (_, index) => index + 1).filter((volume) => !numbered.includes(volume))
-    : [];
-  return (
-    <Card
-      className="series-overview"
-      aria-label={t("Série {series}", { series })}
-      title={
-        <span className="series-title">
-          <span className="subtle">{t("Collection")}</span>
-          {series}
-        </span>
-      }
-      description={
-        <>
-          {tp(books.length, "{count} volume, classé dans l’ordre de lecture.", "{count} volumes, classés dans l’ordre de lecture.")}{" "}
-          {t(
-            "Les conventions acceptées et les décisions humaines des volumes antérieurs alimentent les volumes suivants, sans importer leur narration.",
-          )}
-        </>
-      }
-      actions={
-        <Button size="sm" onClick={onSelectAll} disabled={!books.some((project) => !project.archived_at)}>
-          {t("Sélectionner toute la série")}
-        </Button>
-      }
-    >
-      <ol className="series-volumes">
-        {books.map((project) => (
-          <li key={project.id}>
-            <span className="series-number tabular">{project.volume_number ?? "?"}</span>
-            <a href={`#project/${project.id}`}>{project.title}</a>
-            {project.archived_at && <Badge>{t("Archivé")}</Badge>}
-          </li>
-        ))}
-      </ol>
-      {(missing.length > 0 || duplicates.length > 0) && (
-        <Callout tone="warning" role="status">
-          {missing.length > 0 && t("Volumes manquants dans cette bibliothèque : {volumes}.", { volumes: missing.join(", ") })}{" "}
-          {duplicates.length > 0 && t("Numéros dupliqués : {volumes}.", { volumes: duplicates.join(", ") })}
-        </Callout>
-      )}
-    </Card>
-  );
 }
 
 function LibrarySkeleton({ label }: { label: string }) {
@@ -748,59 +753,5 @@ function LibrarySkeleton({ label }: { label: string }) {
         </div>
       ))}
     </Card>
-  );
-}
-
-/** A label styled as a button so the native file picker stays keyboard-accessible. */
-export function FileButton({
-  label,
-  accept,
-  multiple = false,
-  disabled = false,
-  primary = false,
-  icon = "upload",
-  onFiles,
-  inputId,
-}: {
-  label: ReactNode;
-  accept: string;
-  multiple?: boolean;
-  disabled?: boolean;
-  primary?: boolean;
-  icon?: "upload" | "plus";
-  onFiles: (files: File[]) => void;
-  inputId?: string;
-}) {
-  const input = useRef<HTMLInputElement>(null);
-  return (
-    <label
-      className={cx("btn", "btn-md", primary ? "btn-primary" : "btn-secondary")}
-      role="button"
-      tabIndex={disabled ? -1 : 0}
-      aria-disabled={disabled}
-      onKeyDown={(e: KeyboardEvent<HTMLLabelElement>) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          if (!disabled) input.current?.click();
-        }
-      }}
-    >
-      <Icon name={icon} />
-      <span className="btn-label">{label}</span>
-      <input
-        ref={input}
-        type="file"
-        accept={accept}
-        multiple={multiple}
-        hidden
-        disabled={disabled}
-        id={inputId}
-        onChange={(e) => {
-          const files = Array.from(e.target.files || []);
-          e.target.value = ""; // Let the same files be chosen again after a failed import.
-          if (files.length) onFiles(files);
-        }}
-      />
-    </label>
   );
 }

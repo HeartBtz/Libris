@@ -100,14 +100,15 @@ test("capture API-backed public documentation @integration", async ({ page }) =>
       path: resolve(output, "library.png"),
       fullPage: true,
     });
-    await page
-      .getByRole("combobox", { name: "Series" })
-      .selectOption("Tide Chronicles");
+    const series = (await (await page.request.get(`${base}/api/series`)).json()) as Array<{ id: string; name: string }>;
+    const tide = series.find((item) => item.name === "Tide Chronicles")!;
+    await page.goto(`${base}/#series/${tide.id}`);
+    await page.getByRole("tab", { name: /Volumes/ }).click();
     await page.screenshot({
       path: resolve(output, "series.png"),
       fullPage: true,
     });
-    await page.getByRole("combobox", { name: "Series" }).selectOption("all");
+    await page.goto(`${base}/#library`);
     await page.getByRole("radio", { name: /Archives/ }).click();
     await page.screenshot({
       path: resolve(output, "archives.png"),
@@ -180,5 +181,9 @@ test("capture API-backed public documentation @integration", async ({ page }) =>
         instructions: sourceProject.instructions,
       },
     });
+    // The series created for the capture goes once its volumes are gone or back where they were.
+    const series = (await (await page.request.get(`${base}/api/series`)).json()) as Array<{ id: string; name: string }>;
+    for (const item of series.filter((entry) => entry.name === "Tide Chronicles" && sourceProject.series_name !== "Tide Chronicles"))
+      await page.request.delete(`${base}/api/series/${item.id}`);
   }
 });

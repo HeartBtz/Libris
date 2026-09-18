@@ -7,9 +7,11 @@ import {
   Button,
   Callout,
   Card,
+  Checkbox,
   Dialog,
   EmptyState,
   Field,
+  FileButton,
   FormGrid,
   IconButton,
   Input,
@@ -26,7 +28,6 @@ import {
   useToast,
 } from "../ui";
 import { RequestDetails } from "./Editor";
-import { FileButton } from "./Library";
 import { MemoryPanel } from "./MemoryPanel";
 import { duration, projectProgress } from "./progress";
 
@@ -38,6 +39,16 @@ registerTranslations({
   Auteur: "Author",
   Série: "Series",
   "Numéro du volume": "Volume number",
+  "Déroge à la série": "Overrides series",
+  Dérogation: "Override",
+  "Déroger au glossaire de série pour {term}": "Override the series glossary for {term}",
+  "Déroge au glossaire de série": "Overrides the series glossary",
+  "Ce volume garde sa traduction même si la série en impose une autre.":
+    "This volume keeps its translation even if the series imposes another one.",
+  "Changer ce nom rattache le volume à cette série (créée si besoin) ; le vider en fait un volume unique.":
+    "Changing this name attaches the volume to that series (created if needed); clearing it makes a standalone volume.",
+  "Les chapitres d’une webnovel restent dans leur série.": "A webnovel's chapters stay in their series.",
+  "Ouvrir la série": "Open the series",
   Langues: "Languages",
   "Langue source": "Source language",
   "Langue cible (code BCP 47)": "Target language (BCP 47 code)",
@@ -312,8 +323,23 @@ export function ProjectSettings({
             <Field label={t("Auteur")}>
               <Input value={value.author} onChange={(e) => field("author", e.target.value)} />
             </Field>
-            <Field label={t("Série")}>
-              <Input value={value.series_name} onChange={(e) => field("series_name", e.target.value)} />
+            <Field
+              label={t("Série")}
+              hint={
+                <>
+                  {project.project_kind === "serial" || (project.source_format && project.source_format !== "epub")
+                    ? t("Les chapitres d’une webnovel restent dans leur série.")
+                    : t("Changer ce nom rattache le volume à cette série (créée si besoin) ; le vider en fait un volume unique.")}{" "}
+                  {project.series_id && <a href={`#series/${project.series_id}`}>{t("Ouvrir la série")}</a>}
+                </>
+              }
+            >
+              <Input
+                value={value.series_name}
+                // Text chapters always belong to a series: only EPUB volumes can move or leave.
+                disabled={project.project_kind === "serial" || (!!project.source_format && project.source_format !== "epub")}
+                onChange={(e) => field("series_name", e.target.value)}
+              />
             </Field>
             <Field label={t("Numéro du volume")}>
               <Input
@@ -321,6 +347,7 @@ export function ProjectSettings({
                 min="1"
                 max="10000"
                 value={value.volume_number ?? ""}
+                disabled={project.project_kind === "serial"}
                 onChange={(e) => field("volume_number", e.target.value ? Number(e.target.value) : null)}
                 placeholder="1"
               />
@@ -576,16 +603,27 @@ export function Glossary({ project, run, tick }: { project: Project; run: Run; t
   const [search, setSearch] = useState("");
   const [source, setSource] = useState("");
   const [translation, setTranslation] = useState("");
+  const [override, setOverride] = useState(false);
   const [message, setMessage] = useState("");
   const load = useCallback(async () => setTerms(await api(`/projects/${project.id}/glossary`)), [project.id]);
   useEffect(() => {
     void run.background(load);
   }, [load, tick, run]);
+  // A standalone volume has no series glossary to depart from: the field is only sent inside a series.
+  const inSeries = !!project.series_id;
   async function save(term: Term) {
     const { source, translation, category, description, locked, accepted } = term;
     await send(
       `/projects/${project.id}/glossary/${term.id}`,
-      { source, translation, category, description, locked, accepted },
+      {
+        source,
+        translation,
+        category,
+        description,
+        locked,
+        accepted,
+        ...(inSeries ? { series_override: !!term.series_override } : {}),
+      },
       "PUT",
     );
     setMessage(t("Terme enregistré. Les passages concernés sont marqués à réévaluer."));
@@ -677,6 +715,7 @@ export function Glossary({ project, run, tick }: { project: Project; run: Run; t
                 <th>{t("Catégorie")}</th>
                 <th className="cell-tight">{t("Verrouillé")}</th>
                 <th className="cell-tight">{t("Accepté")}</th>
+                {inSeries && <th className="cell-tight">{t("Déroge à la série")}</th>}
                 <th className="cell-tight" />
               </tr>
             </thead>
@@ -686,6 +725,7 @@ export function Glossary({ project, run, tick }: { project: Project; run: Run; t
                   <td className="glossary-source">
                     {term.source}
                     {!term.accepted && <Badge tone="warning">{t("À relire")}</Badge>}
+                    {inSeries && term.series_override && <Badge tone="accent">{t("Dérogation")}</Badge>}
                   </td>
                   <td>
                     <Input
@@ -717,6 +757,16 @@ export function Glossary({ project, run, tick }: { project: Project; run: Run; t
                       onChange={(e) => update(term.id, { accepted: e.target.checked })}
                     />
                   </td>
+                  {inSeries && (
+                    <td className="cell-tight center">
+                      <input
+                        aria-label={t("Déroger au glossaire de série pour {term}", { term: term.source })}
+                        type="checkbox"
+                        checked={!!term.series_override}
+                        onChange={(e) => update(term.id, { series_override: e.target.checked })}
+                      />
+                    </td>
+                  )}
                   <td className="cell-tight">
                     <div className="row nowrap">
                       <IconButton
@@ -759,9 +809,16 @@ export function Glossary({ project, run, tick }: { project: Project; run: Run; t
           onSubmit={(e) => {
             e.preventDefault();
             void run(async () => {
-              await send(`/projects/${project.id}/glossary`, { source, translation, accepted: true, locked: true });
+              await send(`/projects/${project.id}/glossary`, {
+                source,
+                translation,
+                accepted: true,
+                locked: true,
+                ...(inSeries ? { series_override: override } : {}),
+              });
               setSource("");
               setTranslation("");
+              setOverride(false);
               await load();
             });
           }}
@@ -777,6 +834,14 @@ export function Glossary({ project, run, tick }: { project: Project; run: Run; t
               required
             />
           </Field>
+          {inSeries && (
+            <Checkbox
+              label={t("Déroge au glossaire de série")}
+              description={t("Ce volume garde sa traduction même si la série en impose une autre.")}
+              checked={override}
+              onChange={(e) => setOverride(e.target.checked)}
+            />
+          )}
           <Button type="submit" variant="primary" icon="lock">
             {t("Ajouter et verrouiller")}
           </Button>

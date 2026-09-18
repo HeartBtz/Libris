@@ -1,4 +1,5 @@
 export { Button, ButtonLink, IconButton, cx } from "./Button";
+export { FileButton } from "./FileButton";
 export type { ButtonVariant } from "./Button";
 export { Badge, StatusPill, statusTone } from "./Badge";
 export type { Tone } from "./Badge";

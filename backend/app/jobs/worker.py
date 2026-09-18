@@ -15,6 +15,7 @@ from app.engines.context.providers import OpenVikingContextProvider
 from app.engines.memory.catalog import schedule_catalogs
 from app.engines.translation.analysis import analyze
 from app.engines.translation.pipeline import consistency, translate
+from app.jobs.concurrency import blocking, renewal
 from app.jobs.execution import execution
 from app.jobs.queue import JobStopped, checkpoint, claim, emit, fence, suspend
 from app.models import Issue, Job, Outbox, Project, Segment
@@ -67,7 +68,7 @@ async def heartbeat(job_id: str, owner: str, task: asyncio.Task, clock=time.mono
     while True:
         await asyncio.sleep(interval)
         try:
-            checkpoint(job_id, owner)
+            await renewal(checkpoint, job_id, owner)
             renewed = clock()
         except JobStopped:
             task.cancel()
@@ -90,9 +91,23 @@ def _suspend_safely(job_id: str, *arguments) -> None:
         logger.error("job=%s status=suspend_deferred reason=database_unavailable", job_id)
 
 
+def _complete(job_id: str, owner: str, project_id: str) -> None:
+    with SessionLocal() as db:
+        current = fence(db, job_id, owner)
+        current.status, current.finished_at = "completed", time.time()
+        current.next_attempt, current.outage_count, current.stop_reason = 0, 0, ""
+        project = db.get(Project, project_id)
+        incomplete = db.scalar(
+            select(Segment.id).where(Segment.project_id == project.id, Segment.translation == "").limit(1)
+        )
+        project.status = "ready" if incomplete else "completed"
+        emit(db, project.id, job_id=job_id, status="completed")
+        db.commit()
+
+
 async def execute(job_id: str, owner: str) -> None:
     try:
-        job = checkpoint(job_id, owner)
+        job = await blocking(checkpoint, job_id, owner)
     except JobStopped:
         return
     except SQLAlchemyError:
@@ -103,7 +118,7 @@ async def execute(job_id: str, owner: str) -> None:
     try:
         if job.operation == "analyze":
             await analyze(job, owner)
-            job = checkpoint(job.id, owner)
+            job = await blocking(checkpoint, job.id, owner)
             if job.options.get("continue_pipeline"):
                 await translate(job, owner)
         elif job.operation in {"translate", "review"}:
@@ -120,17 +135,7 @@ async def execute(job_id: str, owner: str) -> None:
             await accept_queued_critiques(job, owner)
         else:
             await sync_outbox(job.project_id)
-        with SessionLocal() as db:
-            current = fence(db, job_id, owner)
-            current.status = "completed"
-            current.next_attempt, current.outage_count, current.stop_reason = 0, 0, ""
-            project = db.get(Project, job.project_id)
-            incomplete = db.scalar(
-                select(Segment.id).where(Segment.project_id == project.id, Segment.translation == "").limit(1)
-            )
-            project.status = "ready" if incomplete else "completed"
-            emit(db, project.id, job_id=job_id, status="completed")
-            db.commit()
+        await blocking(_complete, job_id, owner, job.project_id)
     except JobStopped:
         pass
     except ProviderUnavailable as exc:
@@ -194,6 +199,7 @@ async def execute(job_id: str, owner: str) -> None:
             current = db.get(Job, job_id)
             if current and current.lease_owner == owner and current.status not in {"paused", "cancelled"}:
                 current.status, current.error = "failed", str(exc)[:1500]
+                current.finished_at = time.time()
                 db.get(Project, job.project_id).status = "failed"
                 emit(db, job.project_id, job_id=job_id, status="failed", error=current.error)
                 db.commit()
@@ -208,7 +214,7 @@ async def worker_slot(stopped: asyncio.Event, operations: tuple[str, ...] | None
     failures = 0
     while not stopped.is_set():
         try:
-            item = claim(operations)
+            item = await blocking(claim, operations)
             if not item:
                 try:
                     await asyncio.wait_for(stopped.wait(), timeout=2)
@@ -254,7 +260,7 @@ async def provider_dispatcher(stopped: asyncio.Event) -> None:
     try:
         while not stopped.is_set():
             try:
-                while item := claim(operations):
+                while item := await blocking(claim, operations):
                     running.add(asyncio.create_task(execute(*item)))
             except SQLAlchemyError:
                 logger.error("operation=provider_dispatch status=waiting retry_seconds=2")

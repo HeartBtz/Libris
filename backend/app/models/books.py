@@ -45,6 +45,8 @@ class Chapter(Identified, Base):
     position: Mapped[int] = mapped_column(Integer)
     title: Mapped[str] = mapped_column(String(500))
     resource: Mapped[str] = mapped_column(Text)
+    # narrative | auxiliary (linear="no") | navigation (nav, NCX) | metadata (OPF description)
+    kind: Mapped[str] = mapped_column(String(20), default="narrative", server_default="narrative")
     summary: Mapped[dict] = mapped_column(JSON, default=dict)
     instructions: Mapped[str] = mapped_column(Text, default="")
     analyzed: Mapped[bool] = mapped_column(Boolean, default=False)
@@ -58,6 +60,8 @@ class Segment(Identified, Base):
     position: Mapped[int] = mapped_column(Integer)
     section: Mapped[str] = mapped_column(String(100), default="")
     source: Mapped[str] = mapped_column(Text)
+    # Hash of the normalized source units: finds identical passages across the owner's books.
+    source_key: Mapped[str | None] = mapped_column(String(64), index=True)
     units: Mapped[list] = mapped_column(JSON)
     translation: Mapped[str] = mapped_column(Text, default="")
     translated_units: Mapped[list] = mapped_column(JSON, default=list)

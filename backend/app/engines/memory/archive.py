@@ -4,14 +4,20 @@ from app.models import CharacterRelation, Entity, EntityMerge
 from app.schemas import Character
 
 
-def restore_graph(db: Session, pid: str, payload: dict, segment_map: dict[str, str]) -> None:
+def dated(item: dict) -> dict:
+    # Creation order matters: identities and the bible list characters in that order.
+    return {"created_at": item["created_at"]} if item.get("created_at") is not None else {}
+
+
+def restore_graph(db: Session, pid: str, payload: dict, segment_map: dict[str, str]) -> dict[str, str]:
+    """Recreate the identity graph; returns the archived entity ids mapped to the new ones."""
     rows: dict[str, Entity] = {}
     for item in payload.get("entities", []):
         data = item["data"]
         if item["category"] == "character":
-            data = Character.model_validate(
-                {k: v for k, v in data.items() if k in Character.model_fields}
-            ).model_dump() | {"first_position": int(data.get("first_position", -1))}
+            # Checked, but stored as saved: filling in defaults would change the restored profile.
+            Character.model_validate({k: v for k, v in data.items() if k in Character.model_fields})
+            data = dict(data, first_position=int(data.get("first_position", -1)))
         entity = Entity(
             project_id=pid,
             name=str(item["name"])[:300],
@@ -19,6 +25,7 @@ def restore_graph(db: Session, pid: str, payload: dict, segment_map: dict[str, s
             data=data,
             validated=bool(item.get("validated")),
             identity_validated=bool(item.get("identity_validated")),
+            **dated(item),
         )
         db.add(entity)
         db.flush()
@@ -50,6 +57,7 @@ def restore_graph(db: Session, pid: str, payload: dict, segment_map: dict[str, s
                 provenance=str(item.get("provenance", "import"))[:30],
                 validated=bool(item.get("validated")),
                 active=bool(item.get("active", True)),
+                **dated(item),
             )
         )
     for item in payload.get("entity_merges", []):
@@ -62,5 +70,7 @@ def restore_graph(db: Session, pid: str, payload: dict, segment_map: dict[str, s
                     snapshots=item["snapshots"],
                     reason=str(item.get("reason", "Import")),
                     human=bool(item.get("human")),
+                    **dated(item),
                 )
             )
+    return {key: entity.id for key, entity in rows.items()}

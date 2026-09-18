@@ -18,6 +18,7 @@ export interface Stats {
   refused: number;
   chapters: number;
   glossary: number;
+  translation_memory_reused?: number;
 }
 export interface Project {
   id: string;
@@ -33,6 +34,7 @@ export interface Project {
   quality: string;
   context_backend: string;
   instructions: string;
+  translation_memory?: boolean;
   status: string;
   stats: Stats;
   updated_at: number;
@@ -41,6 +43,7 @@ export interface Project {
     images: number;
     size: number;
     validation?: unknown;
+    untranslated?: Record<string, { count: number; resources: string[] }>;
   };
   bible: Record<string, unknown>;
   progress?: ProjectProgress;

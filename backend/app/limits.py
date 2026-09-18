@@ -4,6 +4,7 @@ import json
 from http.cookies import SimpleCookie
 
 from app.config import settings
+from app.i18n import localize, preferred_language
 
 ANONYMOUS_LIMIT = 1024**2  # login and other unauthenticated calls are small JSON documents
 
@@ -29,6 +30,7 @@ class BodyLimit:
             if anonymous
             else (413, f"Requête trop volumineuse : {settings().max_upload_mb} Mo au maximum.")
         )
+        detail = localize(detail, preferred_language(headers.get("accept-language")))
 
         async def reject():
             body = json.dumps({"detail": detail}).encode()

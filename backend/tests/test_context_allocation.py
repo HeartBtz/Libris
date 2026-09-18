@@ -5,6 +5,8 @@ from sqlalchemy import select
 from app.db import SessionLocal
 from app.engines.context.builder import build_context, fit_neighbors
 from app.models import Entity, Glossary, Segment
+from app.providers.llm import estimate_tokens, json_schema
+from app.schemas import TranslationResult
 
 
 def test_a_long_neighbour_is_shortened_not_dropped():
@@ -47,8 +49,10 @@ async def test_large_neighbours_leave_room_for_characters_and_glossary(seeded):
         and i["source"] in ("PREVIOUS_CONTEXT", "NEXT_CONTEXT")
     )
     assert neighbours <= 12000 * 3 // 5
-    prompt = sum(len(m["content"].encode()) for m in built.messages)
-    assert abs(built.inspector["input_estimate"] - prompt) < 1500
+    # The estimate is what llm.complete checks against the window: serialized messages plus the schema.
+    prompt = estimate_tokens(json.dumps(built.messages, ensure_ascii=False))
+    schema = estimate_tokens(json.dumps(json_schema(TranslationResult), ensure_ascii=False))
+    assert built.inspector["input_estimate"] == prompt + schema
 
 
 def test_lexical_relevance_ignores_the_instruction_of_the_retrieval_query():

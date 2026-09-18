@@ -1,6 +1,3 @@
-import csv
-import io
-import json
 from typing import Literal
 from urllib.parse import urlsplit
 
@@ -13,6 +10,7 @@ from app.api.common import row
 from app.config import settings
 from app.engines.context.config import memory_config
 from app.engines.memory.catalog import CATALOG_NAME, catalog_uri, queue_catalog
+from app.engines.memory.glossary_files import export_csv, export_json, export_tbx, read_glossary
 from app.engines.memory.identities import canonical_bible, identities, names, normalized, upsert_profiles
 from app.engines.memory.store import invalidate_after_decision
 from app.models import AppSetting, BibleRevision, Entity, Glossary, Outbox, Prompt
@@ -191,53 +189,36 @@ def delete_term(pid: str, gid: str, user: CurrentUser, db: DB):
 
 
 @router.get("/projects/{pid}/glossary/export/{format}")
-def export_terms(pid: str, format: Literal["json", "csv"], user: CurrentUser, db: DB):
-    access(db, pid, user)
+def export_terms(pid: str, format: Literal["json", "csv", "tbx"], user: CurrentUser, db: DB):
+    project = access(db, pid, user)
     values = [
         row(g, ("id", "project_id", "created_at"))
-        for g in db.scalars(select(Glossary).where(Glossary.project_id == pid))
+        for g in db.scalars(select(Glossary).where(Glossary.project_id == pid).order_by(Glossary.source))
     ]
-    if format == "json":
-        return Response(
-            json.dumps(values, ensure_ascii=False, indent=2),
-            media_type="application/json",
-            headers={"Content-Disposition": 'attachment; filename="glossary.json"'},
-        )
-    buffer = io.StringIO()
-    writer = csv.DictWriter(buffer, fieldnames=list(GlossaryInput.model_fields))
-    writer.writeheader()
-    for value in values:
-        # CSV export must not turn book terms into spreadsheet formulas.
-        writer.writerow(
-            {
-                k: ("'" + v if isinstance(v, str) and v.startswith(("=", "+", "-", "@")) else v)
-                for k, v in value.items()
-            }
-        )
+    content, media_type = {
+        "json": lambda: (export_json(values), "application/json"),
+        "csv": lambda: (export_csv(values), "text/csv"),
+        "tbx": lambda: (
+            export_tbx(values, project.source_language, project.target_language),
+            "application/x-tbx+xml",
+        ),
+    }[format]()
     return Response(
-        buffer.getvalue(),
-        media_type="text/csv",
-        headers={"Content-Disposition": 'attachment; filename="glossary.csv"'},
+        content,
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="glossary.{format}"'},
     )
 
 
 @router.post("/projects/{pid}/glossary/import")
 async def import_terms(pid: str, file: UploadFile, user: CurrentUser, db: DB):
     project = access(db, pid, user, write=True)
-    text = (await file.read(2 * 1024**2 + 1)).decode("utf-8-sig")
-    if len(text) > 2 * 1024**2:
+    data = await file.read(2 * 1024**2 + 1)
+    if len(data) > 2 * 1024**2:
         raise HTTPException(413, "Glossaire trop volumineux.")
-    if text.lstrip().startswith(("[", "{")):
-        data = json.loads(text)
-        if not isinstance(data, list):
-            raise ValueError("Glossaire JSON invalide : une liste de termes [{...}, ...] est attendue.")
-    else:
-        data = list(csv.DictReader(io.StringIO(text)))
-    if len(data) > 10000:
-        raise ValueError("Glossaire invalide ou trop volumineux.")
+    terms = read_glossary(data, file.filename or "", project.source_language, project.target_language)
     count = 0
-    for item in data:
-        value = GlossaryInput.model_validate(item)
+    for value in terms:
         existing = db.scalar(
             select(Glossary).where(Glossary.project_id == pid, Glossary.source == value.source)
         )
@@ -248,7 +229,7 @@ async def import_terms(pid: str, file: UploadFile, user: CurrentUser, db: DB):
         count += 1
     invalidate_after_decision(db, project)
     db.commit()
-    return {"imported": count, "skipped": len(data) - count}
+    return {"imported": count, "skipped": len(terms) - count}
 
 
 class MemorySettings(BaseModel):

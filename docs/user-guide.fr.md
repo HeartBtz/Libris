@@ -38,10 +38,10 @@ Pour les commandes par lot, les deux progressions, les interruptions, les refus 
 2. Importer un EPUB dans la bibliothèque. La structure, les ressources et le texte sont analysés ; EPUBCheck est exécuté dans l’image Docker.
 3. Dans **Configuration**, choisir le provider, les langues, le mode qualité et les instructions globales. Utiliser des codes de langue BCP 47, par exemple `en`, `fr`, `ja`.
 4. **Analyser le livre**. Chaque unité est analysée, puis les résultats sont consolidés par chapitre en Book Bible. L’historique d’analyse reste consultable.
-5. Examiner et corriger la **Book Bible**, les personnages et les propositions de glossaire. Les entrées proposées ne sont pas acceptées automatiquement par défaut.
+5. Examiner et corriger la **Book Bible**, les personnages et les propositions de glossaire. Les entrées proposées ne sont pas acceptées automatiquement par défaut. Le glossaire s’exporte et s’importe en JSON, CSV ou TBX (format d’échange des outils de traduction). L’import reconnaît le format au contenu, accepte les CSV de tableur (séparateur `;` ou `,`, en-têtes français ou anglais comme « Terme source ; Traduction ») et ne remplace jamais un terme déjà présent. En TBX, un terme verrouillé est « preferred », un terme accepté « admitted » et une proposition non acceptée « deprecated ».
 6. **Traduire**. Le suivi se reconnecte automatiquement. Pause, reprise et retry conservent les traductions enregistrées.
 7. Comparer, corriger et valider dans le workspace. Les marqueurs `⟦t0⟧…⟦/t0⟧` protègent les éléments inline ; leur suppression est refusée.
-8. Exporter en EPUB, TXT, Markdown, Book Bible (JSON) ou archive de projet. L’export EPUB complet est refusé si du texte manque ou si EPUBCheck signale une non-conformité.
+8. Exporter en EPUB, TXT, Markdown, Book Bible (JSON) ou archive de projet. L’export EPUB complet est refusé si du texte manque ou si EPUBCheck signale une non-conformité. L’archive de projet est une sauvegarde complète du travail (statuts, validations, historique, critiques, glossaire, personnages, travaux) ; les membres, le provider et le propriétaire ne sont pas restaurés — voir [Archive de projet](operations.md#archive-de-projet).
 
 La preview est volontairement simplifiée (CSS de lecture neutre) ; les CSS et ressources originales sont conservées dans l’EPUB exporté. Aucune mention IA n’est ajoutée automatiquement.
 
@@ -94,6 +94,23 @@ Chaque requête combine les règles utilisateur, les choix humains pertinents, l
 
 Les choix humains validés remplacent leurs anciennes versions dans le retrieval local. Les souvenirs externes ne modifient jamais directement les traductions, fiches validées ou termes verrouillés.
 
+### Séries
+
+Donnez à chaque tome le même nom de série (la casse et les espaces ne comptent pas) et son numéro de volume. Un tome reçoit le glossaire accepté des tomes précédents (jamais des suivants) : un terme verrouillé dans un tome antérieur est imposé et contrôlé comme le glossaire verrouillé du livre, sauf si ce livre verrouille lui-même une autre traduction. Vos corrections validées d’une traduction automatique (« Tour Argentée » → « Tour d’Argent ») sont transmises aux tomes suivants lorsque le passage concerné y est évoqué.
+
+### Mémoire de traduction
+
+Réglage **Mémoire de traduction** (Stratégie du livre, activé par défaut ; `translation_memory` dans `PUT /api/projects/{id}`). Un passage dont la source est identique (formes Unicode et espaces près, mise en forme comprise) à un passage déjà traduit dans un de vos livres, avec la même paire de langues, reprend cette traduction sans appel au modèle ; une traduction validée par vous passe d’abord. Dans une série, seuls ce livre et les tomes antérieurs servent. La version apparaît avec l’origine `translation_memory` dans l’historique, puis la relecture et la revue finale s’appliquent normalement. Le nombre de passages repris s’affiche sous le réglage (`stats.translation_memory_reused`). Une retraduction forcée interroge toujours le modèle.
+
+### Segmentation et contenus particuliers
+
+- Les longs paragraphes japonais, chinois ou coréens sont coupés en fin de phrase (。！？…).
+- Les lectures ruby (furigana) restent telles quelles au-dessus du texte traduit.
+- Le texte préformaté (`pre`), les formules MathML et les titres de dessins SVG sont conservés en original ; ils sont listés dans **Rapport de validation à l’import** (« Conservés tels quels à l’import »). Le texte visible des dessins SVG et les `aria-label` sont traduits.
+- La table des matières et le NCX sont traduits mais ne comptent pas dans le nombre de sections ; les pages hors lecture linéaire (`linear="no"`) viennent après le récit.
+- La quatrième de couverture (`dc:description`) et les sujets courts (`dc:subject`) forment une section **Métadonnées du livre**, traduite et réécrite dans le fichier exporté.
+- Vers l’arabe, l’hébreu, le persan ou l’ourdou, l’export pose `dir="rtl"` et le sens de lecture droite-gauche ; les citations dans une troisième langue gardent leur langue.
+
 ### Modes
 
 | Mode          | Passes                                                        |
@@ -112,15 +129,25 @@ Les contrôles globaux LLM échantillonnent les occurrences dans tout le livre, 
 - Un ancien worker ne peut plus appliquer un résultat après pause, annulation ou reprise par un nouveau worker.
 - Traductions et étapes intermédiaires enregistrées séparément ; cache des appels valides par contenu du prompt, contexte, modèle et paramètres.
 - Une correction humaine arrivée pendant l’inférence gagne : le résultat IA devient une proposition dans l’historique.
-- La concurrence est définie par provider : `max_concurrency=3` autorise trois livres utilisant ce provider, analyses et traductions confondues. Les capacités de Codex et des providers personnalisés sont indépendantes, tandis que les passages d’un livre restent séquentiels.
+- La concurrence est définie par provider : `max_concurrency=3` autorise trois livres utilisant ce provider, analyses et traductions confondues. Les capacités de Codex et des providers personnalisés sont indépendantes. Au sein d’un livre, plusieurs passages sont traduits et relus à la fois, dans la limite de la capacité du provider partagée entre les livres en cours (`WORKER_BOOK_PARALLELISM` plafonne ce nombre ; `1` traite un passage à la fois) ; l’analyse reste séquentielle.
 
 ### Tokens et observabilité
 
-Le budget actuel utilise une estimation **conservatrice en octets UTF-8**, affichée comme estimation, pas un tokenizer exact. La réservation de sortie et une marge sont contrôlées avant envoi. Une entrée qui ne tient pas est refusée avec une erreur explicite, sans tronquer le passage ni les règles obligatoires. Ajuster la fenêtre selon la capacité réelle du serveur d’inférence. Le contexte optionnel (voisinage, personnages, glossaire, mémoire) est plafonné par le réglage **Budget de contexte** des paramètres de mémoire, 12 000 par défaut quelle que soit la fenêtre du modèle : l’augmenter enrichit chaque requête, et augmente d’autant son coût.
+Le budget actuel utilise une estimation **conservatrice en octets UTF-8**, affichée comme estimation, pas un tokenizer exact (un caractère japonais compte trois). La réservation de sortie, le schéma de réponse et une marge sont contrôlés avant envoi. Une entrée qui ne tient pas est refusée avec une erreur chiffrée (fenêtre, sortie réservée, prompt, passage, règles et fenêtre suffisante), sans tronquer le passage ni les règles obligatoires. Avec une petite fenêtre (16k), une première traduction trop longue est faite par parties coupées en fin de phrase puis réassemblées . À 8k, le prompt système et les règles occupent presque toute la fenêtre avec cette estimation prudente : prévoyez au moins 12 000 tokens avec une sortie maximale de 2 048. Ajuster la fenêtre selon la capacité réelle du serveur d’inférence. Le contexte optionnel (voisinage, personnages, glossaire, mémoire) est plafonné par le réglage **Budget de contexte** des paramètres de mémoire, 12 000 par défaut quelle que soit la fenêtre du modèle : l’augmenter enrichit chaque requête, et augmente d’autant son coût.
 
 La réponse complète est validée par schéma, identifiants, marqueurs et contrôles de texte. JSON Schema est utilisé si déclaré, avec repli JSON simple lorsqu’un endpoint rejette explicitement ce format. Une réponse tronquée ou polluée par du texte hors JSON est rejetée.
 
-Les métriques distinguent le cache, les tentatives, les tokens rapportés par le provider, la durée et le débit moyen global. Les coûts par million sont facultatifs et valent zéro par défaut. Les traces complètes de prompts/réponses sont privées au projet ; les logs de service ne contiennent pas le livre.
+Les métriques distinguent le cache, les tentatives, les tokens rapportés par le provider, la durée et le débit moyen global. Les coûts par million sont facultatifs et valent zéro par défaut. Les tokens d’entrée des requêtes en erreur, refusées ou interrompues sont comptés à part (`wasted_input_tokens`, et leur part `wasted_share` dans `GET /api/projects/{id}/metrics` et, par modèle, dans `GET /api/statistics/models`) : c’est la dépense qui n’a produit aucun résultat appliqué.
+
+#### Estimer avant de lancer
+
+`GET /api/projects/{id}/estimate?operation=analyze|translate|review` (lecture seule, accessible à tout membre du livre) annonce ce qu’un travail coûterait, sans jamais appeler le modèle : `input_tokens`, `output_tokens`, `requests`, `passages` à traiter, `cost` et le détail par étape (`breakdown`).
+
+- **Seuls les passages restant à traiter comptent** : l’analyse ignore les passages déjà analysés (et la synthèse si la Book Bible est validée) ; la traduction ignore les passages terminés ou corrigés à la main ; la relecture reprend tous les passages sauf ceux validés.
+- **Base de calcul (`basis`, `basis_kind`)** : si le propriétaire du livre a déjà traité au moins 5 passages avec le même fournisseur (ce livre compris), chaque étape reprend les moyennes observées : appels par passage (nouvelles tentatives et erreurs comprises), tokens d’entrée et de sortie par appel, part des passages qui reçoivent une révision ou une revue finale (`history`, avec le nombre de livres). Sinon, estimation par défaut (`default`) : 12 500 tokens de consignes et de contexte par appel plus le passage (4 caractères par token), 15 % de nouvelles tentatives, révision sur 60 % et revue finale sur 50 % des passages, étapes selon la qualité du livre. Une étape jamais observée utilise la valeur par défaut (`mixed`). Les réponses servies par le cache ne comptent pas.
+- **Coût** : prix actuels du fournisseur du livre (`currency_note` rappelle lesquels) ; 0 si aucun prix n’est saisi. Les remises de cache des fournisseurs et les forfaits d’abonnement (Codex/ChatGPT) ne sont pas pris en compte.
+
+C’est un ordre de grandeur : les contrôles de cohérence (qualité haute et maximum) sont comptés à un appel par terme ou personnage connu, et l’option de contexte approfondi (`deep`) n’est pas incluse. Les traces complètes de prompts/réponses sont privées au projet ; les logs de service ne contiennent pas le livre.
 
 ## Tests et développement
 
@@ -168,6 +195,6 @@ Points à approfondir avant de qualifier la fidélité d’un roman de plusieurs
 - graphe temporel détaillé des relations/croyances, au-delà des événements sourcés et bornés actuels ;
 - meilleure édition visuelle des fiches et des marqueurs inline ;
 - preview CSS fidèle et résolution des défauts EPUB préexistants ;
-- migration portable de tout l’audit d’exécution (l’archive projet conserve textes, versions et mémoire, mais pas les jobs actifs, clés ou journaux complets de requêtes).
+- migration portable des journaux complets de requêtes (l’archive projet conserve le travail, les travaux et les chiffres des requêtes, mais pas les prompts et réponses, les clés ni les membres).
 
 **La conformité EPUB, les mocks et les scores automatiques ne constituent pas une preuve de qualité littéraire.** Voir [le protocole d’évaluation](quality-evaluation.md).

@@ -118,6 +118,12 @@ test("formatting codes reach the API unchanged and drafts are never lost silentl
   await expect(box).toHaveValue(translation);
   // The source shows formatting, not codes; the editor keeps the exact codes.
   await expect(page.getByText("hundred and twelve", { exact: true })).toHaveClass(/inline-format/);
+  // Codes are painted as marks without brackets; hovering one names it.
+  const opening = box.locator("xpath=preceding-sibling::div").locator("mark.marker-open");
+  await expect(opening).toHaveCSS("color", "rgba(0, 0, 0, 0)");
+  const mark = await opening.boundingBox();
+  await page.mouse.move(mark!.x + mark!.width / 2, mark!.y + mark!.height / 2);
+  await expect(box).toHaveAttribute("title", "Start of book formatting (italic, bold, link…)");
   await box.fill("Elle monta les ⟦t0⟧cent douze⟦/t0⟧ marches.⟦x1⟧");
 
   // Leaving the editor with a draft asks first; "Stay" keeps the text.

@@ -64,7 +64,12 @@ once the answer is known to be empty.
 
 Source passages render `⟦tN⟧…⟦/tN⟧` as highlighted formatting and `⟦xN⟧` as a small
 marker. The translation field stays a plain textarea so the exact text, codes included,
-is what the API receives; a mirror layer behind it paints the codes as discreet chips.
+is what the API receives; a mirror layer behind it paints each code as a pale tint the
+width of its characters, without brackets: a thin pillar and `‹` open a formatting, `›`
+closes it, a small square stands for an element kept as is (image, note, break). The two
+codes of a pair share one of four hues (`--code-0` … `--code-3`), so nested formatting
+stays readable; hovering a code names it. The source units only record their block
+element, not the inline ones, so the hue follows the pair rather than the element type.
 Both layers share every font metric; in forced-colours mode the mirror is hidden and the
 textarea shows its own text.
 

@@ -63,8 +63,9 @@ async def test_old_catalog_ack_does_not_lose_new_snapshot(seeded, monkeypatch):
             current.payload = {**current.payload, "fingerprint": "newer"}
             current.status = "pending"
             db.commit()
+        return "viking://resources/written", sent.payload
 
-    monkeypatch.setattr(OpenVikingContextProvider, "ingest", changed_during_write)
+    monkeypatch.setattr(OpenVikingContextProvider, "publish", changed_during_write)
     await sync_outbox(project.id)
     with SessionLocal() as db:
         assert db.get(Outbox, entry.id).status == "pending"

@@ -7,14 +7,18 @@ they can read, and nothing else of it.
 import time
 from typing import Literal
 
+import httpx
 from fastapi import APIRouter, HTTPException
 from pydantic import Field
 from sqlalchemy import func, or_, select
 
 from app.api.common import row
 from app.api.projects import project_views
+from app.engines.context.config import memory_config
 from app.engines.ingestion.naming import display_series, missing_numbers, normalize_series
 from app.engines.ingestion.store import find_series
+from app.engines.memory.catalog import queue_catalog
+from app.engines.memory.events import ensure_events
 from app.engines.series.audit import audit
 from app.engines.series.bible import canonical, refresh_series, series_volumes
 from app.jobs.queue import HELD
@@ -37,6 +41,7 @@ from app.models import (
     User,
 )
 from app.progress import book_facts, books_progress
+from app.providers.openviking import OpenVikingClient, series_uri
 from app.schemas import StrictModel
 from app.security import DB, CurrentUser
 
@@ -695,3 +700,75 @@ def series_audit(series_id: str, user: CurrentUser, db: DB):
             .limit(200)
         )
     ]
+
+
+@router.get("/{series_id}/memory")
+def series_memory(series_id: str, user: CurrentUser, db: DB):
+    """External memory of the series: its place and what remains to be written, volume by volume."""
+    series = series_access(db, series_id, user)
+    volumes = [
+        p for p in series_volumes(db, series.id) if p.owner_id == user.id or db.get(Membership, (p.id, user.id))
+    ]
+    counts: dict[str, dict[str, int]] = {}
+    for pid, status, count in db.execute(
+        select(Outbox.project_id, Outbox.status, func.count())
+        .where(Outbox.project_id.in_([p.id for p in volumes]))
+        .group_by(Outbox.project_id, Outbox.status)
+    ):
+        counts.setdefault(pid, {})[status] = count
+    config = memory_config()
+    rows = [
+        {
+            "project_id": p.id,
+            "title": p.title,
+            "volume_number": p.volume_number,
+            "context_backend": p.context_backend,
+            "sent": counts.get(p.id, {}).get("sent", 0),
+            "pending": counts.get(p.id, {}).get("pending", 0),
+            "failed": counts.get(p.id, {}).get("error", 0),
+        }
+        for p in volumes
+    ]
+    return {
+        "backends": sorted({p.context_backend for p in volumes}),
+        "configured": bool(config["base_url"]),
+        "root_uri": series_uri(series.owner_id, series.id) if config["base_url"] or config["root_uri"] else "",
+        "sent": sum(r["sent"] for r in rows),
+        "pending": sum(r["pending"] for r in rows),
+        "failed": sum(r["failed"] for r in rows),
+        "volumes": rows,
+    }
+
+
+@router.post("/{series_id}/memory/{action}")
+async def series_memory_action(
+    series_id: str, action: Literal["resync", "rebuild", "reindex"], user: CurrentUser, db: DB
+):
+    """resync retries what is waiting now; rebuild rewrites every event of the series from SQL;
+    reindex asks OpenViking to recompute its index of the series space. Nothing is ever deleted remotely."""
+    series = series_access(db, series_id, user, owner=True)
+    volumes = [p for p in series_volumes(db, series.id) if p.context_backend != "internal"]
+    if action == "reindex":
+        if not memory_config()["base_url"]:
+            raise HTTPException(409, "OpenViking n’est pas configuré sur ce serveur.")
+        try:
+            async with OpenVikingClient(memory_config()) as client:
+                result = await client.reindex(series_uri(series.owner_id, series.id))
+        except httpx.HTTPStatusError as exc:
+            raise HTTPException(
+                502,
+                f"OpenViking refuse la réindexation (HTTP {exc.response.status_code}). "
+                "Vérifiez les droits de la clé sur cette racine. La reconstruction par réécriture "
+                "depuis SQL reste disponible.",
+            ) from None
+        return {"accepted": True, "queued": 0, "result": result}
+    queued = 0
+    for project in volumes:
+        if action == "rebuild":
+            queued += ensure_events(db, project, force=True)
+            queue_catalog(db, project, force=True)
+        for event in db.scalars(select(Outbox).where(Outbox.project_id == project.id, Outbox.status != "sent")):
+            event.next_attempt, event.error = 0, ""
+            queued += action == "resync"
+    db.commit()
+    return {"accepted": True, "queued": queued, "volumes": len(volumes)}

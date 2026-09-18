@@ -8,9 +8,17 @@ from sqlalchemy import select
 
 from app.db import SessionLocal
 from app.engines.context.config import memory_config
+from app.engines.context.series import prior_volumes
+from app.engines.memory.events import (
+    admitted,
+    canonical_event,
+    canonical_events,
+    latest_human_analyses,
+    still_valid,
+)
 from app.jobs.concurrency import blocking
-from app.models import Memory, Outbox, Project, Segment
-from app.providers.openviking import OpenVikingClient, event_uri, project_uri
+from app.models import Chapter, Memory, Outbox, Project, Segment
+from app.providers.openviking import MEMORY_KINDS, OpenVikingClient, event_uri, project_uri, search_root
 
 
 @dataclass
@@ -127,6 +135,29 @@ class InternalContextProvider(ContextProvider):
                             2 if memory.validated else 6,
                         )
                     )
+            # Earlier volumes of the series are entirely in the past of this passage.
+            for volume in prior_volumes(db, project):
+                earlier = list(db.scalars(select(Memory).where(Memory.project_id == volume.id)))
+                latest = latest_human_analyses(earlier)
+                for memory in earlier:
+                    if not still_valid(db, memory, latest):
+                        continue
+                    content = memory.content
+                    if memory.kind == "analysis":
+                        content = {k: v for k, v in content.items() if k not in {"characters", "terms"}}
+                    text = json.dumps({"volume": volume.volume_number, **content}, ensure_ascii=False)
+                    score = overlap(words(text), wanted)
+                    if score > 0:
+                        items.append(
+                            ContextItem(
+                                "HUMAN_DECISIONS" if memory.validated else "RETRIEVED_HISTORY",
+                                text,
+                                memory.id,
+                                score,
+                                -1,
+                                2 if memory.validated else 6,
+                            )
+                        )
         return sorted(items, key=lambda x: (-x.relevance, -x.position))[: 24 if deep else 10]
 
     async def ingest(self, event: Outbox) -> None:
@@ -138,10 +169,25 @@ class OpenVikingContextProvider(ContextProvider):
         self.trace: dict = {}
 
     async def ingest(self, event: Outbox) -> None:
+        await self.publish(event)
+
+    async def publish(self, event: Outbox) -> tuple[str | None, dict | None]:
+        """Writes one outbox entry; returns where and what, or (None, None) if nothing is left to write.
+
+        A memory event is rebuilt from SQL at the moment it is written, so what OpenViking holds is
+        always the canonical document of that memory at its current place.
+        """
+        document = event.payload
         with SessionLocal() as db:
             project = db.get(Project, event.project_id)
             if not project:
-                return
+                return None, None
+            if event.payload.get("type") in MEMORY_KINDS:
+                memory = db.get(Memory, event.event_key)
+                if memory is None:
+                    return None, None
+                chapter = db.get(Chapter, db.get(Segment, memory.segment_id).chapter_id) if memory.segment_id else None
+                document = canonical_event(memory, project, chapter)
         async with OpenVikingClient(memory_config()) as client:
             if event.payload.get("type") == "project_catalog":
                 from app.engines.memory.catalog import catalog_uri
@@ -150,14 +196,16 @@ class OpenVikingContextProvider(ContextProvider):
                     await client.write(
                         catalog_uri(project, filename), content, processing_mode="vectors_only"
                     )
-                return
-            await client.write(event_uri(project, event), json.dumps(event.payload, ensure_ascii=False))
+                return project_uri(project), document
+            uri = event_uri(project, event)
+            await client.write(uri, json.dumps(document, ensure_ascii=False))
+            return uri, document
 
     async def retrieve(
         self, project: Project, query: str, position: int, deep: bool = False
     ) -> list[ContextItem]:
         config = memory_config()
-        root = project_uri(project)
+        root = search_root(project)
         self.trace = {
             "root_uri": root,
             "query": query,
@@ -165,28 +213,14 @@ class OpenVikingContextProvider(ContextProvider):
             "hits": [],
             "rejected": [],
         }
-        valid_events = await blocking(self.valid_events, project.id)
-        # Server-scoped search plus an exact SQL allowlist. Directory summaries and future events
-        # cannot bypass this boundary, even when a remote index returns an unexpected URI.
-        allowed = {
-            event_uri(project, e): e
-            for e in valid_events
-            if isinstance(e.payload.get("position"), int)
-            and (
-                e.payload["position"] < position
-                or (
-                    e.payload["position"] == position
-                    and e.payload.get("validated")
-                    and e.payload.get("type") == "analysis"
-                )
-            )
-        }
+        # Server-scoped search plus an exact SQL allowlist: earlier passages of this volume and earlier
+        # volumes of its series. Directory summaries, later passages or volumes and documents that differ
+        # from the canonical SQL event are never injected, whatever the remote index returns.
+        allowed = await blocking(self.allowed, project.id, position)
         if not allowed or not config["enable_search"]:
             return []
         async with OpenVikingClient(config) as client:
-            hits = await client.find(
-                query, root + "/events", deep=deep and config["enable_deep_search"], limit=24 if deep else 12
-            )
+            hits = await client.find(query, root, deep=deep and config["enable_deep_search"], limit=24 if deep else 12)
             results: list[ContextItem] = []
             remaining = config["retrieval_budget"]
             for hit in hits:
@@ -197,9 +231,7 @@ class OpenVikingContextProvider(ContextProvider):
                         {
                             "uri": uri,
                             "score": score,
-                            "reason": "outside_narrative_allowlist"
-                            if uri not in allowed
-                            else "low_relevance",
+                            "reason": "outside_narrative_allowlist" if uri not in allowed else "low_relevance",
                         }
                     )
                     continue
@@ -210,14 +242,17 @@ class OpenVikingContextProvider(ContextProvider):
                 except (ValueError, TypeError):
                     self.trace["rejected"].append({"uri": uri, "reason": "invalid_structured_memory"})
                     continue
-                if payload != allowed[uri].payload:
+                expected, same_volume = allowed[uri]
+                if payload != expected:
                     self.trace["rejected"].append({"uri": uri, "reason": "differs_from_canonical_event"})
                     continue
-                selected_content = payload.get("content", payload)
+                selected_content = payload.get("content", {})
                 if payload.get("type") == "analysis":
                     selected_content = {
                         k: v for k, v in selected_content.items() if k not in {"characters", "terms"}
                     }
+                if not same_volume:
+                    selected_content = {"volume": payload.get("volume_number"), **selected_content}
                 content = json.dumps(selected_content, ensure_ascii=False)
                 size = len(content.encode()) + 16
                 if size > remaining:
@@ -231,6 +266,7 @@ class OpenVikingContextProvider(ContextProvider):
                         "abstract": hit.get("abstract", ""),
                         "level": "L2",
                         "position": payload["position"],
+                        "volume": payload.get("volume_number"),
                     }
                 )
                 results.append(
@@ -239,44 +275,25 @@ class OpenVikingContextProvider(ContextProvider):
                         content,
                         uri,
                         score,
-                        payload["position"],
+                        payload["position"] if same_volume else -1,
                         5,
                     )
                 )
             return results
 
     @staticmethod
-    def valid_events(project_id: str) -> list[Outbox]:
+    def allowed(project_id: str, position: int) -> dict[str, tuple[dict, bool]]:
+        """URI -> (canonical document, same volume) for every event this passage may read."""
         with SessionLocal() as db:
-            events = list(
-                db.scalars(select(Outbox).where(Outbox.project_id == project_id, Outbox.status == "sent"))
-            )
-            valid_events = []
-            for event in events:
-                if event.payload.get("validated") and event.payload.get("type") == "analysis":
-                    latest = db.scalar(
-                        select(Memory.id)
-                        .where(
-                            Memory.segment_id == event.payload.get("segment_id"),
-                            Memory.kind == "analysis",
-                            Memory.validated.is_(True),
-                        )
-                        .order_by(Memory.created_at.desc())
-                        .limit(1)
-                    )
-                    if latest != event.event_key:
-                        continue
-                elif event.payload.get("validated"):
-                    sid = event.payload.get("segment_id")
-                    segment = db.get(Segment, sid) if sid else None
-                    if (
-                        not segment
-                        or not segment.validated
-                        or event.payload.get("content", {}).get("revision") != segment.revision
-                    ):
-                        continue
-                valid_events.append(event)
-        return valid_events
+            project = db.get(Project, project_id)
+            entries = admitted(db, project, position)
+            memories = [memory for memory, _ in entries.values()]
+            projects = {volume.id: volume for _, volume in entries.values()}
+            documents = canonical_events(db, memories, projects)
+            return {
+                uri: (documents[memory.id], volume.id == project.id)
+                for uri, (memory, volume) in entries.items()
+            }
 
 
 class HybridContextProvider(ContextProvider):

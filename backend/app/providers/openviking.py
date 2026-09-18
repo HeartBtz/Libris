@@ -17,12 +17,46 @@ def validate_root(uri: str) -> str:
     return "viking://resources/" + path
 
 
+# 1: <root>/<owner>/<project>; 2: series and standalone spaces (Libris 0.6).
+LAYOUT_VERSION = 2
+MEMORY_KINDS = ("analysis", "narrative", "human_decision")
+
+
+def owner_uri(owner_id: str) -> str:
+    return f"{validate_root(memory_config()['root_uri'])}/{owner_id}"
+
+
+def series_uri(owner_id: str, series_id: str) -> str:
+    return f"{owner_uri(owner_id)}/series/{series_id}"
+
+
 def project_uri(project: Project) -> str:
-    return f"{validate_root(memory_config()['root_uri'])}/{project.owner_id}/{project.id}"
+    """A volume of a series lives in the series space; a standalone volume in its own."""
+    # All dynamic identifiers originate from canonical SQL UUIDs, never book-provided paths.
+    if project.series_id:
+        return f"{series_uri(project.owner_id, project.series_id)}/volumes/{project.id}"
+    return f"{owner_uri(project.owner_id)}/standalone/{project.id}"
+
+
+def search_root(project: Project) -> str:
+    """Where a passage's search looks: the whole series (earlier volumes included), or the volume.
+
+    The directory only bounds the server-side search: every hit is still checked against the exact
+    list of events SQL admits for this passage.
+    """
+    if project.series_id:
+        return f"{series_uri(project.owner_id, project.series_id)}/volumes"
+    return f"{project_uri(project)}/events"
+
+
+def memory_event_uri(project: Project, memory_id: str) -> str:
+    return f"{project_uri(project)}/events/{memory_id}.json"
 
 
 def event_uri(project: Project, event: Outbox) -> str:
-    # All dynamic identifiers originate from canonical SQL UUIDs, never book-provided paths.
+    # A memory event is named after its SQL memory, so it can be rebuilt from SQL alone.
+    if event.payload.get("type") in MEMORY_KINDS:
+        return memory_event_uri(project, event.event_key)
     return f"{project_uri(project)}/events/{event.id}.json"
 
 

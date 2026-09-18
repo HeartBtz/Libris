@@ -1,10 +1,8 @@
-import time
-
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.engines.memory.identities import upsert_profiles
-from app.models import Glossary, Memory, Outbox, Project, Segment
+from app.models import Chapter, Glossary, Memory, Outbox, Project, Segment
 
 
 def propose_terms(db: Session, project: Project, terms: list[dict]) -> None:
@@ -47,19 +45,14 @@ def remember(
     )
     db.add(memory)
     db.flush()
+    from app.engines.memory.events import canonical_event
+
     db.add(
         Outbox(
             project_id=project.id,
             event_key=memory.id,
             session_name=f"chapter-{segment.chapter_id}",
-            payload={
-                "type": kind,
-                "position": segment.position,
-                "segment_id": segment.id,
-                "validated": validated,
-                "content": content,
-                "timestamp": time.time(),
-            },
+            payload=canonical_event(memory, project, db.get(Chapter, segment.chapter_id)),
         )
     )
 

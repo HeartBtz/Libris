@@ -336,6 +336,13 @@ def shift_positions(db: Session, project_id: str, start: int, delta: int) -> Non
         through = (chapter.summary or {}).get("through_position")
         if isinstance(through, int) and through >= start:
             chapter.summary = {**chapter.summary, "through_position": through + delta}
+    # Narrative states record the position they were computed through.
+    for model, field_name in ((Segment, "narrative"), (Memory, "content")):
+        for item in db.scalars(select(model).where(model.project_id == project_id)):
+            value = getattr(item, field_name) or {}
+            through = value.get("through_position") if isinstance(value, dict) else None
+            if isinstance(through, int) and through >= start:
+                setattr(item, field_name, {**value, "through_position": through + delta})
     for event in db.scalars(select(Outbox).where(Outbox.project_id == project_id)):
         position = event.payload.get("position")
         if isinstance(position, int) and position >= start:

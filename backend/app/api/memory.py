@@ -10,6 +10,7 @@ from app.api.common import row
 from app.config import settings
 from app.engines.context.config import memory_config
 from app.engines.memory.catalog import CATALOG_NAME, catalog_uri, queue_catalog
+from app.engines.memory.events import ensure_events
 from app.engines.memory.glossary_files import export_csv, export_json, export_tbx, read_glossary
 from app.engines.memory.identities import canonical_bible, identities, names, normalized, upsert_profiles
 from app.engines.memory.store import invalidate_after_decision
@@ -452,13 +453,17 @@ async def reindex_memory(pid: str, user: CurrentUser, db: DB):
 
 @router.post("/projects/{pid}/memory/rebuild")
 def rebuild_memory(pid: str, user: CurrentUser, db: DB):
-    access(db, pid, user, owner=True)
-    entries = list(db.scalars(select(Outbox).where(Outbox.project_id == pid)))
-    for event in entries:
+    project = access(db, pid, user, owner=True)
+    # Every memory is written again from SQL, including those whose outbox rows the retention removed.
+    queued = ensure_events(db, project, force=True)
+    others = list(
+        db.scalars(select(Outbox).where(Outbox.project_id == pid, Outbox.session_name.in_(("decisions", "catalog"))))
+    )
+    for event in others:
         event.status, event.next_attempt, event.error = "pending", 0, ""
     db.commit()
     return {
-        "queued": len(entries),
+        "queued": queued + len(others),
         "message": "Réécriture idempotente depuis SQL ; l’indexation est asynchrone.",
     }
 

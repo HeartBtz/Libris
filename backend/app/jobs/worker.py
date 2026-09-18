@@ -13,6 +13,7 @@ from app.diagnostics import safe_trace
 from app.engines.context.config import memory_config
 from app.engines.context.providers import OpenVikingContextProvider
 from app.engines.memory.catalog import schedule_catalogs
+from app.engines.memory.events import refresh_layouts
 from app.engines.translation.analysis import analyze
 from app.engines.translation.pipeline import consistency, translate
 from app.jobs.concurrency import blocking, renewal
@@ -43,16 +44,24 @@ async def sync_outbox(project_id: str | None = None) -> None:
             query = query.where(Outbox.project_id == project_id)
         events = list(db.scalars(query.limit(20)))
     for event in events:
+        uri, document = None, None
         try:
-            await provider.ingest(event)
+            uri, document = await provider.publish(event)
             status, error = "sent", ""
         except Exception as exc:
             status, error = "error", f"OpenViking : {type(exc).__name__}"
         with SessionLocal() as db:
             current = db.get(Outbox, event.id)
+            # A row changed meanwhile (a position moved, a new catalog) is written again on the next turn.
             if current and current.payload == event.payload:
+                if status == "sent" and uri is None:
+                    db.delete(current)  # its memory no longer exists: nothing to mirror
+                    db.commit()
+                    continue
                 current.status, current.error = status, error
                 current.attempts += 1
+                if status == "sent":
+                    current.uri, current.payload = uri, document
                 current.next_attempt = (
                     0 if status == "sent" else time.time() + min(3600, 2 ** min(current.attempts, 11))
                 )
@@ -310,6 +319,8 @@ async def memory_pump(stopped: asyncio.Event) -> None:
         if catalog_due(last_catalog, time.monotonic()):
             with contextlib.suppress(SQLAlchemyError):
                 schedule_catalogs()
+                if memory_config()["base_url"]:
+                    refresh_layouts()
             last_catalog = time.monotonic()
         work = asyncio.create_task(sync_outbox())
         shutdown = asyncio.create_task(stopped.wait())

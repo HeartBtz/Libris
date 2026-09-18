@@ -250,6 +250,7 @@ MESSAGES = {
     "Indiquez le numéro du nouveau volume.": "Enter the number of the new volume.",
     "Des chapitres TXT appartiennent obligatoirement à une série : choisissez-la ou créez-la.": "TXT chapters must belong to a series: choose it or create it.",
     "Aucun chapitre à importer.": "No chapter to import.",
+    "OpenViking n’est pas configuré sur ce serveur.": "OpenViking is not configured on this server.",
 }  # fmt: skip
 
 TEMPLATES = {

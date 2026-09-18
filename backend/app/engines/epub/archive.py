@@ -51,6 +51,11 @@ def xml(data: bytes) -> etree._Element:
         data,
         etree.XMLParser(resolve_entities=False, no_network=True, remove_blank_text=False, huge_tree=False),
     )
+    # The byte search above cannot see a declaration written in UTF-16, and entities used inside an
+    # attribute value are expanded without leaving a node behind: ask the parsed DTD itself.
+    subset = root.getroottree().docinfo.internalDTD
+    if subset is not None and any(True for _ in subset.iterentities()):
+        raise ValueError("Les déclarations d’entités XML ne sont pas autorisées.")
     if any(isinstance(node, etree._Entity) for node in root.iter()):
         raise ValueError("Entité XML non résolue.")
     return root

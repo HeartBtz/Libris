@@ -30,8 +30,11 @@ class LLMError(Exception):
     pass
 
 
+MAX_INVALID_ATTEMPTS = 3  # full-price attempts on a response that fails validation
+
+
 class InvalidResponseExhausted(LLMError):
-    """All five attempts produced unusable output, rather than a service outage."""
+    """Every allowed attempt produced unusable output, rather than a service outage."""
 
 
 
@@ -213,6 +216,8 @@ class OpenAIProvider:
                 return parsed
         last_error = ""
         marker_repair_requested = False
+        base_messages = actual_messages
+        invalid_attempts = 0
         for attempt in range(1, 6):
             current_mode = modes[0]
             payload = wire_payload(
@@ -237,6 +242,7 @@ class OpenAIProvider:
             authentication_required = False
             content_refused = False
             marker_error = False
+            invalid_detail = ""
             reasoning_failure = False
             truncated = False
             retry_after = 0
@@ -341,6 +347,7 @@ class OpenAIProvider:
             except ValueError as exc:
                 unavailable = False
                 marker_error = "marqueurs de mise en forme" in str(exc).casefold()
+                invalid_detail = "" if marker_error else (str(exc)[:600] or type(exc).__name__)
                 error = (
                     "La réponse a modifié les marqueurs EPUB immuables. "
                     "Libris conserve la traduction existante."
@@ -430,7 +437,7 @@ class OpenAIProvider:
                 if not marker_repair_requested:
                     marker_repair_requested = True
                     actual_messages = [
-                        *actual_messages,
+                        *base_messages,
                         {
                             "role": "system",
                             "content": (
@@ -442,6 +449,25 @@ class OpenAIProvider:
                     ]
                     continue
                 break
+            if invalid_detail:
+                # Replaying the same request buys the same mistake: say what was wrong, and stop early —
+                # callers fall back to smaller batches, which is cheaper than more full-price attempts.
+                invalid_attempts += 1
+                if invalid_attempts >= MAX_INVALID_ATTEMPTS:
+                    break
+                actual_messages = [
+                    *base_messages,
+                    {
+                        "role": "system",
+                        "content": (
+                            "Your previous response was rejected by validation and discarded. "
+                            f"Reason: {invalid_detail} "
+                            "Answer again with the complete JSON, fixing exactly this problem: same unit "
+                            "IDs in the same order, one output unit per input unit, no omission or merge."
+                        ),
+                    },
+                ]
+                continue
             if authentication_required:
                 raise ProviderAuthenticationRequired(error)
             if unavailable:
@@ -451,7 +477,11 @@ class OpenAIProvider:
             await asyncio.sleep(min(2 ** (attempt - 1), 16) + random.random())
         error_type = (
             InvalidResponseExhausted
-            if attempt == 5 or marker_error or reasoning_failure or truncated
+            if attempt == 5
+            or marker_error
+            or reasoning_failure
+            or truncated
+            or invalid_attempts >= MAX_INVALID_ATTEMPTS
             else LLMError
         )
         raise error_type(

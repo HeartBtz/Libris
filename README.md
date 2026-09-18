@@ -31,7 +31,7 @@ replacing side rails and tables with native selectors and readable records on ph
 - **Human decisions:** compare source and translation, accept or reject AI suggestions, edit and keep version history.
 - **Final AI review:** automatically revisit flagged translations, attempt one verified correction and leave only unresolved items for review. Optional SearXNG terminology lookup; see [final review](docs/final-review.md).
 - **Refusal recovery:** after two translation refusals, continue the book and retry refused passages later with a chosen provider.
-- **Failure isolation:** after five invalid responses, try checkpointed small-batch repair before skipping the passage; stop after ten consecutive failed passages. See [recovery](docs/recovery.md).
+- **Failure isolation:** an invalid response is asked again with the reason for its rejection; after three of them, try checkpointed small-batch repair before skipping the passage; stop after ten consecutive failed passages. See [recovery](docs/recovery.md).
 - **Completion report:** see missing passages and remaining alerts, select failed passages and retry them with a chosen provider from **Bilan & récupération**.
 - **Series library:** assign and number a selection atomically, inspect reading-order gaps, and reuse accepted terminology and human decisions from earlier volumes without sharing narrative spoilers.
 - **Interface locale:** French and English catalogs, persistent language choice, and locale-aware date, number, sorting, and status formatting. New interface text is added through `frontend/src/i18n.tsx`.

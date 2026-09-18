@@ -1,3 +1,5 @@
+import json
+
 import pytest
 import respx
 from sqlalchemy import select
@@ -49,7 +51,7 @@ async def test_stop_after_ten_failed_passages_and_reset_on_success(seeded, monke
 
 
 @respx.mock
-async def test_five_invalid_responses_skip_one_passage(seeded, monkeypatch):
+async def test_repeated_invalid_responses_skip_one_passage(seeded, monkeypatch):
     import asyncio
 
     original_sleep = asyncio.sleep
@@ -72,4 +74,10 @@ async def test_five_invalid_responses_skip_one_passage(seeded, monkeypatch):
         assert db.get(Segment, sid).status == "error"
         assert db.get(Job, jid).status == "completed"
         assert db.get(Job, jid).checkpoint["consecutive_failures"] == 1
-    assert route.call_count == 5
+    # Validation failures stop after three full-price attempts, each one told what was wrong.
+    assert route.call_count == 3
+    bodies = [json.loads(call.request.content) for call in route.calls]
+    assert not any("rejected by validation" in m["content"] for m in bodies[0]["messages"])
+    for body in bodies[1:]:
+        feedback = [m["content"] for m in body["messages"] if "rejected by validation" in m["content"]]
+        assert len(feedback) == 1 and "Paragraphes manquants" in feedback[0]

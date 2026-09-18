@@ -1,4 +1,5 @@
 import re
+import unicodedata
 
 from app.engines.context.builder import mentioned
 from app.engines.epub.text import plain, validate_codes
@@ -16,6 +17,52 @@ def validate_translation(units: list[dict], result: TranslationResult) -> None:
         ):
             raise ValueError("Bloc de raisonnement détecté dans la traduction.")
         validate_codes(source["text"], translation.text)
+
+
+ARTICLES = {
+    "le", "la", "les", "un", "une", "des", "du", "de", "au", "aux",
+    "the", "a", "an", "el", "los", "las", "il", "lo", "gli", "der", "die", "das",
+}  # fmt: skip
+CJK = re.compile(r"[㐀-鿿぀-ヿ]")
+APOSTROPHES = str.maketrans({"’": "'", "ʼ": "'", "‘": "'", "`": "'", "´": "'"})
+
+
+def fold(text: str) -> str:
+    # Typography is not meaning: curly apostrophes, no-break spaces, case and accents (capitals are
+    # often left unaccented) must not turn a respected locked term into a violation.
+    text = unicodedata.normalize("NFKC", text).translate(APOSTROPHES)
+    text = "".join(c for c in unicodedata.normalize("NFD", text) if not unicodedata.combining(c))
+    return re.sub(r"\s+", " ", text).casefold().strip()
+
+
+def source_mentions(term: str, source: str) -> bool:
+    # A capitalised term is a name: "Will" must not be triggered by the verb "will".
+    if term != term.lower() and not CJK.search(term):
+        return bool(re.search(r"(?<!\w)" + re.escape(term) + r"(?!\w)", source))
+    return mentioned(term, source)
+
+
+def locked_term_respected(translation: str, target: str) -> bool:
+    expected, text = fold(translation), fold(target)
+    if not expected:
+        return True
+    if CJK.search(expected):
+        return expected in text
+    words = expected.split(" ")
+    # The leading article follows the sentence: "le Conseil" becomes "du Conseil", "l'Épée" "d'Épée".
+    if len(words) > 1 and words[0] in ARTICLES:
+        words = words[1:]
+    elif re.match(r"[ld]'.", words[0]):
+        words[0] = words[0][2:]
+    pattern = r"\s+".join(re.escape(word) + r"(?:e?s|x)?" for word in words)
+    return bool(re.search(r"(?<!\w)" + pattern + r"(?!\w)", text))
+
+
+def locked_term_error(findings: list[dict]) -> str | None:
+    missing = [i["message"].split(" : ", 1)[-1] for i in findings if i["code"] == "locked_term"]
+    if not missing:
+        return None
+    return "Glossaire verrouillé non respecté. " + " ".join(dict.fromkeys(missing))
 
 
 def checks(
@@ -36,7 +83,11 @@ def checks(
         if re.search(r"(.{20,}?)\1\1", target) and not re.search(r"(.{20,}?)\1\1", source):
             add("repetition", "Répétition anormale probable.")
         for term in glossary:
-            if term.locked and mentioned(term.source, source) and not mentioned(term.translation, target):
+            if (
+                term.locked
+                and source_mentions(term.source, source)
+                and not locked_term_respected(term.translation, target)
+            ):
                 add(
                     "locked_term",
                     f"Traduction verrouillée absente : {term.source} → {term.translation}.",

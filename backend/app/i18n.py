@@ -102,6 +102,9 @@ MESSAGES = {
     "Glossaire trop volumineux.": "Glossary too large.",
     "Glossaire invalide ou trop volumineux.": "Invalid or too large glossary.",
     "Glossaire JSON invalide : une liste de termes [{...}, ...] est attendue.": "Invalid JSON glossary: a list of terms [{...}, ...] is expected.",
+    "Glossaire CSV invalide : colonnes source et traduction attendues.": "Invalid CSV glossary: source and translation columns are expected.",
+    "Glossaire TBX invalide : aucun terme source et cible exploitable.": "Invalid TBX glossary: no usable source and target term.",
+    "Glossaire illisible : utilisez un fichier JSON, CSV ou TBX encodé en UTF-8.": "Unreadable glossary: use a JSON, CSV or TBX file encoded in UTF-8.",
     "Account et user requis en mode trusted.": "Account and user are required in trusted mode.",
     "Document inconnu.": "Unknown document.",
     "Prompt inconnu.": "Unknown prompt.",
@@ -212,6 +215,8 @@ TEMPLATES = {
     "Un service externe requis par cette action est injoignable ({error}). Vérifiez son adresse et qu’il est démarré, puis réessayez.": "An external service required by this action cannot be reached ({error}). Check its address and that it is running, then try again.",
     "Archive EPUB ou XML invalide ({error}).": "Invalid EPUB archive or XML ({error}).",
     "L’opération a échoué côté serveur. Référence de diagnostic : {reference}. Les traductions déjà enregistrées sont conservées.": "The operation failed on the server. Diagnostic reference: {reference}. Translations already saved are kept.",
+    "Glossaire CSV invalide à la ligne {line} : {field} = « {value} »": "Invalid CSV glossary at line {line}: {field} = “{value}”",
+    "Terme de glossaire invalide n° {number} : {problem}": "Invalid glossary term no. {number}: {problem}",
 }  # fmt: skip
 
 

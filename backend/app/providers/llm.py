@@ -392,6 +392,8 @@ class OpenAIProvider:
                 usage = raw.get("usage") or {}
                 log.prompt_tokens = usage.get("prompt_tokens", 0)
                 log.completion_tokens = usage.get("completion_tokens", 0)
+                # Frozen with the call: a later price change must not rewrite what past books cost.
+                log.input_cost, log.output_cost = provider.input_cost, provider.output_cost
                 if not error:
                     log.parsed = parsed.model_dump()
                     if log.job_id:

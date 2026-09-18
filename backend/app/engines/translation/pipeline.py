@@ -521,9 +521,11 @@ async def after_translation(
     from app.config import settings
     from app.engines.translation.final_review import resolve_validations
 
+    # An automation request can leave the final review out (`final_review: false` in its job options).
     if (
         settings().final_review_enabled
         and continue_pipeline
+        and job.options.get("final_review", True)
     ):
         await resolve_validations(job, owner)
 

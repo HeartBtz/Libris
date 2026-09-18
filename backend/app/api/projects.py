@@ -486,6 +486,13 @@ def control(
     job = db.scalar(select(Job).where(Job.id == job_id).with_for_update())
     if not job or job.project_id != project_id:
         raise HTTPException(404, "Travail introuvable.")
+    control_job(db, project, job, action)
+    db.commit()
+    return row(job)
+
+
+def control_job(db, project: Project, job: Job, action: str) -> Job:
+    """Pause, resume, retry or cancel a job the caller may write; the caller commits."""
     if action in {"resume", "retry"} and job.status not in {
         "paused",
         "failed",
@@ -495,7 +502,7 @@ def control(
     }:
         raise HTTPException(409, "Seul un travail en pause, en attente, bloqué ou échoué peut être repris.")
     if action in {"resume", "retry"} and db.scalar(
-        select(Job.id).where(Job.project_id == project_id, Job.id != job_id, Job.status.in_(HELD))
+        select(Job.id).where(Job.project_id == project.id, Job.id != job.id, Job.status.in_(HELD))
     ):
         raise HTTPException(409, "Un autre travail est déjà actif pour ce livre.")
     if action in {"resume", "retry"} and project.archived_at is not None:
@@ -518,9 +525,8 @@ def control(
     )
     project.status = job.status
     project.updated_at = time.time()
-    emit(db, project_id, job_id=job.id, status=job.status)
-    db.commit()
-    return row(job)
+    emit(db, project.id, job_id=job.id, status=job.status)
+    return job
 
 
 class ShareInput(BaseModel):

@@ -3,14 +3,18 @@ import { readFileSync } from "node:fs";
 import { base, password, username } from "./integration-config";
 
 // Local credentials are consumed only by the test process; no auth state or secrets are exported.
-const state = process.env.LIBRIS_E2E_PROJECT_ID
-  ? { project_id: process.env.LIBRIS_E2E_PROJECT_ID }
-  : (JSON.parse(
-      readFileSync(
-        process.env.LIBRIS_E2E_STATE || "/tmp/libris/epub-smoke.json",
-        "utf8",
-      ),
-    ) as { project_id: string });
+// Read when a test runs, not when the file loads: without a backend these tests are filtered out.
+function projectId() {
+  if (process.env.LIBRIS_E2E_PROJECT_ID)
+    return process.env.LIBRIS_E2E_PROJECT_ID;
+  const state = JSON.parse(
+    readFileSync(
+      process.env.LIBRIS_E2E_STATE || "/tmp/libris/epub-smoke.json",
+      "utf8",
+    ),
+  ) as { project_id: string };
+  return state.project_id;
+}
 
 test.beforeEach(async ({ page }) => {
   await page.goto(base);
@@ -22,12 +26,12 @@ test.beforeEach(async ({ page }) => {
   ).toBeVisible();
 });
 
-test("workspace, manual correction, history, inspector and preview", async ({
+test("workspace, manual correction, history, inspector and preview @integration", async ({
   page,
 }) => {
   const errors: string[] = [];
   page.on("pageerror", (e) => errors.push(e.message));
-  await page.goto(`${base}/#project/${state.project_id}`);
+  await page.goto(`${base}/#project/${projectId()}`);
   await expect(page.getByRole("heading", { level: 1 })).toContainText(
     "Silver Tower",
   );
@@ -91,7 +95,9 @@ test("workspace, manual correction, history, inspector and preview", async ({
   expect(errors).toEqual([]);
 });
 
-test("OpenViking settings and responsive layout", async ({ page }) => {
+test("OpenViking settings and responsive layout @integration", async ({
+  page,
+}) => {
   await page.getByRole("link", { name: "Paramètres", exact: true }).click();
   await page
     .getByRole("button", { name: "Mémoire · OpenViking", exact: true })
@@ -102,7 +108,7 @@ test("OpenViking settings and responsive layout", async ({ page }) => {
   );
   await page.screenshot({ path: "/tmp/libris/epub-openviking.png" });
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto(`${base}/#project/${state.project_id}`);
+  await page.goto(`${base}/#project/${projectId()}`);
   await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
   const overflow = await page.evaluate(
     () => document.documentElement.scrollWidth > innerWidth + 2,
@@ -111,7 +117,7 @@ test("OpenViking settings and responsive layout", async ({ page }) => {
   await page.screenshot({ path: "/tmp/libris/epub-mobile.png" });
 });
 
-test("saved provider can be edited without submitting read-only metadata", async ({
+test("saved provider can be edited without submitting read-only metadata @integration", async ({
   page,
 }) => {
   await page.getByRole("link", { name: "Paramètres", exact: true }).click();

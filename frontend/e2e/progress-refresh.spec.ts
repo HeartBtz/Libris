@@ -1,7 +1,7 @@
 import { test, expect } from "@playwright/test";
 import { base, password, username } from "./integration-config";
 
-test("library shows active-stage progress and refresh reloads metrics", async ({
+test("library shows active-stage progress and refresh reloads metrics @integration", async ({
   page,
 }) => {
   const login = await page.request.post(`${base}/api/auth/login`, {

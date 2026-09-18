@@ -30,6 +30,34 @@ def context_query(source: str, neighbors: str, names: list[str]) -> str:
     )
 
 
+NEIGHBORS = {"PREVIOUS_CONTEXT", "NEXT_CONTEXT"}
+
+
+def fit_neighbors(values: list[dict], limit: int, previous: bool) -> list[dict]:
+    """Keep the passages closest to the target; shorten the last one rather than lose the neighbourhood."""
+
+    def size(items):
+        return estimate_tokens(json.dumps(items, ensure_ascii=False))
+
+    values = [dict(value) for value in values]
+    while len(values) > 1 and size(values) > limit:
+        values.pop(0 if previous else -1)
+    if values and size(values) > limit:
+        item = values[0]
+        fields = [key for key in ("source", "translation") if isinstance(item.get(key), str) and item[key]]
+        item["excerpt"] = True
+        while fields and size(values) > limit:
+            longest = max(fields, key=lambda key: len(item[key]))
+            keep = len(item[longest]) * 3 // 4
+            if keep < 120:
+                return []
+            # The end of what precedes and the start of what follows are the useful halves.
+            item[longest] = item[longest][-keep:] if previous else item[longest][:keep]
+        if size(values) > limit:
+            return []
+    return values
+
+
 @dataclass
 class BuiltContext:
     messages: list[dict]
@@ -360,8 +388,13 @@ async def build_context(
             "La cible et les règles obligatoires dépassent le budget conservateur. "
             "Augmentez la fenêtre ou réduisez les instructions ; aucun texte n’a été retiré."
         )
-    remaining = min(budget - mandatory_size, memory_config()["context_budget"])
+    remaining = optional_budget = min(budget - mandatory_size, memory_config()["context_budget"])
     retrieval_remaining = memory_config()["retrieval_budget"]
+    # Raw neighbours outrank everything and would swallow the whole allowance on their own: when
+    # character sheets, glossary or chapter state compete, they keep a share of it.
+    contested = any(c.source not in NEIGHBORS and c.content not in ("{}", "[]", "") for c in candidates)
+    neighbor_remaining = optional_budget * 3 // 5 if contested else optional_budget
+    previous_share = neighbor_remaining * 2 // 3 if following else neighbor_remaining
     kept, dropped, seen = [], [], set()
     # Sliding context is guaranteed a small allocation before optional long-term memories.
     for item in sorted(candidates, key=lambda c: (c.authority, -c.relevance, c.origin)):
@@ -374,19 +407,20 @@ async def build_context(
         length = estimate_tokens(item.content)
         if item.source.startswith("OPENVIKING_") and length > retrieval_remaining:
             reason = "retrieval_budget"
-        if not reason and length > remaining:
-            # Keep local neighbors as complete unit excerpts if the full sliding window is too large.
-            if item.source in {"PREVIOUS_CONTEXT", "NEXT_CONTEXT"}:
-                values = json.loads(item.content)
-                while values and estimate_tokens(json.dumps(values, ensure_ascii=False)) > remaining:
-                    values.pop(0 if item.source == "PREVIOUS_CONTEXT" else -1)
+        if not reason and item.source in NEIGHBORS:
+            before = item.source == "PREVIOUS_CONTEXT"
+            allowance = min(remaining, previous_share if before else neighbor_remaining)
+            if length > allowance:
+                values = fit_neighbors(json.loads(item.content), allowance, before)
                 if values:
                     item.content = json.dumps(values, ensure_ascii=False)
                     length = estimate_tokens(item.content)
                 else:
                     reason = "budget"
-            else:
-                reason = "budget"
+            if not reason:
+                neighbor_remaining -= length
+        elif not reason and length > remaining:
+            reason = "budget"
         detail = dict(item.dump(), tokens_estimate=length)
         if reason:
             dropped.append(dict(detail, reason=reason))
@@ -414,7 +448,7 @@ async def build_context(
             "discarded": dropped,
             "mandatory": mandatory,
             "tokenizer": "conservative_utf8_bytes",
-            "input_estimate": budget - remaining,
+            "input_estimate": mandatory_size + optional_budget - remaining,
             "output_reservation": provider.max_output_tokens,
             "context_window": provider.context_window,
         },

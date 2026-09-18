@@ -116,7 +116,7 @@ Les contrôles globaux LLM échantillonnent les occurrences dans tout le livre, 
 
 ### Tokens et observabilité
 
-Le budget actuel utilise une estimation **conservatrice en octets UTF-8**, affichée comme estimation, pas un tokenizer exact. La réservation de sortie et une marge sont contrôlées avant envoi. Une entrée qui ne tient pas est refusée avec une erreur explicite, sans tronquer le passage ni les règles obligatoires. Ajuster la fenêtre selon la capacité réelle du serveur d’inférence.
+Le budget actuel utilise une estimation **conservatrice en octets UTF-8**, affichée comme estimation, pas un tokenizer exact. La réservation de sortie et une marge sont contrôlées avant envoi. Une entrée qui ne tient pas est refusée avec une erreur explicite, sans tronquer le passage ni les règles obligatoires. Ajuster la fenêtre selon la capacité réelle du serveur d’inférence. Le contexte optionnel (voisinage, personnages, glossaire, mémoire) est plafonné par le réglage **Budget de contexte** des paramètres de mémoire, 12 000 par défaut quelle que soit la fenêtre du modèle : l’augmenter enrichit chaque requête, et augmente d’autant son coût.
 
 La réponse complète est validée par schéma, identifiants, marqueurs et contrôles de texte. JSON Schema est utilisé si déclaré, avec repli JSON simple lorsqu’un endpoint rejette explicitement ce format. Une réponse tronquée ou polluée par du texte hors JSON est rejetée.
 

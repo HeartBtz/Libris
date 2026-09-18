@@ -29,3 +29,10 @@ def test_release_tags_promote_only_images_verified_on_the_default_branch():
     marker = job_block("verified-image")
     assert "needs:" not in marker and "verified-sha-$CI_COMMIT_SHA" in marker
     assert "verified-sha-$CI_COMMIT_SHA" in job_block("release-images")
+
+
+def test_rollback_is_manual_and_serialized_with_the_deployment():
+    block = job_block("rollback-production")
+    assert "when: manual" in block and "--rollback" in block
+    lock = re.search(r"^  resource_group: (\S+)$", job_block("deploy-production"), re.M).group(1)
+    assert f"resource_group: {lock}" in block

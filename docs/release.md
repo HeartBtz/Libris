@@ -38,4 +38,14 @@ The protected `deploy-production` job then runs automatically, and only after th
 
 ## Rollback
 
-Application-only rollback means checking out the prior tag and rebuilding. If a release applied an incompatible database migration, restore the database, `/data` and `.env` from the matching tested backup. Reverting an image does not revert a schema.
+A release that migrated fine but misbehaves can be rolled back from its tag pipeline: run the manual, protected `rollback-production` job (serialized with `deploy-production` by the same `resource_group`). On CT116 it calls `libris-production-deploy --rollback`, which redeploys the images that this deployment replaced — retained on the host as `libris-production:previous-api` and `libris-codex-production:previous` — through the same guarded procedure: pre-deployment dump, stop, `migrate` (a no-op), start, `/health` on the older version, worker restart from its checkpoints. It only goes backwards (the retained version must be older than the deployed one), so running it twice does not re-deploy the faulty release.
+
+It refuses, before touching anything, when the database schema is no longer the one the older version expects, that is when the release added a migration. Reverting an image does not revert a schema; in that case restore the matching pre-deployment dump instead:
+
+1. Stop the application services: `docker compose --project-name epub-translator --env-file /opt/epub-translator/.env --file /opt/libris-production/docker-compose.yml --profile codex stop api worker codex`.
+2. Restore `/opt/libris-production/backups/pre-<timestamp>-<commit>.dump` (the newest one, taken just before the faulty deployment) with `pg_restore --clean --if-exists --no-owner` inside the `database` container, as described in [backup and restore](backup.md).
+3. Run `libris-production-deploy --rollback` again: the schema now matches and the previous images are redeployed.
+
+Books (`/data`) and `.env` are not changed by a deployment; restore them from the scheduled backup only if they were damaged. After a rollback, the next release is deployed normally by its tag.
+
+The procedure removes old Libris images after each successful deployment or rollback: it keeps the deployed images, the retained `previous-*` ones and any image a container uses (so at most two versions), and deletes the other `libris-production:*` / `libris-codex-production:*` tags and the untagged pulls of `192.168.1.126:5050/dev/libris`; no other image and no volume is touched. `libris-production-deploy --prune-images --dry-run` lists what would be removed, `--prune-images` removes it.

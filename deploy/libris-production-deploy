@@ -2,33 +2,114 @@
 # shellcheck disable=SC2016
 set -euo pipefail
 
-[[ $# -eq 4 ]] || { echo "Usage: libris-production-deploy COMMIT VERSION APP_IMAGE_ID CODEX_IMAGE_ID" >&2; exit 64; }
-commit="$1"
-version="$2"
-expected_app_id="$3"
-expected_codex_id="$4"
-[[ "$commit" =~ ^[0-9a-f]{40}$ ]] || { echo "Invalid commit" >&2; exit 64; }
-[[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "Invalid version" >&2; exit 64; }
+usage() {
+	cat >&2 <<'USAGE'
+Usage: libris-production-deploy COMMIT VERSION APP_IMAGE_ID CODEX_IMAGE_ID
+       libris-production-deploy --rollback
+       libris-production-deploy --prune-images [--dry-run]
+USAGE
+	exit 64
+}
 
 base="${LIBRIS_PRODUCTION_BASE:-/opt/libris-production}"
 compose_file="${LIBRIS_PRODUCTION_COMPOSE_FILE:-$base/docker-compose.yml}"
 secret_env="${LIBRIS_PRODUCTION_SECRET_ENV:-/opt/epub-translator/.env}"
 project="${LIBRIS_PRODUCTION_PROJECT:-epub-translator}"
 health_url="${LIBRIS_PRODUCTION_HEALTH_URL:-http://192.168.1.116:8088/health}"
+registry_repository="${LIBRIS_PRODUCTION_REGISTRY_REPOSITORY:-192.168.1.126:5050/dev/libris}"
+
+# Every deployment leaves its images behind. Keep what can still be needed: the deployed images, the
+# retained `previous-*` ones (the rollback target) and anything a container uses; remove the other
+# Libris tags and the untagged pulls of the Libris registry repository. No other image, and no volume.
+prune_images() {
+	local dry_run="$1" reference id tag digest containers
+	local -A keep=()
+	for reference in libris-production:previous-api libris-production:previous-worker libris-codex-production:previous; do
+		if id="$(docker image inspect --format '{{.Id}}' "$reference" 2>/dev/null)"; then keep["$id"]=1; fi
+	done
+	for reference in current-app-image-id current-codex-image-id; do
+		if [[ -s "$base/$reference" ]]; then keep["$(<"$base/$reference")"]=1; fi
+	done
+	containers="$(docker ps --all --quiet --no-trunc)" || return 1
+	for reference in $containers; do
+		id="$(docker inspect --format '{{.Image}}' "$reference")" || return 1
+		keep["$id"]=1
+	done
+	remove() {
+		if [[ "$dry_run" == true ]]; then
+			echo "Would remove $1"
+		elif docker image rm "$1" >/dev/null; then
+			echo "Removed $1"
+		fi
+	}
+	while read -r reference id; do
+		[[ -z "$reference" || -n "${keep[$id]:-}" ]] || remove "$reference"
+	done < <(docker image ls --no-trunc --format '{{.Repository}}:{{.Tag}} {{.ID}}' libris-production
+		docker image ls --no-trunc --format '{{.Repository}}:{{.Tag}} {{.ID}}' libris-codex-production)
+	while read -r reference tag digest id; do
+		[[ "$tag" == "<none>" && "$digest" == sha256:* && -z "${keep[$id]:-}" ]] || continue
+		remove "$reference@$digest"
+	done < <(docker image ls --no-trunc --digests --format '{{.Repository}} {{.Tag}} {{.Digest}} {{.ID}}' "$registry_repository")
+}
+
+mode=deploy
+case "${1:-}" in
+--rollback)
+	[[ $# -eq 1 ]] || usage
+	mode=rollback
+	;;
+--prune-images)
+	[[ $# -eq 1 || ( $# -eq 2 && "$2" == --dry-run ) ]] || usage
+	prune_images "$([[ "${2:-}" == --dry-run ]] && echo true || echo false)"
+	exit 0
+	;;
+*)
+	[[ $# -eq 4 ]] || usage
+	commit="$1"
+	version="$2"
+	expected_app_id="$3"
+	expected_codex_id="$4"
+	[[ "$commit" =~ ^[0-9a-f]{40}$ ]] || { echo "Invalid commit" >&2; exit 64; }
+	[[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "Invalid version" >&2; exit 64; }
+	;;
+esac
+
+[[ -r "$compose_file" && -r "$secret_env" ]] || { echo "Production configuration is not provisioned" >&2; exit 65; }
+if [[ "$mode" == rollback ]]; then
+	# The target is what the last deployment replaced: the images it tagged `previous-*`.
+	expected_app_id="$(docker image inspect --format '{{.Id}}' libris-production:previous-api 2>/dev/null)" \
+		|| { echo "No previous application image is retained on this host: nothing to roll back to" >&2; exit 65; }
+	expected_codex_id="$(docker image inspect --format '{{.Id}}' libris-codex-production:previous 2>/dev/null)" \
+		|| { echo "No previous Codex image is retained on this host: nothing to roll back to" >&2; exit 65; }
+	commit="$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$expected_app_id")"
+	version="$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.version" }}' "$expected_app_id")"
+	[[ "$commit" =~ ^[0-9a-f]{40}$ && "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] \
+		|| { echo "The previous image carries no valid version and revision labels" >&2; exit 65; }
+fi
 app_image="libris-production:$commit"
 codex_image="libris-codex-production:$commit"
-[[ -r "$compose_file" && -r "$secret_env" ]] || { echo "Production configuration is not provisioned" >&2; exit 65; }
 deployed_version=""
 deployed_commit=""
 if [[ -r "$base/current-version" ]]; then
 	deployed_version="$(<"$base/current-version")"
 	[[ ! -r "$base/current-commit" ]] || deployed_commit="$(<"$base/current-commit")"
+fi
+if [[ "$mode" == rollback ]]; then
+	[[ -n "$deployed_version" ]] || { echo "No deployed version is recorded in $base: refusing a blind rollback" >&2; exit 65; }
+	# Only ever backwards: once rolled back, `previous-*` designate the removed version.
+	if [[ "$version" == "$deployed_version" || "$(printf '%s\n%s\n' "$deployed_version" "$version" | sort -V | tail -n 1)" == "$version" ]]; then
+		echo "The retained previous version $version is not older than the deployed $deployed_version: nothing to roll back to" >&2
+		exit 65
+	fi
+	docker image tag "$expected_app_id" "$app_image"
+	docker image tag "$expected_codex_id" "$codex_image"
+elif [[ -n "$deployed_version" ]]; then
 	if [[ "$version" == "$deployed_version" && -n "$deployed_commit" && "$commit" != "$deployed_commit" ]]; then
 		echo "Version $version is already associated with another commit" >&2
 		exit 65
 	fi
 	if [[ "$version" != "$deployed_version" && "$(printf '%s\n%s\n' "$deployed_version" "$version" | sort -V | tail -n 1)" != "$version" ]]; then
-		echo "Refusing outdated deployment $version after $deployed_version" >&2
+		echo "Refusing outdated deployment $version after $deployed_version (use --rollback to return to the previous version)" >&2
 		exit 65
 	fi
 fi
@@ -47,14 +128,20 @@ if [[ -n "${LIBRIS_PRODUCTION_COMPOSE_OVERRIDE:-}" ]]; then
 	compose+=(--file "$LIBRIS_PRODUCTION_COMPOSE_OVERRIDE")
 fi
 compose+=(--profile codex)
-api_container="$("${compose[@]}" ps -q api)"
-worker_container="$("${compose[@]}" ps -q worker)"
-codex_container="$("${compose[@]}" ps -q codex)"
+# Stopped containers count: services are left stopped while a pre-deployment dump is being restored.
+api_container="$("${compose[@]}" ps --all -q api)"
+worker_container="$("${compose[@]}" ps --all -q worker)"
+codex_container="$("${compose[@]}" ps --all -q codex)"
 [[ -n "$api_container" ]] || { echo "Existing production API was not found" >&2; exit 65; }
 [[ -n "$worker_container" ]] || { echo "Existing production worker was not found" >&2; exit 65; }
 current_revision="$("${compose[@]}" exec -T database sh -lc 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Atc "SELECT version_num FROM alembic_version ORDER BY version_num;"')"
 target_revision="$(docker run --rm --entrypoint sh "$app_image" -lc "alembic heads | sed -n 's/ .*//p'")"
 [[ -n "$current_revision" && -n "$target_revision" ]] || { echo "Could not resolve database revisions" >&2; exit 65; }
+if [[ "$mode" == rollback && "$current_revision" != "$target_revision" ]]; then
+	echo "The database schema ($current_revision) is not the one $version expects ($target_revision): the images alone cannot be rolled back." >&2
+	echo "Nothing was changed. Restore the pre-deployment dump instead (docs/release.md, Rollback)." >&2
+	exit 65
+fi
 check_health() {
 	python3 - "$version" "$health_url" <<'PY'
 import json
@@ -175,4 +262,9 @@ printf '%s\n' "$version" > "$base/current-version"
 printf '%s\n' "$expected_app_id" > "$base/current-app-image-id"
 printf '%s\n' "$expected_codex_id" > "$base/current-codex-image-id"
 find "$base/backups" -maxdepth 1 -type f -name 'pre-*.dump' -printf '%T@ %p\n' | sort -nr | tail -n +6 | cut -d' ' -f2- | xargs -r rm -f
-echo "Libris $version ($commit) deployed to CT116 and healthy; worker restarted from persistent checkpoints"
+if [[ "$mode" == rollback ]]; then
+	echo "Libris rolled back from $deployed_version to $version ($commit) on CT116 and healthy; worker restarted from persistent checkpoints"
+else
+	echo "Libris $version ($commit) deployed to CT116 and healthy; worker restarted from persistent checkpoints"
+fi
+prune_images false || echo "Warning: old Libris images could not all be removed; the deployment itself succeeded." >&2

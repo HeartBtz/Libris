@@ -432,12 +432,18 @@ export function Glossary({
           >
             CSV ↓
           </a>
+          <a
+            className="button"
+            href={`/api/projects/${project.id}/glossary/export/tbx`}
+          >
+            TBX ↓
+          </a>
           <label className="button">
             {t("Importer")}
             <input
               hidden
               type="file"
-              accept=".json,.csv"
+              accept=".json,.csv,.tbx,.xml,.tsv,.txt"
               onChange={(e) => {
                 const file = e.target.files?.[0];
                 e.target.value = ""; // Let the same file be chosen again after a failed import.

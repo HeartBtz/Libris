@@ -1,40 +1,32 @@
 import base64
-import io
 import json
 import os
 import re
 import tempfile
+import threading
 import zipfile
+from collections import OrderedDict
 from pathlib import Path
 from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Response, UploadFile
 from fastapi.responses import FileResponse
 from lxml import etree
-from sqlalchemy import select
+from sqlalchemy import func, select
 from starlette.background import BackgroundTask
+from starlette.concurrency import run_in_threadpool
 
 from app.api.common import row
+from app.api.project_archive import build_archive, read_archive, restore_archive
 from app.api.projects import discard_book_file, import_book
 from app.config import settings
 from app.engines.epub import inspect_archive, rebuild
-from app.engines.epub.archive import relative_resource, safe_name, xml
+from app.engines.epub.archive import relative_resource, xml
 from app.engines.epub.check import epubcheck
 from app.engines.epub.text import plain, tag
-from app.engines.memory.archive import restore_graph
 from app.engines.memory.identities import canonical_bible
-from app.engines.translation.versions import save_version
-from app.models import (
-    Chapter,
-    CharacterRelation,
-    Entity,
-    EntityMerge,
-    Glossary,
-    Memory,
-    Segment,
-    TranslationVersion,
-)
-from app.schemas import BatchExportInput, BookBible, GlossaryInput, TranslationResult
+from app.models import Chapter, Segment
+from app.schemas import BatchExportInput
 from app.security import DB, CurrentUser, access
 
 router = APIRouter(prefix="/api")
@@ -161,34 +153,11 @@ def export(
             "book-bible.json",
         )
     elif format == "project":
-        archive = io.BytesIO()
-        chapters = list(
-            db.scalars(select(Chapter).where(Chapter.project_id == pid).order_by(Chapter.position))
+        content, mime, filename = (
+            build_archive(db, project, original_bytes(project)),
+            "application/zip",
+            "translation-project.zip",
         )
-        payload = {
-            "schema_version": 1,
-            "project": row(project, ("id", "owner_id", "provider_id", "original_path")),
-            "chapters": [row(c) for c in chapters],
-            "segments": [row(s) for s in segments],
-            "glossary": [row(g) for g in db.scalars(select(Glossary).where(Glossary.project_id == pid))],
-            "entities": [row(e) for e in db.scalars(select(Entity).where(Entity.project_id == pid))],
-            "character_relations": [
-                row(r)
-                for r in db.scalars(select(CharacterRelation).where(CharacterRelation.project_id == pid))
-            ],
-            "entity_merges": [
-                row(m) for m in db.scalars(select(EntityMerge).where(EntityMerge.project_id == pid))
-            ],
-            "memories": [row(m) for m in db.scalars(select(Memory).where(Memory.project_id == pid))],
-            "versions": [
-                row(v)
-                for v in db.scalars(select(TranslationVersion).join(Segment).where(Segment.project_id == pid))
-            ],
-        }
-        with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED) as output:
-            output.writestr("original.epub", original_bytes(project))
-            output.writestr("project.json", json.dumps(payload, ensure_ascii=False))
-        content, mime, filename = archive.getvalue(), "application/zip", "translation-project.zip"
     elif format == "epub":
         if allow_source:
             export_rows = [row(s) for s in segments]
@@ -226,112 +195,79 @@ def export(
 @router.post("/projects/import", status_code=201)
 async def restore_project(file: UploadFile, user: CurrentUser, db: DB):
     data = await file.read(settings().max_upload_mb * 1024**2 + 1)
-    if len(data) > settings().max_upload_mb * 1024**2:
-        raise HTTPException(413, "Archive projet trop volumineuse.")
-    with zipfile.ZipFile(io.BytesIO(data)) as archive:
-        infos = archive.infolist()
-        if len(infos) != 2 or {safe_name(i.filename) for i in infos} != {"original.epub", "project.json"}:
-            raise ValueError("Archive projet invalide.")
-        if sum(i.file_size for i in infos) > settings().max_unpacked_mb * 1024**2:
-            raise ValueError("Archive projet trop volumineuse après décompression.")
-        original = archive.read("original.epub")
-        payload = json.loads(archive.read("project.json"))
-    if payload.get("schema_version") != 1:
-        raise ValueError("Version de projet non prise en charge.")
-    # Reparse the original; never trust imported paths, owners, permissions, jobs or DOM anchors.
-    project = import_book(db, user.id, original)
+    # Unpacking, parsing the book and writing thousands of rows must not freeze the event loop.
+    project = await run_in_threadpool(restore_from_archive, db, user.id, data)
+    return {"id": project.id, "title": project.title}
+
+
+def restore_from_archive(db, owner_id: str, data: bytes):
+    original, archive = read_archive(data)
+    # Reparse the original; never trust imported paths, owners, permissions, providers or DOM anchors.
+    project = import_book(db, owner_id, original)
     try:
-        restore_project_payload(db, project, payload, user)
+        restore_archive(db, project, archive)
         db.commit()
     except BaseException:
         discard_book_file(project)
         raise
-    return {"id": project.id, "title": project.title}
+    return project
 
 
-def restore_project_payload(db, project, payload: dict, user) -> None:
-    info = payload["project"]
-    project.target_language = str(info.get("target_language", "fr"))[:80]
-    project.series_name = str(info.get("series_name", ""))[:500]
-    volume_number = info.get("volume_number")
-    project.volume_number = volume_number if isinstance(volume_number, int) and 1 <= volume_number <= 10000 else None
-    project.instructions = str(info.get("instructions", ""))[:20000]
-    project.bible = BookBible.model_validate(info.get("bible", {})).model_dump()
-    project.bible_validated = bool(info.get("bible_validated"))
-    if info.get("quality") in {"fast", "normal", "high", "maximum"}:
-        project.quality = info["quality"]
-    if info.get("context_backend") in {"internal", "openviking", "hybrid"}:
-        project.context_backend = info["context_backend"]
-    for saved in payload.get("chapters", []):
-        chapter = db.scalar(
-            select(Chapter).where(
-                Chapter.project_id == project.id,
-                Chapter.resource == saved.get("resource"),
-                Chapter.position == saved.get("position"),
-            )
-        )
-        if chapter:
-            chapter.summary = saved.get("summary", {})
-            chapter.instructions = str(saved.get("instructions", ""))[:10000]
-            chapter.analyzed = bool(saved.get("analyzed"))
-    current = project_segments(db, project.id)
-    imported = payload.get("segments", [])
-    if len(current) != len(imported):
-        raise ValueError("Structure du projet incompatible avec son EPUB original.")
-    mapping = {}
-    for segment, saved in zip(current, imported, strict=True):
-        if segment.source != saved.get("source"):
-            raise ValueError("Le texte source du projet ne correspond pas à l’EPUB.")
-        mapping[saved["id"]] = segment.id
-        if saved.get("translated_units"):
-            units = [u.model_dump() for u in TranslationResult(units=saved["translated_units"]).units]
-            save_version(
-                db,
-                segment.id,
-                units,
-                "source_retained"
-                if saved.get("retained_source")
-                else "restore"
-                if saved.get("human")
-                else "imported",
-                0,
-                author_id=user.id,
-                validated=bool(saved.get("validated")),
-                stage=saved.get("stage")
-                if saved.get("stage") in {"translated", "reviewed", "revised", "polished", "done"}
-                else "translated",
-            )
-        segment.instructions = str(saved.get("instructions", ""))[:10000]
-    for term in payload.get("glossary", []):
-        value = GlossaryInput.model_validate(
-            {k: v for k, v in term.items() if k in GlossaryInput.model_fields}
-        )
-        db.add(Glossary(project_id=project.id, **value.model_dump()))
-    restore_graph(db, project.id, payload, mapping)
-    for version in payload.get("versions", []):
-        if version.get("segment_id") in mapping:
-            db.add(
-                TranslationVersion(
-                    segment_id=mapping[version["segment_id"]],
-                    units=version["units"],
-                    origin="imported_history",
-                    base_revision=0,
-                    applied=False,
-                )
-            )
-    for memory in payload.get("memories", []):
-        sid = mapping.get(memory.get("segment_id"))
-        if sid:
-            db.add(
-                Memory(
-                    project_id=project.id,
-                    segment_id=sid,
-                    position=int(memory["position"]),
-                    kind=str(memory["kind"])[:30],
-                    content=memory["content"],
-                    validated=bool(memory.get("validated")),
-                )
-            )
+class PreviewCache:
+    """Unpacked books of the latest previews, bounded in bytes.
+
+    Each chapter preview used to rebuild and unpack the whole book. The key carries the sum of the
+    passages' revisions, which every saved version increments: an edit is never served stale.
+    """
+
+    def __init__(self, entries: int = 8):
+        self.lock = threading.Lock()
+        self.books: OrderedDict[tuple, tuple[dict[str, bytes], int]] = OrderedDict()
+        self.entries = entries
+
+    def get(self, key: tuple) -> dict[str, bytes] | None:
+        with self.lock:
+            if key in self.books:
+                self.books.move_to_end(key)
+                return self.books[key][0]
+        return None
+
+    def put(self, key: tuple, book: dict[str, bytes]) -> None:
+        budget = settings().preview_cache_mb * 1024**2
+        size = sum(len(value) for value in book.values())
+        if size > budget:
+            return
+        with self.lock:
+            self.books.pop(key, None)
+            self.books[key] = (book, size)
+            while len(self.books) > self.entries or sum(s for _, s in self.books.values()) > budget:
+                self.books.popitem(last=False)
+
+
+previews = PreviewCache()
+
+
+def preview_entries(db, project, translated: bool) -> dict[str, bytes]:
+    revisions = db.scalar(
+        select(func.coalesce(func.sum(Segment.revision), 0)).where(Segment.project_id == project.id)
+    )
+    language = project.target_language if translated else ""
+    key = (project.id, project.original_hash, translated, language, revisions)
+    cached = previews.get(key)
+    if cached is not None:
+        return cached
+    original = original_bytes(project)
+    if translated:
+        rows = []
+        for segment in project_segments(db, project.id):
+            value = row(segment)
+            if not segment.translated_units:
+                value["translated_units"] = [{"id": u["id"], "text": u["text"]} for u in segment.units]
+            rows.append(value)
+        original = rebuild(original, rows, project.target_language)
+    entries = inspect_archive(original)
+    previews.put(key, entries)
+    return entries
 
 
 @router.get("/projects/{pid}/preview/{chapter_id}")
@@ -340,16 +276,7 @@ def preview(pid: str, chapter_id: str, user: CurrentUser, db: DB, translated: bo
     chapter = db.get(Chapter, chapter_id)
     if not chapter or chapter.project_id != pid:
         raise HTTPException(404, "Chapitre introuvable.")
-    original = original_bytes(project)
-    if translated:
-        rows = []
-        for segment in project_segments(db, pid):
-            value = row(segment)
-            if not segment.translated_units:
-                value["translated_units"] = [{"id": u["id"], "text": u["text"]} for u in segment.units]
-            rows.append(value)
-        original = rebuild(original, rows, project.target_language)
-    entries = inspect_archive(original)
+    entries = preview_entries(db, project, translated)
     root = xml(entries[chapter.resource])
     for node in list(root.iter()):
         if not isinstance(node.tag, str):

@@ -44,7 +44,7 @@ Ce qu’un job a réglé passage par passage vit dans `job_segment_state` (clé 
 | `repair` | groupe de quatre unités déjà validé d’un passage en réparation (`key` = révision:opération:début) |
 | `bible`, `consistency` | lots de synthèse de la Book Bible et échantillons de cohérence déjà traités (`segment_id` vide) |
 
-La progression (`project.progress`, `stats`) lit ces lignes. Une fois un job fini depuis `RETENTION_JOB_STATE_DAYS`, seules ses lignes `reviewed` sont gardées (voir le guide d’exploitation). La migration `b856c2e068f8` a converti les anciens checkpoints (listes `finished_ids`, `final_review_*`, `repair`…) : un job en pause au moment de la mise à jour reprend sans retraduire ; le retour arrière reconstruit les listes.
+La progression (`project.progress`, `stats`) lit ces lignes. Une fois un job fini depuis `RETENTION_JOB_STATE_DAYS`, seules ses lignes `reviewed` sont gardées (voir le guide d’exploitation). L’archive de projet emporte ces lignes avec les jobs, et une archive exportée avant la 0.5 est convertie à la restauration. La migration `b856c2e068f8` a converti les anciens checkpoints (listes `finished_ids`, `final_review_*`, `repair`…) : un job en pause au moment de la mise à jour reprend sans retraduire ; le retour arrière reconstruit les listes.
 
 ### Boucle du worker
 

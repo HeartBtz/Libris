@@ -107,3 +107,47 @@ def forget(db: Session, job_id: str, steps: tuple[str, ...], segment_ids: list[s
                 JobSegmentState.segment_id.in_(segment_ids[start : start + CHUNK]),
             )
         )
+
+
+_LEGACY_LISTS = {
+    "finished_ids": FINISHED,
+    "started_ids": STARTED,
+    "final_review_targets": REVIEW_TARGET,
+    "automatic_recovery_targets": RECOVERY_TARGET,
+}
+_LEGACY_BATCHES = {"consistency_batches": CONSISTENCY, "analysis_batches": BIBLE}
+_LEGACY = (
+    *_LEGACY_LISTS, *_LEGACY_BATCHES, "final_review_done", "final_review_outcomes", "repair", "repair_progress"
+)
+
+
+def split_legacy(checkpoint: dict) -> tuple[dict, list[dict]]:
+    """A checkpoint written before v0.5 (lists per passage), as a compact checkpoint and state rows.
+
+    Same conversion as migration b856c2e068f8, for project archives exported before it.
+    """
+    rows: dict[tuple, dict] = {}
+
+    def add(step, segment_id="", key="", outcome="", data=None):
+        rows[(step, segment_id, key)] = {
+            "step": step, "segment_id": segment_id, "key": key, "outcome": outcome, "data": data or {}
+        }
+
+    for name, step in _LEGACY_LISTS.items():
+        for segment_id in checkpoint.get(name) or []:
+            add(step, segment_id)
+    outcomes = checkpoint.get("final_review_outcomes") or {}
+    for segment_id in [*(checkpoint.get("final_review_done") or []), *outcomes]:
+        data = dict(outcomes.get(segment_id) or {})
+        add(REVIEWED, segment_id, outcome=str(data.pop("outcome", ""))[:30], data=data)
+    for name, parts in (checkpoint.get("repair") or {}).items():
+        segment_id, _, rest = name.partition(":")
+        for start, data in parts.items():
+            add(REPAIR, segment_id, f"{rest}:{start}", data=data)
+    for name, step in _LEGACY_BATCHES.items():
+        for key in checkpoint.get(name) or []:
+            add(step, key=key)
+    compact = {key: value for key, value in checkpoint.items() if key not in _LEGACY}
+    if "final_review_targets" in checkpoint:
+        compact["review_targets"] = len(checkpoint["final_review_targets"] or [])
+    return compact, list(rows.values())

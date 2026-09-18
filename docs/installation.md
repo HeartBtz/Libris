@@ -19,6 +19,7 @@ Run `python3 scripts/setup.py` in the repository root. It generates independent 
 | `POSTGRES_PASSWORD`                        | PostgreSQL initialization and connection password                        |
 | `CODEX_BRIDGE_TOKEN`                       | Private API-to-bridge authentication secret                              |
 | `OPENVIKING_URL`, `OPENVIKING_API_KEY`     | Optional external memory service                                         |
+| `EPUBCHECK_CONCURRENCY`, `EPUBCHECK_MAX_HEAP_MB` | Simultaneous EPUBCheck validations per process (`2`) and memory ceiling of each one (`1024`) |
 | `WORKER_HEARTBEAT_SECONDS`                 | Interval at which a running job renews its 60 s lease; `2` (1–20)        |
 | `MEMORY_CATALOG_INTERVAL_SECONDS`          | Interval of the external-memory catalogue refresh; `60` (10–86400)       |
 | `PROVIDER_RECOVERY_BASE_SECONDS`, `PROVIDER_RECOVERY_MAX_SECONDS` | First and longest wait before retrying an unavailable provider; `60` and `3600` |

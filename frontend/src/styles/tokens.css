@@ -88,6 +88,7 @@
   --marker-bg: #e8e6fb;
   --marker-text: #5b54c9;
   --selection: #d9dcff;
+  --paper: #ffffff;
   --shadow-sm: 0 1px 2px #1c1f240d;
   --shadow-md: 0 2px 6px #1c1f240f, 0 1px 2px #1c1f240a;
   --shadow-lg: 0 12px 32px #1c1f241f, 0 2px 6px #1c1f240f;
@@ -128,6 +129,7 @@
   --marker-bg: #2c2c52;
   --marker-text: #b4bcfb;
   --selection: #3b3f7a;
+  --paper: #ffffff;
   --shadow-sm: 0 1px 2px #00000040;
   --shadow-md: 0 2px 8px #00000059;
   --shadow-lg: 0 16px 40px #00000080, 0 2px 8px #00000059;

@@ -97,10 +97,14 @@ button:disabled {
   cursor: not-allowed;
 }
 
-img,
-svg {
+img {
   display: block;
   max-width: 100%;
+}
+
+svg.icon {
+  display: block;
+  flex: none;
 }
 
 code,

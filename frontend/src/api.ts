@@ -1,4 +1,4 @@
-import { getLocale, message } from "./i18n";
+import { formatDateTime, formatNumber, getLocale, message } from "./i18n";
 
 export class ApiError extends Error {
   constructor(
@@ -16,6 +16,7 @@ export async function api<T>(
     ...options,
     credentials: "same-origin",
     headers: {
+      "Accept-Language": getLocale(),
       ...(options.body instanceof FormData
         ? {}
         : { "Content-Type": "application/json" }),
@@ -80,7 +81,7 @@ export async function downloadApi(path: string, name: string, body: unknown) {
   const response = await fetch(`/api${path}`, {
     method: "POST",
     credentials: "same-origin",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", "Accept-Language": getLocale() },
     body: JSON.stringify(body),
   });
   if (!response.ok) throw await responseError(response);
@@ -92,10 +93,24 @@ export async function downloadApi(path: string, name: string, body: unknown) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 export function date(timestamp: number) {
-  return new Date(timestamp * 1000).toLocaleString(getLocale());
+  return formatDateTime(timestamp);
 }
 export function number(value: number) {
-  return value.toLocaleString(getLocale(), { maximumFractionDigits: 1 });
+  return formatNumber(value);
+}
+/** Downloads a GET endpoint as a file, keeping API errors readable instead of opening an error page. */
+export async function downloadGet(path: string, name: string) {
+  const response = await fetch(`/api${path}`, {
+    credentials: "same-origin",
+    headers: { "Accept-Language": getLocale() },
+  });
+  if (!response.ok) throw await responseError(response);
+  const url = URL.createObjectURL(await response.blob());
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = name;
+  anchor.click();
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
 }
 export const labels: Record<string, string> = new Proxy({}, {
   get: (_target, status: string) => {

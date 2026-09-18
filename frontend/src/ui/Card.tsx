@@ -119,3 +119,15 @@ export function PageHeader({
     </header>
   );
 }
+
+export function Page({
+  children,
+  width = "wide",
+  className,
+}: {
+  children: ReactNode;
+  width?: "wide" | "narrow" | "full";
+  className?: string;
+}) {
+  return <main className={cx("page", `page-${width}`, className)}>{children}</main>;
+}

@@ -41,7 +41,7 @@ Pour les commandes par lot, les deux progressions, les interruptions, les refus 
 5. Examiner et corriger la **Book Bible**, les personnages et les propositions de glossaire. Les entrées proposées ne sont pas acceptées automatiquement par défaut.
 6. **Traduire**. Le suivi se reconnecte automatiquement. Pause, reprise et retry conservent les traductions enregistrées.
 7. Comparer, corriger et valider dans le workspace. Les marqueurs `⟦t0⟧…⟦/t0⟧` protègent les éléments inline ; leur suppression est refusée.
-8. Exporter en EPUB, TXT, Markdown, JSON ou archive de projet. L’export EPUB complet est refusé si du texte manque ou si EPUBCheck signale une non-conformité.
+8. Exporter en EPUB, TXT, Markdown, Book Bible (JSON) ou archive de projet. L’export EPUB complet est refusé si du texte manque ou si EPUBCheck signale une non-conformité.
 
 La preview est volontairement simplifiée (CSS de lecture neutre) ; les CSS et ressources originales sont conservées dans l’EPUB exporté. Aucune mention IA n’est ajoutée automatiquement.
 
@@ -107,7 +107,7 @@ Les contrôles globaux LLM échantillonnent les occurrences dans tout le livre, 
 
 ### Reprise et concurrence
 
-- File SQL avec verrouillage de prise en charge, bail de 60 secondes et heartbeat de 10 secondes.
+- File SQL avec verrouillage de prise en charge, bail de 60 secondes et heartbeat de 2 secondes (`WORKER_HEARTBEAT_SECONDS`).
 - Après un arrêt brutal, reprise au plus tard après expiration du bail, sous réserve de disponibilité du worker/provider.
 - Un ancien worker ne peut plus appliquer un résultat après pause, annulation ou reprise par un nouveau worker.
 - Traductions et étapes intermédiaires enregistrées séparément ; cache des appels valides par contenu du prompt, contexte, modèle et paramètres.

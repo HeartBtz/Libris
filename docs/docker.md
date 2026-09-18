@@ -41,7 +41,7 @@ cd Libris
 ./scripts/install-docker.sh
 ```
 
-The installer creates `.env` with random secrets when needed, pulls `heartbtz/libris:0.3.1`, starts PostgreSQL, applies migrations, and waits for the API health check. It never replaces an existing `.env` or deletes volumes.
+The installer creates `.env` with random secrets when needed, pulls `heartbtz/libris:0.4.1`, starts PostgreSQL, applies migrations, and waits for the API health check. It never replaces an existing `.env` or deletes volumes.
 
 Open <http://localhost:8088>. The initial username and password are in `.env`:
 

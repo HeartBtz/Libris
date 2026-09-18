@@ -17,6 +17,7 @@ All notable changes are documented here. Libris follows [Semantic Versioning](ht
 - **Database indexes.** Several queries that run in a loop had no suitable index: the count of a provider's running calls taken before *every* model call, the look-up of a passage's analysis memory, the event feed polled by each open browser tab, the memory outbox scan, and the foreign keys followed when a book is deleted. A migration adds them (`alembic upgrade head`, applied automatically by the Docker deployment; it takes a few seconds even on a large database) (#38).
 - **Upload size (security).** File uploads were written to the server's temporary directory in full before the session was checked and before `MAX_UPLOAD_MB` was applied: anyone able to reach Libris could fill the disk without an account. Requests are now bounded before anything is buffered — 1 MiB without a session cookie (answered `401`), `MAX_UPLOAD_MB` plus a small margin with one (answered `413`) — from `Content-Length` when it is declared, and while reading for chunked transfers (#39).
 - **Exports without the source file.** When a book's original EPUB could not be found on the server — a data directory restored under another path, a deleted file — *every* export failed with an HTTP 500, including plain text, Markdown and the Book Bible, which do not need it. The file is now also looked up at its deterministic place under `DATA_DIR/books`, the text exports and the Book Bible keep working without it, and the EPUB, project archive and preview answer with an explicit message (#40).
+- **Documentation.** The installation guides still pinned `heartbtz/libris:0.3.1`; they now follow the current release and `scripts/check_version.py` refuses a release whose guides pin another version. A "JSON" export was advertised that does not exist (the JSON export is the Book Bible), the native Anthropic and OpenAI providers were missing from the README, the provider retry delays (60 s to 1 h) and the worker heartbeat (2 s) were misstated, six settings were undocumented (`SESSION_DURATION_HOURS`, `FORWARDED_ALLOW_IPS`, `WORKER_HEARTBEAT_SECONDS`, `MEMORY_CATALOG_INTERVAL_SECONDS`, `PROVIDER_RECOVERY_BASE_SECONDS`, `PROVIDER_RECOVERY_MAX_SECONDS`), and `.env.example` now warns that `COOKIE_SECURE=true` breaks logins over plain HTTP (#41).
 
 ## [0.4.1] - 2026-09-18
 
@@ -262,3 +263,7 @@ A maintenance release coming out of a full audit of the application and of its p
 [0.3.1]: https://github.com/HeartBtz/Libris/releases/tag/v0.3.1
 [0.3.2]: https://github.com/HeartBtz/Libris/releases/tag/v0.3.2
 [0.3.3]: https://github.com/HeartBtz/Libris/releases/tag/v0.3.3
+[0.3.4]: https://github.com/HeartBtz/Libris/releases/tag/v0.3.4
+[0.3.5]: https://github.com/HeartBtz/Libris/releases/tag/v0.3.5
+[0.4.0]: https://github.com/HeartBtz/Libris/releases/tag/v0.4.0
+[0.4.1]: https://github.com/HeartBtz/Libris/releases/tag/v0.4.1

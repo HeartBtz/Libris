@@ -2,7 +2,7 @@ import re
 import unicodedata
 
 from app.engines.context.builder import mentioned
-from app.engines.epub.text import plain, validate_codes
+from app.engines.epub.text import plain, validate_codes, validate_navigation
 from app.schemas import TranslationResult
 
 
@@ -17,6 +17,7 @@ def validate_translation(units: list[dict], result: TranslationResult) -> None:
         ):
             raise ValueError("Bloc de raisonnement détecté dans la traduction.")
         validate_codes(source["text"], translation.text)
+        validate_navigation(source, translation.text)
 
 
 ARTICLES = {

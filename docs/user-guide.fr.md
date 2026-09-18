@@ -38,10 +38,10 @@ Pour les commandes par lot, les deux progressions, les interruptions, les refus 
 2. Importer un EPUB dans la bibliothèque. La structure, les ressources et le texte sont analysés ; EPUBCheck est exécuté dans l’image Docker.
 3. Dans **Configuration**, choisir le provider, les langues, le mode qualité et les instructions globales. Utiliser des codes de langue BCP 47, par exemple `en`, `fr`, `ja`.
 4. **Analyser le livre**. Chaque unité est analysée, puis les résultats sont consolidés par chapitre en Book Bible. L’historique d’analyse reste consultable.
-5. Examiner et corriger la **Book Bible**, les personnages et les propositions de glossaire. Les entrées proposées ne sont pas acceptées automatiquement par défaut.
+5. Examiner et corriger la **Book Bible**, les personnages et les propositions de glossaire. Les entrées proposées ne sont pas acceptées automatiquement par défaut. Le glossaire s’exporte et s’importe en JSON, CSV ou TBX (format d’échange des outils de traduction). L’import reconnaît le format au contenu, accepte les CSV de tableur (séparateur `;` ou `,`, en-têtes français ou anglais comme « Terme source ; Traduction ») et ne remplace jamais un terme déjà présent. En TBX, un terme verrouillé est « preferred », un terme accepté « admitted » et une proposition non acceptée « deprecated ».
 6. **Traduire**. Le suivi se reconnecte automatiquement. Pause, reprise et retry conservent les traductions enregistrées.
 7. Comparer, corriger et valider dans le workspace. Les marqueurs `⟦t0⟧…⟦/t0⟧` protègent les éléments inline ; leur suppression est refusée.
-8. Exporter en EPUB, TXT, Markdown, Book Bible (JSON) ou archive de projet. L’export EPUB complet est refusé si du texte manque ou si EPUBCheck signale une non-conformité.
+8. Exporter en EPUB, TXT, Markdown, Book Bible (JSON) ou archive de projet. L’export EPUB complet est refusé si du texte manque ou si EPUBCheck signale une non-conformité. L’archive de projet est une sauvegarde complète du travail (statuts, validations, historique, critiques, glossaire, personnages, travaux) ; les membres, le provider et le propriétaire ne sont pas restaurés — voir [Archive de projet](operations.md#archive-de-projet).
 
 La preview est volontairement simplifiée (CSS de lecture neutre) ; les CSS et ressources originales sont conservées dans l’EPUB exporté. Aucune mention IA n’est ajoutée automatiquement.
 
@@ -178,6 +178,6 @@ Points à approfondir avant de qualifier la fidélité d’un roman de plusieurs
 - graphe temporel détaillé des relations/croyances, au-delà des événements sourcés et bornés actuels ;
 - meilleure édition visuelle des fiches et des marqueurs inline ;
 - preview CSS fidèle et résolution des défauts EPUB préexistants ;
-- migration portable de tout l’audit d’exécution (l’archive projet conserve textes, versions et mémoire, mais pas les jobs actifs, clés ou journaux complets de requêtes).
+- migration portable des journaux complets de requêtes (l’archive projet conserve le travail, les travaux et les chiffres des requêtes, mais pas les prompts et réponses, les clés ni les membres).
 
 **La conformité EPUB, les mocks et les scores automatiques ne constituent pas une preuve de qualité littéraire.** Voir [le protocole d’évaluation](quality-evaluation.md).

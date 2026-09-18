@@ -70,6 +70,31 @@ Dans **Book Bible → Mémoire OpenViking**, les liens ouvrent les fichiers rée
 
 Les documents globaux sont séparés du retrieval narratif, limité aux événements admissibles sous `/events`. Les fichiers de catalogue sont des projections contextuelles compactes ; SQL conserve les données complètes et exactes.
 
+## Archive de projet
+
+**Exporter → Archive de projet** produit `translation-project.zip` : l’EPUB original et `project.json` (format `schema_version: 2`). Elle sert de sauvegarde d’un livre ou à le déplacer vers une autre instance ; **Restaurer** (import d’archive) recrée un nouveau projet.
+
+L’archive conserve tout ce qui fait le travail sur le livre : configuration (titre, série et tome, langues, qualité, source mémoire, instructions globales), consignes par chapitre et par passage, traductions avec leur statut (validé, à vérifier, refusé, original conservé), étape, critiques et incertitudes, historique complet des versions (sans doublon), glossaire, Book Bible et ses révisions, personnages, fusions et liens, mémoires, problèmes qualité, travaux avec leurs checkpoints (dont les résultats de la revue finale) et les chiffres des requêtes LLM (opération, modèle, tokens, durée, coût, statut).
+
+Ne sont **pas** restaurés, par sécurité : le propriétaire (la personne qui restaure devient propriétaire), les membres et leurs droits (à repartager), le provider (à choisir parmi ceux du serveur ; les travaux qui en épinglaient un reprennent sur celui du livre), les prompts et réponses complets des requêtes, les événements de progression et la file d’envoi OpenViking. Un travail qui était en cours revient **en pause** : rien ne repart ni n’est facturé sans action. Un livre archivé revient actif.
+
+L’archive est validée avant toute écriture : une archive incomplète ou altérée est refusée (422) en nommant les champs fautifs, et une archive dont le texte source ne correspond pas à son EPUB est refusée sans laisser de livre partiel. Les archives de l’ancien format (`schema_version: 1`) restent lisibles. L’export refuse une archive que l’import ne pourrait pas relire (`MAX_UPLOAD_MB`, `MAX_UNPACKED_MB`) ; le message indique le réglage à augmenter sur les deux serveurs.
+
+## Limites de charge
+
+| Variable | Défaut | Effet |
+|---|---|---|
+| `EVENT_STREAMS_PER_USER` | `4` | suivis en direct (un par onglet ouvert sur un livre) simultanés par compte ; au-delà, 429 et message invitant à fermer des onglets. |
+| `EVENT_STREAMS_TOTAL` | `100` | suivis en direct simultanés pour tout le processus API. |
+| `MAX_COMPRESSION_RATIO` | `100` | ratio de compression global maximal d’un EPUB de plus de 8 Mio décompressé ; la taille totale déclarée est contrôlée avant toute décompression. |
+| `PREVIEW_CACHE_MB` | `64` | mémoire gardée pour les livres décompressés des derniers aperçus ; une modification de passage invalide l’entrée. |
+
+La liste des projets, rafraîchie toutes les 5 secondes par l’interface, est calculée en un nombre constant de requêtes SQL quel que soit le nombre de livres, et n’inclut plus la Book Bible (la page du livre la charge).
+
+## Langue des messages d’erreur
+
+Les messages d’erreur de l’API sont en français par défaut. Quand l’interface est en anglais, elle envoie `Accept-Language: en` et reçoit les messages en anglais (`detail`). Le catalogue est `backend/app/i18n.py` ; un test échoue si un message levé dans le code n’y a pas de traduction.
+
 ## Rétention des données de diagnostic
 
 Le worker borne lui-même la croissance de la base : une passe au démarrage, puis une par heure, par petits lots et hors de la boucle des jobs.

@@ -70,6 +70,14 @@ def inspect_archive(data: bytes) -> dict[str, bytes]:
     with zipfile.ZipFile(io.BytesIO(data)) as archive:
         if len(archive.infolist()) > limits.max_entries:
             raise ValueError("Trop de fichiers dans l’archive.")
+        # Declared sizes are checked before anything is unpacked; each entry is then read with its
+        # declared size as a hard bound, so a header that lies cannot get past these limits.
+        declared = sum(info.file_size for info in archive.infolist())
+        packed = sum(info.compress_size for info in archive.infolist())
+        if declared > limits.max_unpacked_mb * 1024**2:
+            raise ValueError("Limite de décompression dépassée (archive bomb possible).")
+        if declared > 8 * 1024**2 and declared / max(packed, 1) > limits.max_compression_ratio:
+            raise ValueError("Ratio de compression global excessif (archive bomb possible).")
         for info in archive.infolist():
             name = safe_name(info.filename)
             mode = info.external_attr >> 16

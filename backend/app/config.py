@@ -13,17 +13,25 @@ class Settings(BaseSettings):
     bootstrap_password: str = ""
     bootstrap_username: str = "admin"
     cookie_secure: bool = False  # Set to True in production; tests need False
+    openapi_enabled: bool = True  # /openapi.json, for signed-in users only
     allowed_origins: str = "http://localhost:8088,http://127.0.0.1:8088"
     session_duration_hours: int = Field(default=24, ge=1, le=24 * 90)
     max_upload_mb: int = 60
     max_unpacked_mb: int = 300
     max_entries: int = 5000
+    # Whole-archive compression ratio above which an EPUB is refused as a possible zip bomb.
+    max_compression_ratio: int = Field(default=100, ge=10, le=100000)
+    # Memory kept for unpacked books of recent chapter previews; 0 disables the cache.
+    preview_cache_mb: int = Field(default=64, ge=0, le=4096)
     openviking_url: str = ""
     openviking_api_key: str = ""
     searxng_url: str = ""
     final_review_enabled: bool = True
     openviking_root_uri: str = "viking://resources/epub-translator"
     epubcheck_jar: str = ""
+    # Live event streams (SSE) held open at once, per account and for the whole API process.
+    event_streams_per_user: int = Field(default=4, ge=1, le=100)
+    event_streams_total: int = Field(default=100, ge=1, le=10000)
     epubcheck_concurrency: int = Field(default=2, ge=1, le=16)
     epubcheck_max_heap_mb: int = Field(default=1024, ge=128, le=16384)
     frontend_dir: Path = Path("/app/frontend/dist")

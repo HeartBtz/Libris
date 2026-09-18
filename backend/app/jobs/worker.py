@@ -4,7 +4,7 @@ import logging
 import signal
 import time
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.config import settings
@@ -19,7 +19,7 @@ from app.engines.translation.pipeline import consistency, translate
 from app.jobs.concurrency import blocking, renewal
 from app.jobs.execution import execution
 from app.jobs.queue import JobStopped, checkpoint, claim, emit, fence, suspend
-from app.models import Issue, Job, Outbox, Project, Segment
+from app.models import Chapter, Issue, Job, Outbox, Project, Segment
 from app.providers.llm import ProviderAuthenticationRequired, ProviderContentRefused, ProviderUnavailable
 
 logger = logging.getLogger("epub.worker")
@@ -110,6 +110,13 @@ def _complete(job_id: str, owner: str, project_id: str) -> None:
             select(Segment.id).where(Segment.project_id == project.id, Segment.translation == "").limit(1)
         )
         project.status = "ready" if incomplete else "completed"
+        # Chapters left with an outdated context by an earlier chapter's new source are checked again
+        # by a review (or a forced analysis) that covers them.
+        if current.operation == "review" or (current.operation == "analyze" and current.options.get("force")):
+            stale = update(Chapter).where(Chapter.project_id == project.id, Chapter.context_stale.is_(True))
+            if current.options.get("chapter_id"):
+                stale = stale.where(Chapter.id == current.options["chapter_id"])
+            db.execute(stale.values(context_stale=False))
         emit(db, project.id, job_id=job_id, status="completed")
         db.commit()
 

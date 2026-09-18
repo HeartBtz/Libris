@@ -14,6 +14,7 @@ from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
 from app.config import settings
+from app.engines.epub.text import plain
 from app.engines.ingestion.base import ADAPTER_VERSION, ImportedAsset, ImportedChapter, ImportedVolume
 from app.engines.ingestion.naming import display_series, normalize_series
 from app.engines.ingestion.text import chapter_key
@@ -443,8 +444,18 @@ def add_chapters(
     if changed:
         project.memory_revision += 1
         project.updated_at = time.time()
+        db.flush()
+        describe_text_volume(db, project)
         emit(db, project.id, status="imported", step="chapters", chapters=len(outcomes))
     return outcomes
+
+
+def describe_text_volume(db: Session, project: Project) -> None:
+    """The figures the library shows for a book (words, size, sources), computed for text volumes."""
+    words = sum(len(plain(source).split()) for source in db.scalars(select(Segment.source).where(Segment.project_id == project.id)))
+    size = db.scalar(select(func.coalesce(func.sum(SourceAsset.size), 0)).where(SourceAsset.project_id == project.id))
+    chapters = db.scalar(select(func.count(Chapter.id)).where(Chapter.project_id == project.id))
+    project.book_info = {**(project.book_info or {}), "words": words, "images": 0, "size": int(size or 0), "resources": chapters}
 
 
 def insert_chapter(db: Session, project: Project, chapter: ImportedChapter, asset: SourceAsset | None) -> Chapter:

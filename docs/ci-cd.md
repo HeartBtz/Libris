@@ -28,7 +28,7 @@ A semantic tag such as `v0.3.1` promotes that exact SHA image to three version a
 | Docker Hub `heartbtz/libris` | `0.3.1`, `0.3`, `latest` | GitLab pipeline |
 | GHCR `ghcr.io/heartbtz/libris` | semantic and SHA tags | Mirrored tag and GitHub Actions |
 
-GitLab also creates its release object from the protected tag. The GitHub mirror receives branches and tags; its release workflow verifies the same version, rebuilds independently, publishes GHCR provenance/SBOM metadata and creates the GitHub release.
+GitLab also creates its release object from the protected tag. Its notes are only the `CHANGELOG.md` section of that version (`python3 scripts/release_notes.py vX.Y.Z` prints them; `release-policy` fails the tag pipeline early when the section is missing), and a retried `release-gitlab` job updates the existing release instead of failing. The GitHub release uses the same notes. The GitHub mirror receives branches and tags; its release workflow verifies the same version, rebuilds independently, publishes GHCR provenance/SBOM metadata and creates the GitHub release.
 
 ### Playwright specs
 

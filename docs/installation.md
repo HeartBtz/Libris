@@ -21,6 +21,7 @@ Run `python3 scripts/setup.py` in the repository root. It generates independent 
 | `OPENVIKING_URL`, `OPENVIKING_API_KEY`     | Optional external memory service                                         |
 | `EPUBCHECK_CONCURRENCY`, `EPUBCHECK_MAX_HEAP_MB` | Simultaneous EPUBCheck validations per process (`2`) and memory ceiling of each one (`1024`) |
 | `WORKER_HEARTBEAT_SECONDS`                 | Interval at which a running job renews its 60 s lease; `2` (1–20)        |
+| `WORKER_BOOK_PARALLELISM`                  | Passages of one book translated or reviewed at once; `0` (default) follows the provider's `max_concurrency`, shared between the books using it, `1` processes one passage at a time (0–16) |
 | `MEMORY_CATALOG_INTERVAL_SECONDS`          | Interval of the external-memory catalogue refresh; `60` (10–86400)       |
 | `PROVIDER_RECOVERY_BASE_SECONDS`, `PROVIDER_RECOVERY_MAX_SECONDS` | First and longest wait before retrying an unavailable provider; `60` and `3600` |
 | `RETENTION_REQUEST_BODIES_DAYS`, `RETENTION_EVENTS_DAYS`, `RETENTION_OUTBOX_SENT_DAYS`, `RETENTION_BIBLE_REVISIONS` | Automatic clean-up of diagnostic data (`30`, `7`, `7`, `20`; `0` disables a rule) — see the operations guide |

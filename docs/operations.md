@@ -6,7 +6,7 @@ La bibliothèque accepte plusieurs EPUB en un import (deux fichiers traités sim
 
 La suppression est confirmée une seule fois pour la sélection. Elle arrête les travaux concernés et supprime le projet local. Les documents déjà présents dans OpenViking restent distincts.
 
-Le worker ordonnance les livres selon `max_concurrency` de leur provider. Cette limite réunit analyses, traductions, relectures et contrôles de cohérence : un provider réglé à 3 exécute au plus trois livres à la fois, quelle que soit la combinaison des opérations. Les capacités des providers sont indépendantes ; Codex à 3 et Qwen à 1 autorisent donc jusqu’à quatre livres actifs. Les passages d’un même livre restent séquentiels. Le limiteur des requêtes LLM applique la même valeur comme seconde protection.
+Le worker ordonnance les livres selon `max_concurrency` de leur provider. Cette limite réunit analyses, traductions, relectures et contrôles de cohérence : un provider réglé à 3 exécute au plus trois livres à la fois, quelle que soit la combinaison des opérations. Les capacités des providers sont indépendantes ; Codex à 3 et Qwen à 1 autorisent donc jusqu’à quatre livres actifs. Au sein d’un livre, la traduction, la revue finale et les contrôles de cohérence traitent plusieurs passages à la fois, jusqu’à la capacité du provider, partagée entre les livres qui l’utilisent au même moment ; l’analyse des passages et la synthèse de la Book Bible restent séquentielles. `WORKER_BOOK_PARALLELISM` plafonne ce nombre par livre (`0`, par défaut : la capacité du provider ; `1` : un passage à la fois, comme avant la 0.5). Le limiteur des requêtes LLM applique la capacité comme seconde protection, dans l’ordre d’arrivée des demandes. Le compromis sur le contexte des passages voisins est décrit dans l’[architecture](architecture.md#plusieurs-passages-dun-même-livre).
 
 Le provider est figé pendant une exécution afin de préserver les limites et le fencing des résultats. Pour changer de modèle en cours de livre, mettre le job en pause, modifier le provider du projet puis reprendre : le job est alors réaffecté au nouveau provider à partir du prochain passage. Les jobs de reprise ciblée conservent leur provider explicitement choisi.
 
@@ -33,7 +33,9 @@ Cliquer **Analyser** sur un livre entièrement analysé est une opération sans 
 | Refus pendant la traduction   | deuxième essai, puis passage marqué `refused` et poursuite du livre                                              |
 | JSON ou structure invalide    | retries bornés, puis erreur localisée                                                                            |
 
-Un contrôle de bail toutes les deux secondes détecte les pauses et annulations. Les écritures sont protégées par la révision du passage et le détenteur du bail. Un résultat tardif ne remplace pas une correction humaine ou un état annulé. Les étapes initiale, critique, révision et synthèse ont leurs checkpoints.
+Un contrôle de bail toutes les deux secondes détecte les pauses et annulations ; il interrompt alors tous les appels en vol du livre. Les écritures sont protégées par la révision du passage et le détenteur du bail. Un résultat tardif ne remplace pas une correction humaine ou un état annulé. Les étapes initiale, critique, révision et synthèse ont leurs checkpoints ; l’état de chaque passage est enregistré dans `job_segment_state`, le checkpoint du job ne gardant qu’un curseur et des compteurs de taille fixe.
+
+Le travail SQL et les calculs proportionnels à la taille du livre s’exécutent hors de la boucle asyncio du worker : un gros livre ne retarde plus les heartbeats des autres livres. Sur un livre synthétique de 1 500 passages traduit en même temps qu’un second de même taille (SQLite, provider sans latence), le retard maximal de la boucle est passé de 450 ms à environ 100 ms et l’intervalle entre deux renouvellements de bail n’a pas dépassé 2,2 s pour un heartbeat de 2 s.
 
 ## Refus et absence de trous silencieux
 

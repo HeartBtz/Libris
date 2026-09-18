@@ -49,8 +49,12 @@ SCHEMA_VERSION = 2
 # Columns deliberately left out of the archive. Everything else is exported and restored; a test
 # fails when a new column is neither restored nor listed here.
 NOT_ARCHIVED = {
-    Project: {"id", "owner_id", "provider_id", "original_path", "original_hash", "archived_at", "updated_at"},
-    Chapter: {"project_id"},
+    # The series is found again by name on the restoring server (`series_name`, synchronised).
+    Project: {
+        "id", "owner_id", "provider_id", "original_path", "original_hash", "archived_at", "updated_at", "series_id",
+    },
+    # Source files are re-stored; their new rows get new identifiers.
+    Chapter: {"project_id", "source_asset_id"},
     # The structure comes from the EPUB itself; `translation` and `source_key` are derived from the units.
     Segment: {"project_id", "chapter_id", "section", "units", "translation", "source_key"},
     TranslationVersion: {"id", "author_id"},
@@ -92,6 +96,10 @@ class ArchivedProject(Archived):
     bible: dict = Field(default_factory=dict)
     bible_validated: bool = False
     memory_revision: int = Field(default=0, ge=0)
+    source_format: Literal["epub", "txt", "json"] = "epub"
+    project_kind: Literal["volume", "serial"] = "volume"
+    external_id: str | None = Field(default=None, max_length=200)
+    import_meta: dict = Field(default_factory=dict)
 
 
 class ArchivedChapter(Archived):
@@ -103,6 +111,11 @@ class ArchivedChapter(Archived):
     instructions: str = Field(default="", max_length=10000)
     analyzed: bool = False
     kind: Literal["narrative", "auxiliary", "navigation", "metadata"] | None = None
+    external_id: str | None = Field(default=None, max_length=200)
+    chapter_number: float | None = None
+    source_checksum: str | None = Field(default=None, max_length=64)
+    import_meta: dict = Field(default_factory=dict)
+    context_stale: bool = False
 
 
 class ArchivedSegment(Archived):
@@ -390,6 +403,9 @@ def restore_archive(db, project: Project, archive: ProjectArchive) -> None:
     project.bible = info.bible
     project.bible_validated = info.bible_validated
     project.memory_revision = info.memory_revision
+    project.external_id = info.external_id
+    if info.import_meta:
+        project.import_meta = {**info.import_meta, **project.import_meta}
     # A book whose work was running waits for Resume; "pending" is also the status of a fresh import.
     project.status = "paused" if info.status in HELD and info.status != "pending" else info.status
     if info.created_at:
@@ -415,6 +431,12 @@ def restore_archive(db, project: Project, archive: ProjectArchive) -> None:
         # Archives written before chapter kinds keep the kind the fresh import derived from the EPUB.
         if saved.kind:
             chapter.kind = saved.kind
+        chapter.context_stale = saved.context_stale
+        for key in ("external_id", "chapter_number", "source_checksum"):
+            if getattr(saved, key) is not None:
+                setattr(chapter, key, getattr(saved, key))
+        if saved.import_meta:
+            chapter.import_meta = saved.import_meta
         if saved.created_at:
             chapter.created_at = saved.created_at
 

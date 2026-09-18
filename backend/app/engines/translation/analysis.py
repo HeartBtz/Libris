@@ -114,6 +114,17 @@ def _store_bible(job: Job, owner: str, project_id: str, batch_key: str, result: 
         db.commit()
 
 
+def _refresh_series(project_id: str) -> None:
+    """A volume analysed: its identities, relations and terms join the series memory."""
+    from app.engines.series.bible import refresh_series
+
+    with SessionLocal() as db:
+        project = db.get(Project, project_id)
+        if project and project.series_id:
+            refresh_series(db, project.series_id)
+            db.commit()
+
+
 def _chapter_done(job: Job, owner: str, cid: str) -> None:
     with SessionLocal() as db:
         fence(db, job.id, owner)
@@ -218,3 +229,4 @@ async def analyze(job: Job, owner: str) -> None:
             )
             await blocking(_store_bible, job, owner, project.id, batch_key, result)
         await blocking(_chapter_done, job, owner, cid)
+    await blocking(_refresh_series, job.project_id)

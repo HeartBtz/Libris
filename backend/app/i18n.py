@@ -192,6 +192,39 @@ MESSAGES = {
     "Chaque problème doit fournir une correction directement applicable.": "Each issue must provide a directly applicable correction.",
     "La revue finale doit statuer sans déléguer sa décision.": "The final review must decide without delegating its decision.",
     "Final review references an unknown unit.": "Final review references an unknown unit.",
+    # Series, imports and automation
+    "Les chapitres d’une webnovel appartiennent obligatoirement à leur série.": "The chapters of a webnovel must belong to their series.",
+    "Chemin de stockage hors du dossier de données.": "Storage path outside the data folder.",
+    "Aucun texte traduisible trouvé dans la source.": "No translatable text found in the source.",
+    "Ce volume vient d’un EPUB : ajoutez les chapitres texte à un autre volume.": "This volume comes from an EPUB: add the text chapters to another volume.",
+    "Des chapitres existent déjà avec un autre contenu : confirmez leur remplacement.": "Chapters already exist with a different content: confirm their replacement.",
+    "Ce remplacement supprimerait des passages corrigés ou validés par une personne. Confirmez explicitement leur abandon.": "This replacement would delete passages corrected or validated by a person. Explicitly confirm that they may be discarded.",
+    "Encodage UTF-32 non pris en charge : enregistrez le fichier en UTF-8.": "UTF-32 encoding is not supported: save the file as UTF-8.",
+    "Le fichier annonce un encodage (BOM) que son contenu ne respecte pas.": "The file announces an encoding (BOM) that its content does not follow.",
+    "Encodage non reconnu (UTF-16 sans BOM ?) : enregistrez le fichier en UTF-8.": "Unrecognised encoding (UTF-16 without BOM?): save the file as UTF-8.",
+    "Encodage non reconnu : enregistrez le fichier en UTF-8.": "Unrecognised encoding: save the file as UTF-8.",
+    "Ce fichier n’est pas en UTF-8 : il a été lu en Windows-1252. Vérifiez les accents de l’aperçu.": "This file is not UTF-8: it was read as Windows-1252. Check the accented characters of the preview.",
+    "Le texte contient des marqueurs réservés à Libris (⟦t0⟧…) : retirez-les.": "The text contains markers reserved to Libris (⟦t0⟧…): remove them.",
+    "Aucun texte traduisible dans ce chapitre.": "No translatable text in this chapter.",
+    "mot-clé de volume dans le nom du fichier": "volume keyword in the file name",
+    "abréviation « v » suivie d’un numéro dans le nom du fichier": "“v” abbreviation followed by a number in the file name",
+    "numéro précédé de « # » dans le nom du fichier": "number preceded by “#” in the file name",
+    "numéro entre crochets ou parenthèses dans le nom du fichier": "number in brackets or parentheses in the file name",
+    "plusieurs numéros de volume contradictoires dans le nom du fichier": "several contradictory volume numbers in the file name",
+    "numéro qui varie entre les noms des fichiers du lot": "number that varies between the file names of the batch",
+    "nom du fichier sans son numéro de volume": "file name without its volume number",
+    "début commun aux noms des fichiers du lot": "beginning shared by the file names of the batch",
+    "aucun nom commun dans les noms de fichiers": "no name shared by the file names",
+    "métadonnées de série de l’EPUB": "series metadata of the EPUB",
+    "aucun numéro de volume trouvé": "no volume number found",
+    "mot-clé de chapitre dans le nom du fichier": "chapter keyword in the file name",
+    "numéro au début du nom du fichier": "number at the start of the file name",
+    "numéro final qui varie dans le lot": "final number that varies within the batch",
+    "aucun numéro trouvé": "no number found",
+    "Même nom canonique": "Same canonical name",
+    "Nom ou alias partagé": "Shared name or alias",
+    "Plusieurs identités de la série portent ce nom : à confirmer": "Several identities of the series bear this name: to be confirmed",
+    "Première apparition dans la série": "First appearance in the series",
 }  # fmt: skip
 
 TEMPLATES = {
@@ -221,6 +254,12 @@ TEMPLATES = {
     "Terme de glossaire invalide n° {number} : {problem}": "Invalid glossary term no. {number}: {problem}",
     "Fenêtre de {window} tokens trop petite pour ce passage : après {output} tokens réservés à la réponse et {reserve} au format de réponse, il reste {available} tokens, alors que le prompt système ({system}), le texte du passage ({target}) et les règles obligatoires ({rules}) en demandent {needed} (estimation prudente : 1 token par octet). Choisissez un fournisseur avec une fenêtre d’au moins {suggested} tokens ou réduisez sa sortie maximale ; aucun texte n’a été retiré.": "A {window}-token window is too small for this passage: after {output} tokens reserved for the answer and {reserve} for the answer format, {available} tokens remain, while the system prompt ({system}), the passage text ({target}) and the mandatory rules ({rules}) need {needed} (cautious estimate: 1 token per byte). Choose a provider with a window of at least {suggested} tokens or lower its maximum output; no text was removed.",
     "Fenêtre de {window} tokens trop petite pour garder le voisinage du passage : une fois le passage et les règles placés, il reste {available} tokens de contexte, moins qu’un extrait des passages voisins. Choisissez un fournisseur avec une fenêtre plus grande ou réduisez sa sortie maximale.": "A {window}-token window is too small to keep the passage's neighbourhood: once the passage and the rules are placed, {available} tokens of context remain, less than an excerpt of the neighbouring passages. Choose a provider with a larger window or lower its maximum output.",
+    # Series, imports and automation
+    'Un travail est en cours sur « {title} » : mettez-le en pause avant d’y ajouter des chapitres.': 'A job is running on “{title}”: pause it before adding chapters to it.',
+    'Chapitre trop long : {length} caractères pour {limit} autorisés.': 'Chapter too long: {length} characters for {limit} allowed.',
+    '{count} caractère(s) de contrôle supprimé(s).': '{count} control character(s) removed.',
+    'Le nom du fichier indique aussi le volume {number} ; le numéro retenu vient du lot.': 'The file name also indicates volume {number}; the number kept comes from the batch.',
+    'Les métadonnées de l’EPUB indiquent le volume {number}.': 'The EPUB metadata indicate volume {number}.',
 }  # fmt: skip
 
 

@@ -37,7 +37,8 @@ from app.security import password_hash
 PASSWORD = "test-password-123456789"
 
 # Compared field by field after a round trip, except what is deliberately not restored.
-IGNORED = {"id", "project_id", "owner_id", "provider_id", "author_id", "original_path", "updated_at"}
+IGNORED = {"id", "project_id", "owner_id", "provider_id", "author_id", "original_path", "updated_at",
+           "source_asset_id"}
 REQUEST_BODIES = {"execution_owner", "fingerprint", "parameters", "messages", "context", "raw", "parsed"}
 
 

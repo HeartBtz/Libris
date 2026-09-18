@@ -53,7 +53,7 @@ def test_every_prompt_carries_the_untrusted_data_clause_even_when_overridden(see
     for name in names:
         system, version = load_prompt(name, "en", "fr")
         assert UNTRUSTED_DATA in system, name
-        assert version == "file-v2+rules-v1"
+        assert version == "file-v3+rules-v1"
     with SessionLocal() as db:
         db.add(Prompt(name="polishing", version=3, content="Custom polishing for {target_language}."))
         db.commit()
@@ -138,4 +138,4 @@ async def test_project_languages_reach_the_prompt_by_name(seeded):
         db.commit()
     built = await build_context(seeded[0], target_segment(seeded[0]), "translation")
     assert "from English (en) into German (de)" in built.messages[0]["content"]
-    assert built.inspector["prompt_version"] == "file-v2+rules-v1"
+    assert built.inspector["prompt_version"] == "file-v3+rules-v1"

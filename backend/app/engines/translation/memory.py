@@ -7,7 +7,7 @@ import unicodedata
 from sqlalchemy import select
 
 from app.db import SessionLocal
-from app.engines.context.series import enforced_glossary, prior_volumes, series_key
+from app.engines.context.series import enforced_glossary, prior_volumes
 from app.engines.quality.checks import checks, locked_term_error, validate_translation
 from app.languages import primary
 from app.models import Project, Segment
@@ -37,7 +37,7 @@ def remembered_translation(project: Project, segment: Segment) -> TranslationRes
         if not translation_memory_enabled(project):
             return None
         allowed = None
-        if series_key(project.series_name) and project.volume_number:
+        if project.series_id and project.volume_number:
             allowed = {project.id, *(volume.id for volume in prior_volumes(db, project))}
         candidates = db.execute(
             select(Segment, Project)

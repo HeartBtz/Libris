@@ -77,6 +77,9 @@ class RequestLog(Identified, Base):
     completion_tokens: Mapped[int] = mapped_column(Integer, default=0)
     attempt: Mapped[int] = mapped_column(Integer, default=1)
     cached: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Price per million tokens when the call was made; NULL on rows that predate the columns.
+    input_cost: Mapped[float | None] = mapped_column(Float)
+    output_cost: Mapped[float | None] = mapped_column(Float)
     error: Mapped[str] = mapped_column(Text, default="")
 
 

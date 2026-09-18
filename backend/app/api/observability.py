@@ -16,18 +16,18 @@ router = APIRouter(prefix="/api")
 
 @router.get("/statistics/models")
 def model_statistics(_admin: Admin, db: DB):
-    rows = db.execute(
+    # The model recorded with each request, not the provider's current one: editing a provider
+    # must not move its history to another model.
+    used = db.execute(
         select(
-            Provider.model,
+            RequestLog.model,
             func.count(RequestLog.id),
             func.coalesce(func.sum(RequestLog.prompt_tokens), 0),
             func.coalesce(func.sum(RequestLog.completion_tokens), 0),
-        )
-        .select_from(Provider)
-        .outerjoin(RequestLog, RequestLog.provider_id == Provider.id)
-        .group_by(Provider.model)
-        .order_by(Provider.model)
+        ).group_by(RequestLog.model)
     ).all()
+    configured = set(db.scalars(select(Provider.model))) - {model for model, *_ in used}
+    rows = sorted([*used, *((model, 0, 0, 0) for model in configured)], key=lambda item: item[0])
     return [
         {
             "model": model,
@@ -56,20 +56,23 @@ def metrics(pid: str, user: CurrentUser, db: DB):
             func.count().filter(RequestLog.cached.is_(True)),
         )
         .select_from(RequestLog)
-        .join(Provider, RequestLog.provider_id == Provider.id)
+        .outerjoin(Provider, RequestLog.provider_id == Provider.id)
         .where(RequestLog.project_id == pid)
     ).one()
+    # The price recorded with the request; the provider's current price only for older rows.
     cost = db.scalar(
         select(
             func.sum(
                 (
-                    RequestLog.prompt_tokens * Provider.input_cost
-                    + RequestLog.completion_tokens * Provider.output_cost
+                    RequestLog.prompt_tokens
+                    * func.coalesce(RequestLog.input_cost, Provider.input_cost, 0)
+                    + RequestLog.completion_tokens
+                    * func.coalesce(RequestLog.output_cost, Provider.output_cost, 0)
                 )
                 / 1_000_000
             )
         )
-        .join(Provider, RequestLog.provider_id == Provider.id)
+        .outerjoin(Provider, RequestLog.provider_id == Provider.id)
         .where(RequestLog.project_id == pid)
     )
     return dict(

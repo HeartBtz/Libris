@@ -75,7 +75,10 @@ async def resolve_validations(job: Job, owner: str) -> None:
         ids = stored.checkpoint["final_review_targets"]
     else:
         checkpoint(job.id, owner, {"final_review_targets": ids})
+    reviewed = set(stored.checkpoint.get("final_review_done", []))
     for index, sid in enumerate(ids):
+        if sid in reviewed:  # resumed job: no checkpoint write and no event for what is already done
+            continue
         current_job = checkpoint(
             job.id,
             owner,

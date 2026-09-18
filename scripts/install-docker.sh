@@ -37,7 +37,7 @@ env_value() {
 }
 
 configured_image="$(env_value LIBRIS_IMAGE)"
-image="${LIBRIS_IMAGE:-${configured_image:-heartbtz/libris:0.4.0}}"
+image="${LIBRIS_IMAGE:-${configured_image:-heartbtz/libris:0.4.1}}"
 if grep -q '^LIBRIS_IMAGE=' "$root/.env"; then
 	sed -i "s|^LIBRIS_IMAGE=.*|LIBRIS_IMAGE=${image}|" "$root/.env"
 else

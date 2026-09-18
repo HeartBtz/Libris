@@ -44,7 +44,8 @@ export interface Project {
     size: number;
     validation?: unknown;
   };
-  bible: Record<string, unknown>;
+  /** Only the project detail carries the Book Bible; the list omits it. */
+  bible?: Record<string, unknown>;
   progress?: ProjectProgress;
 }
 export interface ProgressStage {
@@ -81,18 +82,16 @@ export interface ProjectProgress {
     confidence: "insufficient" | "low" | "medium" | "high" | "complete";
   };
 }
-export interface Provider {
-  kind:
-    | "openai"
-    | "openai_responses"
-    | "codex_chatgpt"
-    | "anthropic"
-    | "openai_direct";
-  created_at?: number;
+/** What every user may see of a provider; the connection details are for administrators only. */
+export interface ProviderSummary {
   id: string;
+  kind: "openai" | "openai_responses" | "codex_chatgpt" | "anthropic" | "openai_direct";
   name: string;
-  base_url: string;
   model: string;
+}
+export interface Provider extends ProviderSummary {
+  created_at?: number;
+  base_url: string;
   context_window: number;
   max_output_tokens: number;
   temperature: number;

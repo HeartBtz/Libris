@@ -63,6 +63,9 @@ registerTranslations({
   Nom: "Name",
   "Clé API": "API key",
   "Enregistrée — laisser vide pour conserver": "Saved — leave empty to keep",
+  "Ressaisissez la clé API": "Enter the API key again",
+  "La clé enregistrée n’est jamais envoyée vers une nouvelle adresse ou un autre type de connexion : saisissez-la de nouveau pour enregistrer ce changement.":
+    "The saved key is never sent to a new address or another connection type: enter it again to save this change.",
   Facultative: "Optional",
   Requise: "Required",
   "Anthropic · Claude (clé API)": "Anthropic · Claude (API key)",
@@ -336,10 +339,14 @@ function ProviderSettings({ run }: { run: Run }) {
   const [providers, setProviders] = useState<Provider[] | null>(null);
   const blank = () => ({ ...initial, name: t("Modèle local") });
   const [value, setValue] = useState<Provider>(blank);
+  const [original, setOriginal] = useState<Provider | null>(null);
   const [key, setKey] = useState("");
   const [result, setResult] = useState("");
   const [models, setModels] = useState<string[]>([]);
   const native = value.kind === "anthropic" || value.kind === "openai_direct";
+  // The server refuses to reuse a stored key for another address or connection type.
+  const endpointChanged =
+    !!value.id && !!original?.has_api_key && (value.base_url !== original.base_url || value.kind !== original.kind);
   useEffect(() => {
     void run.background(async () => setProviders(await api("/providers")));
   }, [run]);
@@ -354,6 +361,7 @@ function ProviderSettings({ run }: { run: Run }) {
       id ? "PUT" : "POST",
     );
     setValue(saved);
+    setOriginal(saved);
     setKey("");
     setProviders(await api("/providers"));
     setResult(t("Provider enregistré."));
@@ -401,6 +409,7 @@ function ProviderSettings({ run }: { run: Run }) {
             icon="plus"
             onClick={() => {
               setValue(blank());
+              setOriginal(null);
               setKey("");
               setModels([]);
               setResult("");
@@ -423,6 +432,7 @@ function ProviderSettings({ run }: { run: Run }) {
                   aria-current={value.id === p.id ? "true" : undefined}
                   onClick={() => {
                     setValue(p);
+                    setOriginal(p);
                     setKey("");
                     setResult("");
                   }}
@@ -502,15 +512,26 @@ function ProviderSettings({ run }: { run: Run }) {
                 </Field>
               )}
               {value.kind !== "codex_chatgpt" && (
-                <Field label={t("Clé API")}>
+                <Field
+                  label={t("Clé API")}
+                  hint={
+                    endpointChanged
+                      ? t(
+                          "La clé enregistrée n’est jamais envoyée vers une nouvelle adresse ou un autre type de connexion : saisissez-la de nouveau pour enregistrer ce changement.",
+                        )
+                      : undefined
+                  }
+                >
                   <Input
                     type="password"
                     autoComplete="new-password"
                     value={key}
                     onChange={(e) => setKey(e.target.value)}
-                    required={native && !value.has_api_key}
+                    required={(native && !value.has_api_key) || endpointChanged}
                     placeholder={
-                      value.has_api_key
+                      endpointChanged
+                        ? t("Ressaisissez la clé API")
+                        : value.has_api_key
                         ? t("Enregistrée — laisser vide pour conserver")
                         : native
                           ? t("Requise")
@@ -667,6 +688,7 @@ function ProviderSettings({ run }: { run: Run }) {
                   await run(async () => {
                     await api(`/providers/${value.id}`, { method: "DELETE" });
                     setValue(blank());
+              setOriginal(null);
                     setProviders(await api("/providers"));
                     setResult(t("Provider supprimé."));
                   });

@@ -175,27 +175,42 @@ export function Workspace({ id, user, run }: { id: string; user: User; run: Run 
     void run.background(load);
   }, [run, load, tick]);
   useEffect(() => {
-    const stream = new EventSource(`/api/projects/${id}/events`);
+    // One stream per open book. The server caps concurrent streams per account, so a failed
+    // stream is closed and reopened with a growing delay rather than retried immediately.
+    let stream: EventSource | null = null;
     let pending: ReturnType<typeof setTimeout> | undefined;
+    let retry: ReturnType<typeof setTimeout> | undefined;
+    let delay = 1000;
+    let stopped = false;
     const reload = () => {
       clearTimeout(pending);
       pending = setTimeout(() => setTick((v) => v + 1), 300);
     };
-    stream.onopen = () => {
-      setStreamState("connected");
-      // The stream only carries what happens from now on: catch up once on anything
-      // that changed between the initial load and the connection.
-      reload();
+    const connect = () => {
+      stream = new EventSource(`/api/projects/${id}/events`);
+      stream.onopen = () => {
+        delay = 1000;
+        setStreamState("connected");
+        // The stream only carries what happens from now on: catch up once on anything
+        // that changed between the initial load and the connection.
+        reload();
+      };
+      stream.onerror = () => {
+        stream?.close();
+        setStreamState("reconnecting");
+        // The stream cannot report why it failed; a reload reveals an expired session (401).
+        reload();
+        if (!stopped) retry = setTimeout(connect, delay);
+        delay = Math.min(delay * 2, 60000);
+      };
+      stream.onmessage = reload;
     };
-    stream.onerror = () => {
-      setStreamState("reconnecting");
-      // The stream cannot report why it failed; a reload reveals an expired session (401).
-      reload();
-    };
-    stream.onmessage = reload;
+    connect();
     return () => {
+      stopped = true;
       clearTimeout(pending);
-      stream.close();
+      clearTimeout(retry);
+      stream?.close();
     };
   }, [id]);
   const refresh = () => setTick((value) => value + 1);
@@ -212,7 +227,7 @@ export function Workspace({ id, user, run }: { id: string; user: User; run: Run 
     (["failed", "cancelled"].includes(project.status) ? jobs.find((j) => j.status === project.status) : undefined);
   const analysisReady =
     (stats.analyzed_segments || 0) === stats.total && (stats.synthesized_chapters || 0) === stats.chapters;
-  const canTranslate = !!project.provider_id && !!Object.keys(project.bible).length;
+  const canTranslate = !!project.provider_id && !!Object.keys(project.bible || {}).length;
   const recoverable = stats.errors + stats.refused;
   const progress = projectProgress(project);
   const openTab = async (next: string) => {

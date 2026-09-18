@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { api, downloadApi, send } from "../api";
 import { getLocale, registerTranslations, useI18n } from "../i18n";
-import type { Job, Project, Provider, Run } from "../types";
+import type { Job, Project, ProviderSummary, Run } from "../types";
 import {
   Button,
   Dialog,
@@ -115,7 +115,7 @@ export function BatchActions({
 }) {
   const { t, tp } = useI18n();
   const { confirm } = useDialogs();
-  const [providers, setProviders] = useState<Provider[]>([]);
+  const [providers, setProviders] = useState<ProviderSummary[]>([]);
   const [configuring, setConfiguring] = useState(false);
   const [provider, setProvider] = useState("");
   const [memoryBackend, setMemoryBackend] = useState<"" | Project["context_backend"]>("");

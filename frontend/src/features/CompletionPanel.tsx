@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { api, labels, send } from "../api";
 import { registerTranslations, useI18n } from "../i18n";
-import type { Project, Provider, Run } from "../types";
+import type { Project, ProviderSummary, Run } from "../types";
 import {
   Badge,
   Button,
@@ -107,7 +107,7 @@ export function CompletionPanel({
 }) {
   const { t } = useI18n();
   const [report, setReport] = useState<Report | null>(null);
-  const [providers, setProviders] = useState<Provider[]>([]);
+  const [providers, setProviders] = useState<ProviderSummary[]>([]);
   const [provider, setProvider] = useState(project.provider_id || "");
   const [selected, setSelected] = useState<string[]>([]);
   const [filter, setFilter] = useState<Filter>("all");
@@ -119,7 +119,7 @@ export function CompletionPanel({
     void run.background(async () => {
       const [data, list] = await Promise.all([
         api<Report>(`/projects/${project.id}/completion`),
-        api<Provider[]>("/providers"),
+        api<ProviderSummary[]>("/providers"),
       ]);
       if (active) {
         setReport(data);

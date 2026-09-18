@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { api, send } from "../api";
 import { registerTranslations, useI18n } from "../i18n";
-import type { Chapter, Issue, Project, Provider, Run, Segment } from "../types";
+import type { Chapter, Issue, Project, ProviderSummary, Run, Segment } from "../types";
 import { useLeaveGuard } from "../unsaved";
 import {
   Badge,
@@ -129,7 +129,7 @@ export function ValidationPanel({
   const [segments, setSegments] = useState<Segment[] | null>(null);
   const [issues, setIssues] = useState<Issue[]>([]);
   const [refused, setRefused] = useState<Segment[]>([]);
-  const [providers, setProviders] = useState<Provider[]>([]);
+  const [providers, setProviders] = useState<ProviderSummary[]>([]);
   const [recoveryProvider, setRecoveryProvider] = useState("");
   const [selected, setSelected] = useState<Segment | null>(null);
   const [reloading, setReloading] = useState(false);
@@ -150,7 +150,7 @@ export function ValidationPanel({
           api<Segment[]>(`/projects/${project.id}/segments?status=check&offset=${page * PAGE_SIZE}&limit=${PAGE_SIZE}`),
           api<Segment[]>(`/projects/${project.id}/segments?status=refused&offset=0&limit=100`),
           api<Issue[]>(`/projects/${project.id}/issues`),
-          api<Provider[]>("/providers"),
+          api<ProviderSummary[]>("/providers"),
           api<FinalReview>(`/projects/${project.id}/final-review`),
         ]);
         if (!active) return;

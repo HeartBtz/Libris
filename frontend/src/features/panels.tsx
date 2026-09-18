@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, date, download, downloadGet, labels, send } from "../api";
 import { formatNumber, formatPercent, registerTranslations, useI18n } from "../i18n";
-import type { Issue, LLMRequest, Project, Provider, Run, Term, User } from "../types";
+import type { Issue, LLMRequest, Project, ProviderSummary, Run, Term, User } from "../types";
 import {
   Badge,
   Button,
@@ -234,7 +234,7 @@ export function ProjectSettings({
   const { t } = useI18n();
   const { confirm } = useDialogs();
   const [value, setValue] = useState(project);
-  const [providers, setProviders] = useState<Provider[]>([]);
+  const [providers, setProviders] = useState<ProviderSummary[]>([]);
   const [saved, setSaved] = useState("");
   const [busy, setBusy] = useState(false);
   const owner = project.owner_id === user.id;
@@ -785,7 +785,7 @@ export function Bible({
   tick: number;
 }) {
   const { t } = useI18n();
-  const [text, setText] = useState(JSON.stringify(project.bible, null, 2));
+  const [text, setText] = useState(JSON.stringify(project.bible || {}, null, 2));
   const [dirty, setDirty] = useState(false);
   const [jsonError, setJsonError] = useState("");
   const [data, setData] = useState<BibleData | null>(null);
@@ -794,7 +794,7 @@ export function Bible({
     void run.background(async () => {
       setData(await api(`/projects/${project.id}/bible`));
     });
-    if (!dirty) setText(JSON.stringify(project.bible, null, 2));
+    if (!dirty) setText(JSON.stringify(project.bible || {}, null, 2));
   }, [project.id, project.updated_at, run, tick]);
   const bible = data?.bible || {};
   const fields = Object.keys(bibleLabels).filter((key) => (Array.isArray(bible[key]) ? (bible[key] as unknown[]).length : bible[key]));

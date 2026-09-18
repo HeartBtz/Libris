@@ -28,7 +28,7 @@ test("multiple EPUB import, batch selection, canonical graph and validated relat
     .setInputFiles(["/tmp/libris/batch-a.epub", "/tmp/libris/batch-b.epub"]);
   try {
     await expect(
-      page.getByText("2 livre(s) sélectionné(s)", { exact: true }),
+      page.getByText("2 livres sélectionnés", { exact: true }),
     ).toBeVisible({ timeout: 30000 });
     await expect(
       page.getByRole("button", { name: "Analyser la sélection" }),
@@ -89,16 +89,24 @@ test("multiple EPUB import, batch selection, canonical graph and validated relat
     expect((await statsRequest).status()).toBe(200);
     await expect(draft).toHaveValue("Brouillon non enregistré à conserver.");
     await page
-      .getByRole("button", { name: "Personnages & liens", exact: true })
+      .getByRole("tab", { name: "Personnages", exact: true })
+      .click();
+    // The unsaved draft is protected: leaving the editor asks first.
+    await page
+      .getByRole("dialog", { name: "Modifications non enregistrées" })
+      .getByRole("button", { name: "Quitter sans enregistrer" })
       .click();
     await expect(page.locator(".react-flow__node")).toHaveCount(3);
     await page.locator(`.react-flow__node[data-id="${rudy}"]`).click();
     await page
       .getByLabel("Fiche canonique de destination")
       .selectOption(rudeus);
-    page.once("dialog", (dialog) => dialog.accept());
     await page
       .getByRole("button", { name: "Fusionner avec cette fiche" })
+      .click();
+    await page
+      .getByRole("dialog", { name: "Même personne ?" })
+      .getByRole("button", { name: "Fusionner", exact: true })
       .click();
     await expect(page.locator(".react-flow__node")).toHaveCount(2);
     await page.getByLabel("Ajouter des alias").fill("Rudeus");
@@ -142,25 +150,27 @@ test("multiple EPUB import, batch selection, canonical graph and validated relat
     await page.goto(`${base}/#library`);
     const fixtureRow = page
       .getByRole("link", { name: "Batch fixture B", exact: true })
-      .locator("xpath=ancestor::tr");
+      .locator("xpath=ancestor::*[self::tr or self::li][1]");
     await fixtureRow
-      .getByRole("button", { name: "Archiver", exact: true })
+      .getByRole("button", { name: "Actions pour Batch fixture B" })
       .click();
-    await page.getByRole("button", { name: /Archives/ }).click();
-    page.once("dialog", (dialog) => dialog.accept());
+    await page.getByRole("menuitem", { name: "Archiver", exact: true }).click();
+    await page.getByRole("radio", { name: /Archives/ }).click();
+    await page
+      .getByRole("button", { name: "Actions pour Batch fixture B" })
+      .click();
+    await page.getByRole("menuitem", { name: "Supprimer", exact: true }).click();
     const deletion = page.waitForResponse(
       (r) =>
         r.url().includes("/api/projects/") && r.request().method() === "DELETE",
     );
     await page
-      .getByRole("button", { name: "Supprimer Batch fixture B", exact: true })
+      .getByRole("dialog", { name: "Supprimer Batch fixture B ?" })
+      .getByRole("button", { name: "Supprimer définitivement" })
       .click();
     expect((await deletion).status()).toBe(200);
     await expect(
-      page.getByRole("button", {
-        name: "Supprimer Batch fixture B",
-        exact: true,
-      }),
+      page.getByRole("link", { name: "Batch fixture B", exact: true }),
     ).toHaveCount(0);
   } finally {
     for (const id of ids)

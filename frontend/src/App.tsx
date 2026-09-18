@@ -1,89 +1,34 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { api, ApiError, date, labels, number, send } from "./api";
-import type { Project, Run, User } from "./types";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { api, ApiError, send } from "./api";
+import type { Run, User } from "./types";
 import { Settings } from "./features/Settings";
 import { Account } from "./features/Account";
 import { Workspace } from "./features/Workspace";
-import { BatchActions } from "./features/BatchActions";
-import { BookProgress } from "./features/BookProgress";
+import { Library } from "./features/Library";
+import { Login } from "./features/Login";
 import { Statistics } from "./features/Statistics";
-import { locales, message, registerTranslations, useI18n } from "./i18n";
+import { message, registerTranslations, useI18n } from "./i18n";
+import type { Locale } from "./i18n";
+import { useTheme } from "./theme";
+import type { ThemePreference } from "./theme";
+import { hasUnsavedChanges, useLeaveGuard } from "./unsaved";
+import { Icon, IconButton, Menu, Tooltip, cx, useFocusTrap } from "./ui";
+import type { IconName } from "./ui";
 
-const translations: Record<string, string> = {
-  "En attente": "Pending",
-  "Import / validation…": "Importing / validating…",
-  Importé: "Imported",
-  "Votre atelier de traduction": "Your translation workspace",
-  Bibliothèque: "Library",
-  "Retrouvez vos livres et reprenez là où vous en étiez.":
-    "Find your books and resume where you left off.",
-  "Réimporter un projet": "Reimport a project",
-  "Import en cours…": "Importing…",
-  "+ Importer des EPUB": "+ Import EPUBs",
-  "Vue d’ensemble de la bibliothèque": "Library overview",
-  "Tous les livres": "All books",
-  "En cours": "In progress",
-  "À examiner": "Needs attention",
-  "Traduction complète": "Translation complete",
-  Archives: "Archives",
-  "Rechercher un livre": "Search for a book",
-  "Titre, auteur ou série…": "Title, author, or series…",
-  "Trier par": "Sort by",
-  "Trier par statut": "Sort by status",
-  "Dernière activité": "Recent activity",
-  Titre: "Title",
-  "Série et volume": "Series and volume",
-  Série: "Series",
-  "Toutes les séries": "All series",
-  "{count} livre(s) affiché(s)": "{count} book(s) shown",
-  "Série {series}": "Series {series}",
-  "Collection active": "Active collection",
-  Collection: "Collection",
-  "{count} volume(s), classés dans l’ordre de lecture. Les conventions acceptées et décisions humaines des volumes antérieurs alimentent les volumes suivants, sans importer leur narration.":
-    "{count} volume(s), ordered by reading sequence. Approved conventions and human decisions from earlier volumes inform later volumes without importing their narrative.",
-  "Volumes manquants dans cette bibliothèque : {volumes}. ":
-    "Missing volumes in this library: {volumes}. ",
-  "Numéros dupliqués : {volumes}.": "Duplicate numbers: {volumes}.",
-  "Sélectionner toute la série": "Select the entire series",
-  "Sélectionner les livres affichés": "Select displayed books",
-  "Sélectionner tous les livres actifs": "Select all active books",
-  "Livre / auteur": "Book / author",
-  Langues: "Languages",
-  Avancement: "Progress",
-  Statut: "Status",
-  Modèle: "Model",
-  Modifié: "Modified",
-  "Sélectionner {title}": "Select {title}",
-  Livre: "Book",
-  "Auteur non renseigné": "Unknown author",
-  " · volume {volume}": " · volume {volume}",
-  Archivé: "Archived",
-  "Ouvrir →": "Open →",
-  Restaurer: "Restore",
-  Archiver: "Archive",
-  "Supprimer {title}": "Delete {title}",
-  "Supprimer définitivement le projet local « {title} » et arrêter ses travaux ? La mémoire OpenViking distante reste séparée.":
-    'Permanently delete local project "{title}" and stop its work? Remote OpenViking memory remains separate.',
-  Supprimer: "Delete",
-  "Aucun livre ne correspond.": "No books match.",
-  "Essayez un autre titre ou affichez tous vos livres.":
-    "Try another title or show all your books.",
-  "Effacer les filtres": "Clear filters",
-  "Votre premier livre commence ici.": "Your first book starts here.",
-  "Importez un EPUB pour examiner sa structure, préparer sa mémoire et traduire avec continuité.":
-    "Import an EPUB to inspect its structure, prepare its memory, and translate consistently.",
-  "Images et balises préservées": "Images and tags preserved",
-  "{count} projet{plural}": "{count} project{plural}",
-  " · {count} archivé(s)": " · {count} archived",
-  "passages traduits": "segments translated",
+registerTranslations({
   "Aller au contenu": "Skip to content",
   "Navigation principale": "Primary navigation",
-  "Navigation téléphone": "Phone navigation",
   Menu: "Menu",
   "Fermer le menu": "Close menu",
-};
-
-registerTranslations(translations);
+  "Mon compte": "My account",
+  "Menu du compte": "Account menu",
+  "Réduire la barre latérale": "Collapse sidebar",
+  "Déployer la barre latérale": "Expand sidebar",
+  Thème: "Theme",
+  Système: "System",
+  Administrateur: "Administrator",
+  Utilisateur: "User",
+});
 
 export function App() {
   const { locale, setLocale, t } = useI18n();
@@ -91,34 +36,34 @@ export function App() {
   const [checking, setChecking] = useState(true);
   const [route, setRoute] = useState(location.hash.slice(1) || "library");
   const [error, setError] = useState("");
-  const [theme, setTheme] = useState(localStorage.getItem("theme") || "dark");
-  const [menuOpen, setMenuOpen] = useState(false);
+  const [theme, setTheme] = useTheme();
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [collapsed, setCollapsed] = useState(() => localStorage.getItem("sidebar") === "collapsed");
+  const confirmLeave = useLeaveGuard();
+  const routeRef = useRef(route);
   const focusContent = () =>
-    requestAnimationFrame(() =>
-      document.getElementById("main-content")?.focus(),
-    );
+    requestAnimationFrame(() => document.getElementById("main-content")?.focus());
   const signedIn = useRef(false);
   useEffect(() => {
     signedIn.current = !!user;
   }, [user]);
   const run: Run = useMemo(() => {
-    const execute =
-      (background: boolean) => async (task: () => Promise<void>) => {
-        if (!background) setError("");
-        try {
-          await task();
-        } catch (e) {
-          if (e instanceof ApiError && e.status === 401 && signedIn.current) {
-            // Expired or revoked session: back to the login screen, not a stuck page.
-            setUser(null);
-            setError(message("app.sessionExpired"));
-            return;
-          }
-          const text = e instanceof Error ? e.message : String(e);
-          // A periodic refresh must neither erase nor replace the error of a user action.
-          setError((shown) => (background && shown ? shown : text));
+    const execute = (background: boolean) => async (task: () => Promise<void>) => {
+      if (!background) setError("");
+      try {
+        await task();
+      } catch (e) {
+        if (e instanceof ApiError && e.status === 401 && signedIn.current) {
+          // Expired or revoked session: back to the login screen, not a stuck page.
+          setUser(null);
+          setError(message("app.sessionExpired"));
+          return;
         }
-      };
+        const text = e instanceof Error ? e.message : String(e);
+        // A periodic refresh must neither erase nor replace the error of a user action.
+        setError((shown) => (background && shown ? shown : text));
+      }
+    };
     return Object.assign(execute(false), { background: execute(true) });
   }, []);
   useEffect(() => {
@@ -129,34 +74,90 @@ export function App() {
   }, []);
   useEffect(() => {
     const change = () => {
-      setRoute(location.hash.slice(1) || "library");
-      setMenuOpen(false);
+      const next = location.hash.slice(1) || "library";
+      if (next === routeRef.current) return;
+      if (hasUnsavedChanges()) {
+        // The hash already moved: put it back while the user decides about the drafts.
+        history.replaceState(null, "", `#${routeRef.current}`);
+        void confirmLeave().then((leave) => {
+          if (leave) location.hash = next;
+        });
+        return;
+      }
+      routeRef.current = next;
+      setRoute(next);
+      setDrawerOpen(false);
       focusContent();
     };
+    const unload = (event: BeforeUnloadEvent) => {
+      if (!hasUnsavedChanges()) return;
+      event.preventDefault();
+      event.returnValue = "";
+    };
     window.addEventListener("hashchange", change);
-    return () => window.removeEventListener("hashchange", change);
-  }, []);
+    window.addEventListener("beforeunload", unload);
+    return () => {
+      window.removeEventListener("hashchange", change);
+      window.removeEventListener("beforeunload", unload);
+    };
+  }, [confirmLeave]);
   useEffect(() => {
-    document.documentElement.dataset.theme = theme;
-    document
-      .querySelectorAll<HTMLMetaElement>('meta[name="theme-color"]')
-      .forEach((meta) =>
-        meta.setAttribute("content", theme === "light" ? "#f5f4fb" : "#0b0e25"),
-      );
-    localStorage.setItem("theme", theme);
-  }, [theme]);
+    localStorage.setItem("sidebar", collapsed ? "collapsed" : "expanded");
+  }, [collapsed]);
   useEffect(() => {
-    document.title = `${route === "settings" ? t("app.settings") : route === "statistics" ? t("app.statistics") : route === "library" ? t("app.library") : t("app.project")} · Libris`;
+    document.title = `${route === "settings" ? t("app.settings") : route === "statistics" ? t("app.statistics") : route === "account" ? t("Mon compte") : route === "library" ? t("app.library") : t("app.project")} · Libris`;
   }, [route, t]);
+  const drawer = useFocusTrap<HTMLElement>(drawerOpen, () => setDrawerOpen(false));
   if (checking)
     return (
-      <main className="loading">
+      <main className="app-loading" aria-busy="true">
         <img src="/assets/libris-icon.png" alt="" />
-        {t("app.loading")}
+        <span>{t("app.loading")}</span>
       </main>
     );
+  const errorBanner = error && (
+    <div className="error-banner" role="alert">
+      <Icon name="alert" />
+      <div className="error-banner-text">
+        <strong>{t("app.error")}</strong> <span className="error-text">{error}</span>
+      </div>
+      <IconButton icon="x" size="sm" label={t("app.closeError")} tooltip={false} onClick={() => setError("")} />
+    </div>
+  );
+  if (!user)
+    return (
+      <Login
+        run={run}
+        onLogin={setUser}
+        error={errorBanner}
+        theme={theme}
+        setTheme={setTheme}
+      />
+    );
+  const logout = () =>
+    void run(async () => {
+      // Logging out must always work, even once the session is gone server-side.
+      signedIn.current = false;
+      try {
+        await send("/auth/logout");
+      } catch (e) {
+        if (!(e instanceof ApiError && e.status === 401)) throw e;
+      } finally {
+        setUser(null);
+      }
+    });
+  const section = route.startsWith("project/") ? "library" : route;
+  const links: [string, string, IconName][] = [
+    ["library", t("app.library"), "book"],
+    ...(user.admin
+      ? ([
+          ["statistics", t("app.statistics"), "chart"],
+          ["settings", t("app.settings"), "settings"],
+        ] as [string, string, IconName][])
+      : []),
+  ];
   return (
-    <>
+    <div className={cx("app-shell", collapsed && "sidebar-collapsed", drawerOpen && "drawer-open")}>
       <a
         className="skip-link"
         href="#main-content"
@@ -167,829 +168,196 @@ export function App() {
       >
         {t("Aller au contenu")}
       </a>
-      <header className="app-header">
+      <header className="mobile-topbar">
+        <IconButton
+          icon="menu"
+          label={t("Menu")}
+          aria-expanded={drawerOpen}
+          aria-controls="sidebar"
+          onClick={() => setDrawerOpen(true)}
+          tooltip={false}
+        />
         <a className="brand" href="#library">
           <img src="/assets/libris-icon.png" alt="" />
           <span>Libris</span>
         </a>
-        <button
-          className="nav-toggle"
-          type="button"
-          aria-controls="primary-navigation"
-          aria-expanded={menuOpen}
-          onClick={() => setMenuOpen((open) => !open)}
-        >
-          {menuOpen ? t("Fermer le menu") : t("Menu")}
-        </button>
-        <nav
-          id="primary-navigation"
-          className={menuOpen ? "open" : ""}
-          aria-label={t("Navigation principale")}
-        >
-          {user && (
-            <>
-              <a
-                href="#library"
-                onClick={focusContent}
-                aria-current={route === "library" ? "page" : undefined}
-              >
-                {t("app.library")}
-              </a>
-              {user.admin && (
-                <a
-                  href="#settings"
-                  onClick={focusContent}
-                  aria-current={route === "settings" ? "page" : undefined}
-                >
-                  {t("app.settings")}
-                </a>
-              )}
-              {user.admin && (
-                <a
-                  href="#statistics"
-                  onClick={focusContent}
-                  aria-current={route === "statistics" ? "page" : undefined}
-                >
-                  {t("app.statistics")}
-                </a>
-              )}
-              <a
-                href="#account"
-                onClick={focusContent}
-                aria-current={route === "account" ? "page" : undefined}
-              >
-                {t("Mon compte")} · {user.username}
-              </a>
-            </>
-          )}
-          <button
-            className="quiet"
-            aria-label={t("app.theme")}
-            onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-          >
-            {theme === "dark" ? t("app.light") : t("app.dark")}
-          </button>
-          <label className="locale-select">
-            <span className="sr-only">{t("app.language")}</span>
-            <select
-              value={locale}
-              onChange={(event) =>
-                setLocale(event.target.value as typeof locale)
-              }
-            >
-              {locales.map((value) => (
-                <option key={value} value={value}>
-                  {t(value === "fr" ? "language.french" : "language.english")}
-                </option>
-              ))}
-            </select>
-          </label>
-          {user && (
-            <button
-              className="quiet"
-              onClick={() =>
-                void run(async () => {
-                  // Logging out must always work, even once the session is gone server-side.
-                  signedIn.current = false;
-                  try {
-                    await send("/auth/logout");
-                  } catch (e) {
-                    if (!(e instanceof ApiError && e.status === 401)) throw e;
-                  } finally {
-                    setUser(null);
-                  }
-                })
-              }
-            >
-              {t("app.logout")}
-            </button>
-          )}
-        </nav>
       </header>
-      {error && (
-        <div className="error-banner" role="alert">
-          <strong>{t("app.error")}</strong>{" "}
-          <span className="error-text">{error}</span>
-          <button onClick={() => setError("")} aria-label={t("app.closeError")}>
-            ×
-          </button>
-        </div>
-      )}
-      <div id="main-content" tabIndex={-1}>
-        {!user ? (
-          <Login run={run} onLogin={setUser} />
-        ) : route === "account" ? (
-          <Account
-            user={user}
-            run={run}
-            onUserChange={setUser}
-            onLogout={() => setUser(null)}
-          />
-        ) : route === "settings" && user.admin ? (
-          <Settings run={run} />
-        ) : route === "statistics" && user.admin ? (
-          <Statistics run={run} />
-        ) : route.startsWith("project/") ? (
-          <Workspace
-            key={route}
-            id={route.split("/")[1]}
-            user={user}
-            run={run}
-          />
-        ) : (
-          <Library run={run} user={user} />
-        )}
-      </div>
-      {user && !route.startsWith("project/") && (
-        <nav className="mobile-nav" aria-label={t("Navigation téléphone")}>
-          <a
-            href="#library"
-            aria-current={route === "library" ? "page" : undefined}
-          >
-            {t("app.library")}
+      {drawerOpen && <div className="drawer-backdrop" onClick={() => setDrawerOpen(false)} />}
+      <aside id="sidebar" ref={drawer} className="sidebar">
+        <div className="sidebar-top">
+          <a className="brand" href="#library" aria-label="Libris">
+            <img src="/assets/libris-icon.png" alt="" />
+            <span className="sidebar-text">Libris</span>
           </a>
-          {user.admin && (
-            <a
-              href="#settings"
-              aria-current={route === "settings" ? "page" : undefined}
-            >
-              {t("app.settings")}
-            </a>
-          )}
-          {user.admin && (
-            <a
-              href="#statistics"
-              aria-current={route === "statistics" ? "page" : undefined}
-            >
-              {t("app.statistics")}
-            </a>
-          )}
-          <a
-            href="#account"
-            aria-current={route === "account" ? "page" : undefined}
-          >
-            {t("Mon compte")}
-          </a>
-        </nav>
-      )}
-    </>
-  );
-}
-
-function Login({ run, onLogin }: { run: Run; onLogin: (user: User) => void }) {
-  const { t } = useI18n();
-  const [username, setUsername] = useState("");
-  const [password, setPassword] = useState("");
-  const [busy, setBusy] = useState(false);
-  return (
-    <main className="login">
-      <div className="login-logo-panel">
-        <img
-          className="login-logo"
-          src="/assets/libris-logo.png"
-          alt="Libris"
-        />
-      </div>
-      <div className="login-card">
-        <p className="eyebrow">{t("login.eyebrow")}</p>
-        <h1>{t("login.title")}</h1>
-        <p className="muted">{t("login.description")}</p>
-        <form
-          autoComplete="off"
-          onSubmit={(e) => {
-            e.preventDefault();
-            setBusy(true);
-            void run(async () => {
-              onLogin(await send<User>("/auth/login", { username, password }));
-            }).finally(() => setBusy(false));
-          }}
-        >
-          <label>
-            {t("login.username")}
-            <input
-              autoComplete="off"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              required
-            />
-          </label>
-          <label>
-            {t("login.password")}
-            <input
-              type="password"
-              autoComplete="current-password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              minLength={12}
-              required
-            />
-          </label>
-          <button className="primary" disabled={busy}>
-            {busy ? t("login.submitting") : t("login.submit")}
-          </button>
-        </form>
-        <small className="muted">{t("login.firstAccess")}</small>
-      </div>
-    </main>
-  );
-}
-
-function Library({ run, user }: { run: Run; user: User }) {
-  const { locale, t } = useI18n();
-  const [books, setBooks] = useState<Project[]>([]);
-  const [query, setQuery] = useState("");
-  const [filter, setFilter] = useState("all");
-  const [sort, setSort] = useState("recent");
-  const [seriesFilter, setSeriesFilter] = useState("all");
-  const active = (p: Project) =>
-    ["pending", "analyzing", "translating", "reviewing", "syncing"].includes(
-      p.status,
-    );
-  const attention = (p: Project) =>
-    !!(p.stats.flagged || p.stats.errors || p.stats.refused) ||
-    ["failed", "blocked", "waiting"].includes(p.status);
-  const normalize = (value: string) =>
-    value
-      .normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "")
-      .toLocaleLowerCase(locale);
-  const compareText = (a: string, b: string) =>
-    a.localeCompare(b, locale, { numeric: true, sensitivity: "base" });
-  const compareOptionalText = (a?: string | null, b?: string | null) =>
-    a ? (b ? compareText(a, b) : -1) : b ? 1 : 0;
-  const availableBooks = books.filter((project) => !project.archived_at);
-  const archivedBooks = books.filter((project) => !!project.archived_at);
-  const seriesNames = Array.from(
-    new Set(books.map((project) => project.series_name).filter(Boolean)),
-  ).sort((a, b) => a.localeCompare(b, locale, { numeric: true }));
-  const visibleBooks = books
-    .filter(
-      (p) =>
-        normalize(`${p.title} ${p.author} ${p.series_name}`).includes(
-          normalize(query),
-        ) &&
-        (seriesFilter === "all" || p.series_name === seriesFilter) &&
-        ((filter === "archived" && !!p.archived_at) ||
-          (!p.archived_at &&
-            (filter === "all" ||
-              (filter === "active" && active(p)) ||
-              (filter === "attention" && attention(p)) ||
-              (filter === "complete" &&
-                p.stats.total > 0 &&
-                p.stats.translated === p.stats.total)))),
-    )
-    .sort((a, b) =>
-      sort === "title"
-        ? compareText(a.title, b.title)
-        : sort === "series"
-          ? compareText(a.series_name || a.title, b.series_name || b.title) ||
-            (a.volume_number ?? Number.MAX_SAFE_INTEGER) -
-              (b.volume_number ?? Number.MAX_SAFE_INTEGER) ||
-            compareText(a.title, b.title)
-          : sort === "status"
-            ? compareText(
-                labels[a.archived_at ? "archived" : a.status],
-                labels[b.archived_at ? "archived" : b.status],
-              ) || compareText(a.title, b.title)
-            : sort === "model"
-              ? compareOptionalText(a.progress?.model, b.progress?.model) ||
-                compareText(a.title, b.title)
-              : b.updated_at - a.updated_at,
-    );
-  const selectableBooks = visibleBooks.filter(
-    (project) => !project.archived_at,
-  );
-  const seriesBooks =
-    seriesFilter === "all"
-      ? []
-      : books
-          .filter((project) => project.series_name === seriesFilter)
-          .sort(
-            (a, b) =>
-              (a.volume_number ?? Number.MAX_SAFE_INTEGER) -
-                (b.volume_number ?? Number.MAX_SAFE_INTEGER) ||
-              a.title.localeCompare(b.title, locale, { numeric: true }),
-          );
-  const activeSeriesBooks = seriesBooks.filter(
-    (project) => !project.archived_at,
-  );
-  const numberedVolumes = seriesBooks
-    .map((project) => project.volume_number)
-    .filter((value): value is number => value !== null);
-  const duplicateVolumes = Array.from(
-    new Set(
-      numberedVolumes.filter(
-        (volume, index) => numberedVolumes.indexOf(volume) !== index,
-      ),
-    ),
-  );
-  const missingVolumes = numberedVolumes.length
-    ? Array.from(
-        {
-          length: Math.max(...numberedVolumes),
-        },
-        (_, index) => index + 1,
-      ).filter((volume) => !numberedVolumes.includes(volume))
-    : [];
-  const [busy, setBusy] = useState(false);
-  const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [imports, setImports] = useState<{ name: string; state: string }[]>([]);
-  const load = useCallback(
-    async () =>
-      setBooks(await api<Project[]>("/projects?include_archived=true")),
-    [],
-  );
-  useEffect(() => {
-    void run.background(load);
-    const timer = setInterval(() => {
-      void run.background(load);
-    }, 5000);
-    return () => clearInterval(timer);
-  }, [run, load]);
-  async function upload(files: File[], restore = false) {
-    setBusy(true);
-    setImports(files.map((f) => ({ name: f.name, state: t("En attente") })));
-    let cursor = 0;
-    const created: string[] = [];
-    const workers = Array.from(
-      { length: Math.min(2, files.length) },
-      async () => {
-        while (cursor < files.length) {
-          const index = cursor++;
-          setImports((values) =>
-            values.map((v, i) =>
-              i === index ? { ...v, state: t("Import / validation…") } : v,
-            ),
-          );
-          const form = new FormData();
-          form.append("file", files[index]);
-          try {
-            const p = await api<Project>(
-              restore ? "/projects/import" : "/projects",
-              { method: "POST", body: form },
-            );
-            created.push(p.id);
-            setImports((values) =>
-              values.map((v, i) =>
-                i === index ? { ...v, state: t("Importé") } : v,
-              ),
-            );
-          } catch (e) {
-            setImports((values) =>
-              values.map((v, i) =>
-                i === index
-                  ? { ...v, state: e instanceof Error ? e.message : String(e) }
-                  : v,
-              ),
-            );
-          }
-        }
-      },
-    );
-    await Promise.all(workers);
-    await run(load);
-    setSelected(new Set(created));
-    setBusy(false);
-    if (files.length === 1 && created.length === 1)
-      location.hash = `project/${created[0]}`;
-  }
-  return (
-    <main className="library">
-      <div className="page-heading">
-        <div>
-          <p className="eyebrow">{t("Votre atelier de traduction")}</p>
-          <h1>{t("Bibliothèque")}</h1>
-          <p className="page-lede">
-            {t("Retrouvez vos livres et reprenez là où vous en étiez.")}
-          </p>
+          <IconButton
+            className="sidebar-collapse"
+            icon="sidebar"
+            size="sm"
+            label={collapsed ? t("Déployer la barre latérale") : t("Réduire la barre latérale")}
+            onClick={() => setCollapsed((value) => !value)}
+          />
+          <IconButton
+            className="drawer-close"
+            icon="x"
+            label={t("Fermer le menu")}
+            onClick={() => setDrawerOpen(false)}
+            tooltip={false}
+          />
         </div>
-        <div className="actions">
-          <label
-            className="button"
-            role="button"
-            tabIndex={busy ? -1 : 0}
-            aria-disabled={busy}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" || e.key === " ") {
-                e.preventDefault();
-                if (!busy) e.currentTarget.querySelector("input")?.click();
-              }
-            }}
-          >
-            {t("Réimporter un projet")}
-            <input
-              type="file"
-              accept=".zip"
-              hidden
-              disabled={busy}
-              onChange={(e) => {
-                const files = Array.from(e.target.files || []);
-                e.target.value = ""; // Let the same file be chosen again after a failed import.
-                if (files[0]) void upload([files[0]], true);
+        <nav id="primary-navigation" className="sidebar-nav" aria-label={t("Navigation principale")}>
+          {links.map(([key, label, icon]) => (
+            <SidebarLink
+              key={key}
+              href={`#${key}`}
+              label={label}
+              icon={icon}
+              current={section === key}
+              collapsed={collapsed}
+              onNavigate={() => {
+                if (location.hash === `#${key}`) setDrawerOpen(false);
               }}
             />
-          </label>
-          <label
-            className="button primary"
-            role="button"
-            tabIndex={busy ? -1 : 0}
-            aria-disabled={busy}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" || e.key === " ") {
-                e.preventDefault();
-                if (!busy) e.currentTarget.querySelector("input")?.click();
-              }
-            }}
-          >
-            {busy ? t("Import en cours…") : t("+ Importer des EPUB")}
-            <input
-              type="file"
-              accept=".epub"
-              multiple
-              hidden
-              disabled={busy}
-              onChange={(e) => {
-                const files = Array.from(e.target.files || []);
-                e.target.value = ""; // Let the same files be chosen again after a failed import.
-                if (files.length) void upload(files);
-              }}
-            />
-          </label>
-        </div>
-      </div>
-      <div
-        className="library-overview"
-        aria-label={t("Vue d’ensemble de la bibliothèque")}
-      >
-        {[
-          ["all", t("Tous les livres"), availableBooks.length],
-          ["active", t("En cours"), availableBooks.filter(active).length],
-          [
-            "attention",
-            t("À examiner"),
-            availableBooks.filter(attention).length,
-          ],
-          [
-            "complete",
-            t("Traduction complète"),
-            availableBooks.filter(
-              (p) => p.stats.total > 0 && p.stats.translated === p.stats.total,
-            ).length,
-          ],
-          ["archived", t("Archives"), archivedBooks.length],
-        ].map(([key, title, count]) => (
-          <button
-            key={key}
-            aria-pressed={filter === key}
-            onClick={() => setFilter(String(key))}
-          >
-            <strong>{count}</strong>
-            <span>{title}</span>
-          </button>
-        ))}
-      </div>
-      <div className="library-toolbar">
-        <label>
-          {t("Rechercher un livre")}
-          <input
-            type="search"
-            placeholder={t("Titre, auteur ou série…")}
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-          />
-        </label>
-        <label>
-          {t("Trier par")}
-          <select
-            aria-label={t("Trier par")}
-            value={sort}
-            onChange={(e) => setSort(e.target.value)}
-          >
-            <option value="recent">{t("Dernière activité")}</option>
-            <option value="title">{t("Titre")}</option>
-            <option value="series">{t("Série et volume")}</option>
-            <option value="status">{t("Statut")}</option>
-            <option value="model">{t("Modèle")}</option>
-          </select>
-        </label>
-        <label>
-          {t("Série")}
-          <select
-            value={seriesFilter}
-            onChange={(e) => setSeriesFilter(e.target.value)}
-          >
-            <option value="all">{t("Toutes les séries")}</option>
-            {seriesNames.map((series) => (
-              <option key={series} value={series}>
-                {series}
-              </option>
-            ))}
-          </select>
-        </label>
-        <span role="status">
-          {t("{count} livre(s) affiché(s)").replace(
-            "{count}",
-            String(visibleBooks.length),
-          )}
-        </span>
-      </div>
-      {!!seriesBooks.length && (
-        <section
-          className="series-workspace"
-          aria-label={t("Série {series}").replace("{series}", seriesFilter)}
-        >
-          <div>
-            <p className="eyebrow">{t("Collection")}</p>
-            <h2>{seriesFilter}</h2>
-            <p className="muted">
-              {t(
-                "{count} volume(s), classés dans l’ordre de lecture. Les conventions acceptées et décisions humaines des volumes antérieurs alimentent les volumes suivants, sans importer leur narration.",
-              ).replace("{count}", String(seriesBooks.length))}
-            </p>
-          </div>
-          <ol className="series-volumes">
-            {seriesBooks.map((project) => (
-              <li key={project.id}>
-                <strong>{project.volume_number ?? "?"}</strong>
-                <span>
-                  {project.title}
-                  {project.archived_at && (
-                    <small className="badge archived">{t("Archivé")}</small>
-                  )}
-                </span>
-              </li>
-            ))}
-          </ol>
-          {(missingVolumes.length > 0 || duplicateVolumes.length > 0) && (
-            <p className="series-warning" role="status">
-              {missingVolumes.length > 0 &&
-                t(
-                  "Volumes manquants dans cette bibliothèque : {volumes}. ",
-                ).replace("{volumes}", missingVolumes.join(", "))}
-              {duplicateVolumes.length > 0 &&
-                t("Numéros dupliqués : {volumes}.").replace(
-                  "{volumes}",
-                  duplicateVolumes.join(", "),
-                )}
-            </p>
-          )}
-          <button
-            onClick={() =>
-              setSelected(
-                new Set(activeSeriesBooks.map((project) => project.id)),
-              )
-            }
-            disabled={!activeSeriesBooks.length}
-          >
-            {t("Sélectionner toute la série")}
-          </button>
-        </section>
-      )}
-      {!!imports.length && (
-        <ul className="muted" role="status">
-          {imports.map((item, i) => (
-            <li key={i}>
-              {item.name} : {item.state}
-            </li>
           ))}
-        </ul>
-      )}
-      {selected.size > 0 && (
-        <BatchActions
-          books={books.filter((p) => selected.has(p.id))}
-          run={run}
-          refresh={load}
-          onDeleted={(ids) =>
-            setSelected((previous) => {
-              const next = new Set(previous);
-              ids.forEach((id) => next.delete(id));
-              return next;
-            })
-          }
-          scopeLabel={
-            seriesFilter !== "all"
-              ? t("Série {series}").replace("{series}", seriesFilter)
-              : undefined
-          }
-        />
-      )}
-      {books.length ? (
-        <div className="table-wrap library-table-wrap">
-          <table className="library-table">
-            <thead>
-              <tr>
-                <th>
-                  <label className="checkbox-target">
-                    <input
-                      type="checkbox"
-                      aria-label={
-                        query || filter !== "all"
-                          ? t("Sélectionner les livres affichés")
-                          : t("Sélectionner tous les livres actifs")
-                      }
-                      checked={
-                        !!selectableBooks.length &&
-                        selectableBooks.every((p) => selected.has(p.id))
-                      }
-                      onChange={(e) =>
-                        setSelected(
-                          e.target.checked
-                            ? new Set(selectableBooks.map((p) => p.id))
-                            : new Set(),
-                        )
-                      }
-                    />
-                  </label>
-                </th>
-                <th>{t("Livre / auteur")}</th>
-                <th>{t("Langues")}</th>
-                <th>{t("Avancement")}</th>
-                <th aria-sort={sort === "status" ? "ascending" : "none"}>
-                  <button
-                    className="table-sort"
-                    type="button"
-                    aria-label={t("Trier par statut")}
-                    aria-pressed={sort === "status"}
-                    onClick={() => setSort("status")}
-                  >
-                    {t("Statut")}
-                    <span aria-hidden="true">
-                      {sort === "status" ? "↑" : "↕"}
-                    </span>
-                  </button>
-                </th>
-                <th>{t("Modèle")}</th>
-                <th>{t("Modifié")}</th>
-                <th />
-              </tr>
-            </thead>
-            <tbody>
-              {visibleBooks.map((p) => (
-                <tr
-                  key={p.id}
-                  className={p.archived_at ? "archived-row" : undefined}
-                >
-                  <td className="select-cell">
-                    <label className="checkbox-target">
-                      <input
-                        type="checkbox"
-                        aria-label={t("Sélectionner {title}").replace(
-                          "{title}",
-                          p.title,
-                        )}
-                        disabled={!!p.archived_at}
-                        checked={selected.has(p.id)}
-                        onChange={(e) =>
-                          setSelected((previous) => {
-                            const next = new Set(previous);
-                            if (e.target.checked) next.add(p.id);
-                            else next.delete(p.id);
-                            return next;
-                          })
-                        }
-                      />
-                    </label>
-                  </td>
-                  <td data-label={t("Livre")}>
-                    <a className="book-title" href={`#project/${p.id}`}>
-                      {p.title}
-                    </a>
-                    <div className="muted">
-                      {p.author || t("Auteur non renseigné")}
-                    </div>
-                    {p.series_name && (
-                      <div className="series-meta">
-                        {p.series_name}
-                        {p.volume_number &&
-                          t(" · volume {volume}").replace(
-                            "{volume}",
-                            String(p.volume_number),
-                          )}
-                      </div>
-                    )}
-                  </td>
-                  <td data-label={t("Langues")}>
-                    {p.source_language} → {p.target_language}
-                  </td>
-                  <td data-label={t("Avancement")}>
-                    <BookProgress project={p} />
-                  </td>
-                  <td data-label={t("Statut")}>
-                    <span
-                      className={`badge ${p.archived_at ? "archived" : p.status}`}
-                    >
-                      {p.archived_at
-                        ? t("Archivé")
-                        : labels[p.status] || p.status}
-                    </span>
-                  </td>
-                  <td className="muted" data-label={t("Modèle")}>
-                    {p.progress?.model || "—"}
-                  </td>
-                  <td className="muted" data-label={t("Modifié")}>
-                    {date(p.updated_at)}
-                  </td>
-                  <td className="book-actions">
-                    <a href={`#project/${p.id}`}>{t("Ouvrir →")}</a>
-                    {p.owner_id === user.id && (
-                      <button
-                        className="quiet"
-                        onClick={() =>
-                          void run(async () => {
-                            await send(
-                              `/projects/${p.id}/${p.archived_at ? "restore" : "archive"}`,
-                            );
-                            setSelected((previous) => {
-                              const next = new Set(previous);
-                              next.delete(p.id);
-                              return next;
-                            });
-                            await load();
-                          })
-                        }
-                      >
-                        {p.archived_at ? t("Restaurer") : t("Archiver")}
-                      </button>
-                    )}
-                    {p.owner_id === user.id && p.archived_at && (
-                      <button
-                        className="quiet danger"
-                        aria-label={t("Supprimer {title}").replace(
-                          "{title}",
-                          p.title,
-                        )}
-                        onClick={() => {
-                          if (
-                            confirm(
-                              t(
-                                "Supprimer définitivement le projet local « {title} » et arrêter ses travaux ? La mémoire OpenViking distante reste séparée.",
-                              ).replace("{title}", p.title),
-                            )
-                          )
-                            void run(async () => {
-                              await api(`/projects/${p.id}?stop_jobs=true`, {
-                                method: "DELETE",
-                              });
-                              setSelected((previous) => {
-                                const next = new Set(previous);
-                                next.delete(p.id);
-                                return next;
-                              });
-                              await load();
-                            });
-                        }}
-                      >
-                        {t("Supprimer")}
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {!visibleBooks.length && (
-            <div className="empty">
-              <h2>{t("Aucun livre ne correspond.")}</h2>
-              <p>{t("Essayez un autre titre ou affichez tous vos livres.")}</p>
-              <button
-                onClick={() => {
-                  setQuery("");
-                  setFilter("all");
-                  setSeriesFilter("all");
-                }}
-              >
-                {t("Effacer les filtres")}
-              </button>
-            </div>
+        </nav>
+        <div className="sidebar-bottom">
+          <AccountMenu
+            user={user}
+            collapsed={collapsed}
+            current={route === "account"}
+            locale={locale}
+            setLocale={setLocale}
+            theme={theme}
+            setTheme={setTheme}
+            logout={logout}
+          />
+        </div>
+      </aside>
+      <div className="app-main">
+        {errorBanner}
+        <div id="main-content" tabIndex={-1}>
+          {route === "account" ? (
+            <Account user={user} run={run} onUserChange={setUser} onLogout={() => setUser(null)} />
+          ) : route === "settings" && user.admin ? (
+            <Settings run={run} />
+          ) : route === "statistics" && user.admin ? (
+            <Statistics run={run} />
+          ) : route.startsWith("project/") ? (
+            <Workspace key={route} id={route.split("/")[1]} user={user} run={run} />
+          ) : (
+            <Library run={run} user={user} />
           )}
         </div>
-      ) : (
-        <div className="empty">
-          <h2>{t("Votre premier livre commence ici.")}</h2>
-          <p>
-            {t(
-              "Importez un EPUB pour examiner sa structure, préparer sa mémoire et traduire avec continuité.",
-            )}
-          </p>
-          <p className="muted">
-            EPUB 2 & 3 · {t("Images et balises préservées")} · Endpoint
-            OpenAI-compatible
-          </p>
-        </div>
+      </div>
+    </div>
+  );
+}
+
+function SidebarLink({
+  href,
+  label,
+  icon,
+  current,
+  collapsed,
+  onNavigate,
+}: {
+  href: string;
+  label: string;
+  icon: IconName;
+  current: boolean;
+  collapsed: boolean;
+  onNavigate: () => void;
+}) {
+  const link = (
+    <a
+      className="sidebar-link"
+      href={href}
+      aria-current={current ? "page" : undefined}
+      onClick={onNavigate}
+    >
+      <Icon name={icon} size={18} />
+      <span className="sidebar-text">{label}</span>
+    </a>
+  );
+  return collapsed ? (
+    <Tooltip content={label} placement="right">
+      {link}
+    </Tooltip>
+  ) : (
+    link
+  );
+}
+
+function AccountMenu({
+  user,
+  collapsed,
+  current,
+  locale,
+  setLocale,
+  theme,
+  setTheme,
+  logout,
+}: {
+  user: User;
+  collapsed: boolean;
+  current: boolean;
+  locale: Locale;
+  setLocale: (locale: Locale) => void;
+  theme: ThemePreference;
+  setTheme: (theme: ThemePreference) => void;
+  logout: () => void;
+}) {
+  const { t } = useI18n();
+  return (
+    <Menu
+      label={t("Menu du compte")}
+      align="start"
+      placement="up"
+      className="account-menu"
+      trigger={(props) => (
+        <button
+          {...props}
+          type="button"
+          className={cx("account-trigger", current && "is-current")}
+          aria-label={`${t("Menu du compte")} · ${user.username}`}
+        >
+          <span className="avatar" aria-hidden="true">
+            {user.username.slice(0, 1).toUpperCase()}
+          </span>
+          <span className="sidebar-text account-name">
+            <span>{user.username}</span>
+            <small>{user.admin ? t("Administrateur") : t("Utilisateur")}</small>
+          </span>
+          {!collapsed && <Icon name="chevronDown" className="sidebar-text" />}
+        </button>
       )}
-      <footer className="library-footer">
-        {t("{count} projet{plural}")
-          .replace("{count}", String(availableBooks.length))
-          .replace("{plural}", availableBooks.length > 1 ? "s" : "")}
-        {archivedBooks.length
-          ? t(" · {count} archivé(s)").replace(
-              "{count}",
-              String(archivedBooks.length),
-            )
-          : ""}{" "}
-        · {number(availableBooks.reduce((n, p) => n + p.stats.translated, 0))}{" "}
-        {t("passages traduits")}
-      </footer>
-    </main>
+      items={[
+        { label: t("Mon compte"), icon: "user", href: "#account" },
+        { kind: "separator" },
+        { kind: "label", label: t("app.language") },
+        ...(["fr", "en"] as Locale[]).map((value) => ({
+          kind: "radio" as const,
+          label: t(value === "fr" ? "language.french" : "language.english"),
+          checked: locale === value,
+          onSelect: () => setLocale(value),
+        })),
+        { kind: "separator" },
+        { kind: "label", label: t("Thème") },
+        ...(
+          [
+            ["light", t("app.light"), "sun"],
+            ["dark", t("app.dark"), "moon"],
+            ["system", t("Système"), "monitor"],
+          ] as [ThemePreference, string, IconName][]
+        ).map(([value, label, icon]) => ({
+          kind: "radio" as const,
+          label,
+          icon,
+          checked: theme === value,
+          onSelect: () => setTheme(value),
+        })),
+        { kind: "separator" },
+        { label: t("app.logout"), icon: "logout", onSelect: logout },
+      ]}
+    />
   );
 }

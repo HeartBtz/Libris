@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { send } from "../api";
 import { registerTranslations, useI18n } from "../i18n";
 import type { Run } from "../types";
+import { Badge, Button, Card } from "../ui";
 
 const translations: Record<string, string> = {
   "Connexion ChatGPT enregistrée. Détectez les modèles, puis enregistrez celui choisi.": "ChatGPT connection saved. Detect the models, then save the selected one.",
@@ -91,53 +92,55 @@ export function CodexConnection({
     };
   }, [login, path]);
   return (
-    <section className="notice" aria-label={t("Connexion Codex ChatGPT")}>
-      <h3>{t("Compte ChatGPT / Codex")}</h3>
-      <p>{t("Cette connexion utilise Codex chez OpenAI et les quotas de votre abonnement. Elle est partagée par les projets qui choisissent ce provider. Les identifiants restent dans le connecteur serveur dédié.")}</p>
+    <Card
+      className="codex-card"
+      aria-label={t("Connexion Codex ChatGPT")}
+      title={t("Compte ChatGPT / Codex")}
+      description={t(
+        "Cette connexion utilise Codex chez OpenAI et les quotas de votre abonnement. Elle est partagée par les projets qui choisissent ce provider. Les identifiants restent dans le connecteur serveur dédié.",
+      )}
+    >
       {!providerId ? (
-        <p>{t("Enregistrez d’abord le provider pour ouvrir sa connexion.")}</p>
+        <p className="muted">{t("Enregistrez d’abord le provider pour ouvrir sa connexion.")}</p>
       ) : (
-        <>
+        <div className="stack">
           <p role="status">
-            {status?.connected
-              ? `${t("Connecté")}${status.plan ? ` · ${status.plan}` : ""}`
-              : t("Compte non connecté")}
+            <Badge tone={status?.connected ? "success" : "neutral"} dot>
+              {status?.connected ? `${t("Connecté")}${status.plan ? ` · ${status.plan}` : ""}` : t("Compte non connecté")}
+            </Badge>
           </p>
-          <div className="actions">
-            <button
-              type="button"
+          <div className="form-actions">
+            <Button
+              variant="primary"
               disabled={busy}
               onClick={() => {
                 setBusy(true);
                 void run(async () => {
                   setLogin(await send<Login>(`${path}/login`));
                   setMessage(
-                    t("Ouvrez le lien officiel et saisissez le code. Activez la connexion par code d’appareil dans les paramètres de sécurité ChatGPT si nécessaire."),
+                    t(
+                      "Ouvrez le lien officiel et saisissez le code. Activez la connexion par code d’appareil dans les paramètres de sécurité ChatGPT si nécessaire.",
+                    ),
                   );
                 }).finally(() => setBusy(false));
               }}
             >
               {t("Se connecter avec ChatGPT")}
-            </button>
-            <button
-              type="button"
+            </Button>
+            <Button
               onClick={() =>
                 void run(async () => {
                   setStatus(await send<Status>(`${path}/status`));
-                  const result = await send<{ models: string[] }>(
-                    `${path}/models`,
-                  );
+                  const result = await send<{ models: string[] }>(`${path}/models`);
                   onModels(result.models);
-                  setMessage(
-                    t("Modèles récupérés. Choisissez le modèle puis cliquez sur Enregistrer."),
-                  );
+                  setMessage(t("Modèles récupérés. Choisissez le modèle puis cliquez sur Enregistrer."));
                 })
               }
             >
               {t("Vérifier / détecter les modèles Codex")}
-            </button>
-            <button
-              type="button"
+            </Button>
+            <Button
+              variant="ghost"
               disabled={!status?.connected}
               onClick={() =>
                 void run(async () => {
@@ -148,20 +151,21 @@ export function CodexConnection({
               }
             >
               {t("Déconnecter ce compte")}
-            </button>
+            </Button>
           </div>
           {login?.verificationUrl && (
-            <p>
+            <div className="device-code">
               <a href={login.verificationUrl} target="_blank" rel="noreferrer">
                 {t("Ouvrir la connexion officielle OpenAI ↗")}
               </a>
-              <br />
-              {t("Code temporaire :")} <strong>{login.userCode}</strong>
-            </p>
+              <span>
+                {t("Code temporaire :")} <strong className="tabular">{login.userCode}</strong>
+              </span>
+            </div>
           )}
-          {message && <p role="status">{message}</p>}
-        </>
+          {message && <p className="subtle">{message}</p>}
+        </div>
       )}
-    </section>
+    </Card>
   );
 }

@@ -70,7 +70,7 @@ test("workspace, manual correction, history, inspector and preview @integration"
   await page.getByRole("button", { name: "Fermer l’inspecteur" }).focus();
   await page.keyboard.press("Shift+Tab");
   await expect(page.getByText("Réponse brute du provider")).toBeFocused();
-  await page.getByRole("button", { name: "Historique", exact: true }).click();
+  await page.getByRole("tab", { name: "Historique", exact: true }).click();
   await expect(page.getByText(/human ·/).first()).toBeVisible();
   await page.getByRole("button", { name: "Fermer l’inspecteur" }).click();
   await page.getByRole("button", { name: "Prévisualiser" }).click();
@@ -100,7 +100,7 @@ test("OpenViking settings and responsive layout @integration", async ({
 }) => {
   await page.getByRole("link", { name: "Paramètres", exact: true }).click();
   await page
-    .getByRole("button", { name: "Mémoire · OpenViking", exact: true })
+    .getByRole("tab", { name: "Mémoire · OpenViking", exact: true })
     .click();
   await expect(page.getByLabel("URL OpenViking")).toBeVisible();
   await expect(page.getByLabel("Racine dédiée viking://")).toHaveValue(

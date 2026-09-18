@@ -1,5 +1,5 @@
 import type { Project, ProjectProgress, ProgressStage } from "../types";
-import { message, registerTranslations } from "../i18n";
+import { formatNumber, message, registerTranslations } from "../i18n";
 
 const translations: Record<string, string> = {
   "Import": "Import",
@@ -25,13 +25,13 @@ export function projectProgress(project: Project): ProjectProgress {
   );
   const reviewTotal = stats.review_total || stats.total;
   const values: Array<[ProgressStage["key"], string, number, number]> = [
-    ["import", message("Import"), 1, 1],
-    ["analysis", message("Analyse & mémoire"), analysisDone, analysisTotal],
-    ["translation", message("Traduction"), stats.translated, stats.total],
-    ["review", message("Relecture"), stats.reviewed_segments || 0, reviewTotal],
+    ["import", "Import", 1, 1],
+    ["analysis", "Analyse & mémoire", analysisDone, analysisTotal],
+    ["translation", "Traduction", stats.translated, stats.total],
+    ["review", "Relecture", stats.reviewed_segments || 0, reviewTotal],
     [
       "export",
-      message("Export"),
+      "Export",
       project.status === "completed" && !stats.flagged ? 1 : 0,
       1,
     ],
@@ -86,18 +86,9 @@ export function projectProgress(project: Project): ProjectProgress {
 
 export function duration(seconds: number | null): string {
   if (seconds === null) return message("Estimation en attente");
-  if (seconds < 60)
-    return message("~{count} s restantes").replace(
-      "{count}",
-      String(Math.max(1, Math.round(seconds))),
-    );
-  if (seconds < 3600)
-    return message("~{count} min restantes").replace(
-      "{count}",
-      String(Math.round(seconds / 60)),
-    );
-  return message("~{count} h restantes").replace(
-    "{count}",
-    (seconds / 3600).toFixed(seconds < 36000 ? 1 : 0),
-  );
+  if (seconds < 60) return message("~{count} s restantes", { count: Math.max(1, Math.round(seconds)) });
+  if (seconds < 3600) return message("~{count} min restantes", { count: Math.round(seconds / 60) });
+  return message("~{count} h restantes", {
+    count: formatNumber(seconds / 3600, { maximumFractionDigits: seconds < 36000 ? 1 : 0 }),
+  });
 }

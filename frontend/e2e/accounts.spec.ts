@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 for (const width of [1440, 390]) {
-  test(`accounts and recovery controls at ${width}px`, async ({ page }) => {
+  test(`accounts and recovery controls at ${width}px`, async ({ page }, testInfo) => {
     await page.setViewportSize({ width, height: 900 });
     await page.addInitScript(() => localStorage.setItem("locale", "en"));
     const changes: { path: string; body: unknown }[] = [];
@@ -47,8 +47,9 @@ for (const width of [1440, 390]) {
     if (width < 900)
       await page.getByRole("button", { name: "Menu", exact: true }).click();
     await expect(
-      page.getByRole("link", { name: /My account · renamed-owner/ }),
+      page.getByRole("button", { name: /Account menu · renamed-owner/ }),
     ).toBeVisible();
+    if (width < 900) await page.keyboard.press("Escape");
     expect(changes.at(-1)).toEqual({
       path: "/api/auth/username",
       body: { username: "renamed-owner" },
@@ -79,15 +80,17 @@ for (const width of [1440, 390]) {
       await page.evaluate(() => document.documentElement.scrollWidth),
     ).toBe(width);
     await page.screenshot({
-      path: `/tmp/opencode/libris-account-${width}.png`,
+      path: testInfo.outputPath(`libris-account-${width}.png`),
       fullPage: true,
     });
+    if (width < 900)
+      await page.getByRole("button", { name: "Menu", exact: true }).click();
     await page
       .getByRole("navigation", { name: "Primary navigation" })
       .getByRole("link", { name: "Settings", exact: true })
       .click();
     await page
-      .getByRole("button", { name: "Automatic recovery", exact: true })
+      .getByRole("tab", { name: "Automatic recovery", exact: true })
       .click();
     await page.getByLabel("Retry delay (seconds)").fill("30");
     await page.getByRole("button", { name: "Save retry delay" }).click();
@@ -96,7 +99,7 @@ for (const width of [1440, 390]) {
       path: "/api/settings/recovery",
       body: { retry_seconds: 30 },
     });
-    await page.getByRole("button", { name: "Users", exact: true }).click();
+    await page.getByRole("tab", { name: "Users", exact: true }).click();
     await page
       .getByRole("button", { name: "Manage reader", exact: true })
       .click();
@@ -113,7 +116,7 @@ for (const width of [1440, 390]) {
       await page.evaluate(() => document.documentElement.scrollWidth),
     ).toBe(width);
     await page.screenshot({
-      path: `/tmp/opencode/libris-users-${width}.png`,
+      path: testInfo.outputPath(`libris-users-${width}.png`),
       fullPage: true,
     });
   });

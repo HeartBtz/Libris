@@ -184,7 +184,8 @@ test("an action error survives the automatic refreshes", async ({ page }) => {
     else await route.fulfill({ json: [] });
   });
   await page.goto(base);
-  await page.getByRole("button", { name: "Archive", exact: true }).click();
+  await page.getByRole("button", { name: "Actions for Tide Lighthouse" }).click();
+  await page.getByRole("menuitem", { name: "Archive", exact: true }).click();
   const alert = page.getByRole("alert");
   await expect(alert).toContainText("Pause or cancel the running job");
   const before = polls;
@@ -241,7 +242,8 @@ test("an expired session returns to the login screen and logout always works", a
   await expect(
     page.getByRole("heading", { name: "Library", exact: true }),
   ).toBeVisible();
-  await page.getByRole("button", { name: "Sign out", exact: true }).click();
+  await page.getByRole("button", { name: /Account menu/ }).click();
+  await page.getByRole("menuitem", { name: "Sign out", exact: true }).click();
   await expect(page.getByLabel("Password", { exact: true })).toBeVisible();
   await expect(page.getByRole("alert")).toHaveCount(0);
 });

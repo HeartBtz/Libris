@@ -108,12 +108,12 @@ test("capture API-backed public documentation @integration", async ({ page }) =>
       fullPage: true,
     });
     await page.getByRole("combobox", { name: "Series" }).selectOption("all");
-    await page.getByRole("button", { name: /Archives/ }).click();
+    await page.getByRole("radio", { name: /Archives/ }).click();
     await page.screenshot({
       path: resolve(output, "archives.png"),
       fullPage: true,
     });
-    await page.getByRole("button", { name: /All books/ }).click();
+    await page.getByRole("radio", { name: /All books/ }).click();
     await page.setViewportSize({ width: 390, height: 844 });
     expect(
       await page.evaluate(() => document.documentElement.scrollWidth),
@@ -136,7 +136,9 @@ test("capture API-backed public documentation @integration", async ({ page }) =>
       path: resolve(output, "progress-stages.png"),
       fullPage: true,
     });
-    await page.getByRole("button", { name: /Validations/ }).click();
+    await page.getByRole("button", { name: /Account menu/ }).click();
+    await page.getByRole("menuitemradio", { name: "Dark" }).click();
+    await page.getByRole("tab", { name: /Validations/ }).click();
     await expect(
       page.getByRole("heading", { name: "Translation validations" }),
     ).toBeVisible();
@@ -153,7 +155,8 @@ test("capture API-backed public documentation @integration", async ({ page }) =>
       fullPage: true,
     });
     await page.setViewportSize({ width: 1440, height: 1040 });
-    await page.getByRole("button", { name: "Change theme" }).click();
+    await page.getByRole("button", { name: /Account menu/ }).click();
+    await page.getByRole("menuitemradio", { name: "Light" }).click();
     await page.screenshot({
       path: resolve(output, "validations-light.png"),
       fullPage: true,

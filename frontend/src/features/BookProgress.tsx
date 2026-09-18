@@ -1,65 +1,74 @@
 import type { Project } from "../types";
-import { registerTranslations, useI18n } from "../i18n";
+import { formatPercent, registerTranslations, useI18n } from "../i18n";
+import { ProgressBar } from "../ui";
 import { duration, projectProgress } from "./progress";
 
-const translations: Record<string, string> = {
-  "Import": "Import",
-  "Analyse & mémoire": "Analysis & memory",
-  "Traduction": "Translation",
-  "Relecture": "Review",
-  "Export": "Export",
-  "passages ·": "segments ·",
-  "sections": "sections",
-  "passages traduits": "segments translated",
-  "examinés": "reviewed",
-  "propositions IA": "AI proposals",
-  "à vérifier": "to review",
+registerTranslations({
+  "{done}/{total} passages · {sections}/{chapters} sections": "{done}/{total} passages · {sections}/{chapters} sections",
+  "{done}/{total} passages traduits": "{done}/{total} passages translated",
+  "{done}/{total} propositions IA": "{done}/{total} AI proposals",
+  "{done}/{total} examinés · {remaining} à vérifier": "{done}/{total} reviewed · {remaining} to review",
   "Livre prêt à exporter": "Book ready to export",
   "EPUB importé": "EPUB imported",
-  "de": "for",
-  "Reprise prévue à": "Retry scheduled at",
+  "{stage} de {title}": "{stage} for {title}",
+  "Reprise prévue à {time}": "Retry scheduled at {time}",
   "En attente d’une place chez le provider": "Waiting for provider capacity",
-};
+});
 
-registerTranslations(translations);
-
-export function BookProgress({ project }: { project: Project }) {
+export function BookProgress({ project, compact = false }: { project: Project; compact?: boolean }) {
   const { t, locale } = useI18n();
   const progress = projectProgress(project);
   const stage = progress.current;
+  const stats = project.stats;
   const detail =
     stage.key === "analysis"
-      ? `${project.stats.analyzed_segments}/${project.stats.total} ${t("passages ·")} ${project.stats.synthesized_chapters}/${project.stats.chapters} ${t("sections")}`
+      ? t("{done}/{total} passages · {sections}/{chapters} sections", {
+          done: stats.analyzed_segments,
+          total: stats.total,
+          sections: stats.synthesized_chapters,
+          chapters: stats.chapters,
+        })
       : stage.key === "translation"
-        ? `${project.stats.translated}/${project.stats.total} ${t("passages traduits")}`
+        ? t("{done}/{total} passages traduits", { done: stats.translated, total: stats.total })
         : stage.key === "review"
           ? progress.operation === "accept_critiques" && progress.state !== "completed"
-            ? `${stage.done}/${stage.total} ${t("propositions IA")}`
-            : `${stage.done}/${stage.total} ${t("examinés")} · ${progress.review.remaining} ${t("à vérifier")}`
+            ? t("{done}/{total} propositions IA", { done: stage.done, total: stage.total })
+            : t("{done}/{total} examinés · {remaining} à vérifier", {
+                done: stage.done,
+                total: stage.total,
+                remaining: progress.review.remaining,
+              })
           : stage.key === "export"
             ? t("Livre prêt à exporter")
             : t("EPUB importé");
+  const complete = stage.key === "export" && stage.percent === 100;
   return (
-    <div className="book-progress">
-      <div className={`${stage.key}-progress`} title={detail}>
-        <div className="progress-label">
-          <span>{t(stage.label)}</span>
-          <strong>{stage.percent} %</strong>
-        </div>
-        <progress
-          aria-label={`${t(stage.label)} ${t("de")} ${project.title}`}
-          max={100}
-          value={stage.percent}
-        />
+    <div className={compact ? "book-progress book-progress-compact" : "book-progress"} title={detail}>
+      <div className="book-progress-label">
+        <span>{t(stage.label)}</span>
+        <strong className="tabular">{formatPercent(stage.percent)}</strong>
       </div>
-      <small>{detail}</small>
-      {progress.state === "waiting" && !!progress.next_attempt && <small>
-        {progress.next_attempt * 1000 > Date.now()
-          ? `${t("Reprise prévue à")} ${new Date(progress.next_attempt * 1000).toLocaleTimeString(locale)}`
-          : t("En attente d’une place chez le provider")}
-      </small>}
-      {progress.estimate.remaining_seconds !== null && stage.percent < 100 && (
-        <small>{duration(progress.estimate.remaining_seconds)}</small>
+      <ProgressBar
+        size="sm"
+        tone={complete ? "success" : progress.state === "waiting" || progress.state === "paused" ? "warning" : "accent"}
+        label={t("{stage} de {title}", { stage: t(stage.label), title: project.title })}
+        value={stage.percent}
+      />
+      <small className="book-progress-detail">{detail}</small>
+      {progress.state === "waiting" && !!progress.next_attempt && (
+        <small className="book-progress-detail">
+          {progress.next_attempt * 1000 > Date.now()
+            ? t("Reprise prévue à {time}", {
+                time: new Date(progress.next_attempt * 1000).toLocaleTimeString(locale, {
+                  hour: "2-digit",
+                  minute: "2-digit",
+                }),
+              })
+            : t("En attente d’une place chez le provider")}
+        </small>
+      )}
+      {!compact && progress.estimate.remaining_seconds !== null && stage.percent < 100 && (
+        <small className="book-progress-detail">{duration(progress.estimate.remaining_seconds)}</small>
       )}
     </div>
   );

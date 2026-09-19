@@ -478,3 +478,25 @@ def test_a_volume_sent_as_json_round_trips_through_a_project_archive(owner, api,
     with SessionLocal() as db:
         sources = lambda pid: [s.source for s in db.scalars(select(Segment).where(Segment.project_id == pid).order_by(Segment.position))]  # noqa: E731
         assert sources(restored.json()["id"]) == sources(project_id)
+
+
+def test_a_token_lists_providers_without_their_address_or_key(owner, api, provider_id):
+    with SessionLocal() as db:
+        db.get(Provider, provider_id).encrypted_key = "secret-material"
+        user_id = db.scalar(select(User.id).where(User.username == "owner"))
+        db.add(Series(owner_id=user_id, name="Defaults", normalized_name="defaults", source_language="en", target_language="fr",
+                      provider_id=provider_id))  # fmt: skip
+        other = db.scalar(select(User.id).where(User.username == "other"))
+        db.add(Series(owner_id=other, name="Not mine", normalized_name="not mine", source_language="en", target_language="fr",
+                      provider_id=provider_id))  # fmt: skip
+        db.commit()
+        mine = db.scalar(select(Series.id).where(Series.name == "Defaults"))
+    listed = api.get("/api/v1/providers", headers=bearer(new_token(owner, ["content:write"])))
+    assert listed.status_code == 200, listed.text
+    (item,) = listed.json()
+    assert item["id"] == provider_id and item["name"] == "Mock" and item["model"] == "test-model"
+    assert item["kind"] == "openai" and item["default_for_series"] == [mine]
+    assert not {"base_url", "encrypted_key", "has_api_key"} & set(item)
+    assert "llm.test" not in listed.text and "secret-material" not in listed.text
+    refused = api.get("/api/v1/providers", headers=bearer(new_token(owner, ["series:read"])))
+    assert refused.status_code == 403 and refused.json()["detail"]["scope"] == "content:write"

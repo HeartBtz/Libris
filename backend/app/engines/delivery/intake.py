@@ -8,13 +8,14 @@ recorded with its reason (never silent, never a question to a person).
 
 import hashlib
 import json
-from typing import Literal
+from typing import Annotated, Literal, get_args
 
 from pydantic import Field, ValidationError, model_validator
 
 from app.engines.ingestion.naming import LOW, clean_title, propose_chapters
 from app.engines.ingestion.payload import (
     IDENTIFIER,
+    CallbackEvent,
     Language,
     PayloadRejected,
     TranslationPayload,
@@ -32,7 +33,8 @@ class UploadOptions(StrictModel):
     external_id: str | None = Field(default=None, pattern=IDENTIFIER)
     series: str | None = Field(default=None, max_length=500)
     series_id: str | None = Field(default=None, max_length=36)
-    volume: int | None = Field(default=None, ge=1, le=10000)
+    # A number, or "latest": the series' last volume (TXT chapters following up a webnovel).
+    volume: Annotated[int, Field(ge=1, le=10000)] | Literal["latest"] | None = None
     volume_external_id: str | None = Field(default=None, pattern=IDENTIFIER)
     title: str = Field(default="", max_length=500)
     author: str = Field(default="", max_length=500)
@@ -45,6 +47,8 @@ class UploadOptions(StrictModel):
     final_review: bool = True
     output_format: Literal["json", "txt", "txt-zip", "epub", "epub-bilingual"] | None = None
     callback_url: str | None = Field(default=None, max_length=2000)
+    # Comma-separated extra webhook events, e.g. "chapters.translated".
+    callback_events: str = Field(default="", max_length=200)
     replace_changed_chapters: bool = False
     discard_human: bool = False
 
@@ -52,6 +56,9 @@ class UploadOptions(StrictModel):
     def one_series(self):
         if self.series and self.series_id:
             raise ValueError("Indiquez la série par son nom ou par son identifiant, pas les deux.")
+        unknown = [item for item in callback_events(self) if item not in get_args(CallbackEvent)]
+        if unknown:
+            raise ValueError(f"Événement de webhook inconnu : {', '.join(unknown)}.")
         return self
 
 
@@ -73,9 +80,13 @@ def upload_options(values: dict[str, str]) -> UploadOptions:
         ) from None
 
 
+def callback_events(options: UploadOptions) -> list[str]:
+    return [item.strip() for item in options.callback_events.split(",") if item.strip()]
+
+
 def epub_digest(data: bytes, options: UploadOptions) -> str:
     """Same file and same options: same request (idempotence); the callback does not change the work."""
-    meaning = options.model_dump(mode="json", exclude={"callback_url"})
+    meaning = options.model_dump(mode="json", exclude={"callback_url", "callback_events"})
     return hashlib.sha256(
         hashlib.sha256(data).digest() + json.dumps(meaning, sort_keys=True).encode()
     ).hexdigest()
@@ -123,8 +134,8 @@ def text_payload(
             ]
         )
     if options.volume is None:
-        raise PayloadRejected([{"loc": ["volume"], "msg": "Indiquez le numéro du volume (champ « volume »).",
-                                "type": "missing"}])  # fmt: skip
+        raise PayloadRejected([{"loc": ["volume"], "msg": "Indiquez le numéro du volume (champ « volume »), "
+                                "ou « latest » pour le dernier volume de la série.", "type": "missing"}])  # fmt: skip
     if not options.series and not options.series_id:
         raise PayloadRejected([{"loc": ["series"], "msg": "Indiquez la série : son identifiant ou son nom.",
                                 "type": "missing"}])  # fmt: skip
@@ -149,7 +160,8 @@ def text_payload(
     raw = {
         "external_id": options.external_id,
         "series": {"id": options.series_id, "name": options.series, "create_if_missing": True},
-        "volume": {"external_id": options.volume_external_id, "number": options.volume, "title": options.title},
+        "volume": {"external_id": options.volume_external_id, "title": options.title,
+                   **({"latest": True} if options.volume == "latest" else {"number": options.volume})},
         "author": options.author,
         "source_language": options.source_language,
         "target_language": options.target_language,
@@ -162,6 +174,7 @@ def text_payload(
         },
         "output": {"format": options.output_format or "json"},
         "callback_url": options.callback_url,
+        "callback_events": callback_events(options),
     }  # fmt: skip
     if options.output_format == "epub":
         raise PayloadRejected([{"loc": ["output_format"], "msg": "Le format EPUB n’est disponible que pour un EPUB envoyé.",

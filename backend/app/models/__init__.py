@@ -25,6 +25,7 @@ from app.models.series import (
     SeriesTerm,
     SourceAsset,
     TranslationRequest,
+    WebhookEvent,
 )
 from app.models.sync import sync_series  # noqa: F401  (keeps series_name and series_id in step)
 from app.models.usage import UsageDaily
@@ -66,4 +67,5 @@ __all__ = [
     "TranslationRequest",
     "UsageDaily",
     "PassageQuality",
+    "WebhookEvent",
 ]

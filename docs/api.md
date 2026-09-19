@@ -23,7 +23,7 @@ The automation API lives under `/api/v1` and is separate from the API used by th
 | `POST /api/v1/translation-requests/{id}/pause` | `jobs:control` | Pause the request's job |
 | `POST /api/v1/translation-requests/{id}/resume` | `jobs:control` | Resume it |
 | `POST /api/v1/translation-requests/{id}/cancel` | `jobs:control` | Cancel it |
-| `GET /api/v1/translation-requests/{id}/result` | `results:read` | Download the result (EPUB, JSON, TXT or ZIP) |
+| `GET /api/v1/translation-requests/{id}/result` | `results:read` | Download the result (EPUB, JSON, TXT or ZIP), for the request's chapters, only the new ones or the whole volume (`?scope=`) |
 | `GET /api/v1/providers` | `content:write` | List the providers a request may use |
 | `GET /api/v1/series` | `series:read` | List your series |
 | `GET /api/v1/series/{id}` | `series:read` | One series and its volumes |
@@ -230,7 +230,8 @@ curl -sS -X POST "$LIBRIS_URL/api/v1/translation-requests" \
 | --- | --- | --- |
 | `external_id` | no | Your identifier for the request: starts with a letter or digit, then letters, digits and `._:/-`, up to 200 characters. Unique per owner (see [Sending twice](#sending-the-same-request-twice)). |
 | `series` | yes | `id` (a series you own) **or** `name`. An unknown name is created when `create_if_missing` is true (the default), otherwise `404 series_not_found`. An archived series answers `409 series_archived`. |
-| `volume.number` | yes | 1–10000. |
+| `volume.number` | yes, unless `volume.latest` | 1–10000. |
+| `volume.latest` | no | Default `false`. `true` instead of a number: the chapters go to the series' last volume (the highest number; the series' continuous chapter feed when it has no numbered volume; volume 1, created, when it has neither). See [Following a series over time](#following-a-series-over-time). |
 | `volume.external_id`, `volume.title` | no | The volume is found by `external_id`, then by number within the series; otherwise it is created (title defaults to "Series — number"). A volume that came from an EPUB answers `409 volume_conflict`, and so does a volume with that number but another `external_id`. An archived volume answers `409 volume_archived`. |
 | `author` | no | Up to 500 characters. |
 | `source_language`, `target_language` | yes | BCP 47 tags such as `en`, `fr-FR`, `zh-Hant`, `es-419`. Applied to the volume. |
@@ -244,6 +245,7 @@ curl -sS -X POST "$LIBRIS_URL/api/v1/translation-requests" \
 | `pipeline.final_review` | no | Default `true`. `false` skips the final review. It never runs when the server sets `FINAL_REVIEW_ENABLED=false`. |
 | `output.format` | no | Default format of the result: `json`, `txt`, `txt-zip` or `epub-bilingual`. |
 | `callback_url` | no | A webhook called when the request ends (see [Webhooks](#webhooks)). |
+| `callback_events` | no | Extra webhook events, on top of the final one: `["chapters.translated"]` sends a batch each time chapters of the request are translated (see [Batches of translated chapters](#batches-of-translated-chapters)). Needs `callback_url`. |
 
 Unknown fields are refused. Libris never downloads anything from a URL found in the document: text is
 taken as it is. Chapters go through the same text importer as TXT files (same passages, layout and
@@ -260,7 +262,7 @@ values count as "not given"; unknown options are refused.
 | Option | Meaning |
 | --- | --- |
 | `series` or `series_id` | The series by name (created when missing) or by id; not both. Required for TXT, optional for an EPUB (standalone volume otherwise). |
-| `volume` | Volume number (1–10000). Required for TXT. |
+| `volume` | Volume number (1–10000), or `latest` for the series' last volume (TXT only, see `volume.latest` above). Required for TXT. |
 | `external_id` | Your identifier of the request. |
 | `volume_external_id` | Your identifier of the volume. |
 | `title`, `author` | Volume title and author (an EPUB keeps its own otherwise). |
@@ -269,6 +271,7 @@ values count as "not given"; unknown options are refused.
 | `start` | `true` (default) runs the whole pipeline; `false` only imports. |
 | `output_format` | `epub` (EPUB input only; the default for an EPUB), `json`, `txt`, `txt-zip` or `epub-bilingual`. |
 | `callback_url` | See [Webhooks](#webhooks). |
+| `callback_events` | Comma-separated extra events, for example `chapters.translated` (see `callback_events` above). |
 | `replace_changed_chapters`, `discard_human` | TXT only, as in the JSON document. |
 | `filename` | Raw EPUB body only: the file name, used to guess the volume number. |
 
@@ -285,6 +288,34 @@ file plus its options, `callback_url` excepted.
 
 Even without a key, sending chapters that are already in the volume with the same text never
 duplicates a series, a volume or a chapter: they are reported as `unchanged`.
+
+### Following a series over time
+
+A webnovel is translated as it is published: send each new batch of chapters as its own request, to
+the same series and volume (or with `volume.latest: true`, `volume=latest` for TXT files, to follow
+the series' last volume without tracking its number).
+
+```bash
+curl -sS -X POST "$LIBRIS_URL/api/v1/translation-requests" \
+  -H "Authorization: Bearer $LIBRIS_TOKEN" \
+  -F "files=@Chapter 51.txt" -F "files=@Chapter 52.txt" \
+  -F series="Web Saga" -F volume=latest \
+  -F source_language=en -F target_language=fr \
+  -F callback_url=https://hooks.example.org/libris -F callback_events=chapters.translated
+```
+
+- **Appended in order.** Chapters are placed by number among the chapters already in the volume and
+  matched by `external_id`, then by number: a chapter sent again with the same text is `unchanged`,
+  one with another text is refused unless `replace_changed_chapters` is true. Give numbers in the
+  file names (`Chapter 51.txt`): a file without a number is numbered within its own request only.
+- **Only the new chapters are translated.** Chapters already translated are neither translated nor
+  reviewed again: they give their context (glossary, characters, summaries and the previous
+  passages) to the new ones. The request's job covers the new or replaced chapters, plus any chapter
+  of the volume still missing a translation. The status document lists them in `chapters.new`.
+- **One request at a time per volume.** A request sent while the volume is busy waits (`queued`)
+  and starts after the running one.
+- **Updated results.** Each request's result can cover its own chapters, only the new ones, or the
+  whole volume (see `scope` in [Get the result](#get-the-result)).
 
 ## Follow a request
 
@@ -350,13 +381,14 @@ the autopilot reports that it failed, the request fails with the autopilot's rea
                "stages": [{"key": "translation", "done": 180, "total": 412, "percent": 44}]},
   "estimate": {"…": "…"},
   "error": "", "stop_reason": "", "next_attempt": 0,
-  "chapters": {"created": 3, "unchanged": 0, "replaced": 0,
+  "chapters": {"created": 3, "unchanged": 0, "replaced": 0, "new": ["…"],
                "items": [{"chapter_id": "…", "external_id": "chapter-001", "number": 1, "title": "Chapter 1",
                           "segments": 140, "translated": 60, "validated": 0, "flagged": 0, "complete": false}]},
   "options": {"start": true, "final_review": true, "output_format": "json"},
   "result": null,
   "report": null,
-  "webhook": {"state": "pending", "attempts": 0, "error": ""}
+  "webhook": {"state": "pending", "attempts": 0, "error": ""},
+  "chapter_events": null
 }
 ```
 
@@ -367,10 +399,11 @@ the autopilot reports that it failed, the request fails with the autopilot's rea
 | `progress` | `segments`, `translated` and `percent` for the request's chapters (every chapter for an EPUB), and `stages`, the volume's progress per stage. |
 | `estimate` | Remaining time and cost, once enough model calls have been observed; otherwise `null`. |
 | `error`, `stop_reason`, `next_attempt` | Why the job stopped or is waiting, and when it will retry (Unix time, `0` when not waiting). |
-| `chapters` | How many chapters were `created`, `unchanged` or `replaced`, and per chapter its passages, translated, validated and flagged counts, and whether it is `complete`. |
+| `chapters` | How many chapters were `created`, `unchanged` or `replaced`, `new` (the ids of the created and replaced ones), and per chapter its passages, translated, validated and flagged counts, and whether it is `complete`. |
 | `result` | Once stored: `format`, `media_type`, `filename`, `size`, `sha256`, `created_at`. |
 | `report` | The [completion report](#completion-report), once the request ended. |
 | `webhook` | Only when a `callback_url` was given: `state` (`pending`, `delivered`, `failed`), `attempts`, last `error`. |
+| `chapter_events` | Only when `callback_events` was given: `batches` queued so far, how many are `delivered`, `pending` or `failed`, `waiting_chapters` (not translated yet) and the last `error`. |
 
 Times are Unix timestamps in seconds.
 
@@ -428,10 +461,19 @@ translation marked `—`. A stored bilingual result is the interleaved one; `lay
 rendered on demand. When EPUBCheck is installed and refuses the book, the answer is
 `422 delivery_failed`.
 
-**What it covers.** The chapters of the request only, in reading order; for an EPUB, the whole book.
+**What it covers.** `?scope=` chooses, in reading order:
+
+| `scope` | Chapters |
+| --- | --- |
+| `request` (default) | The chapters the request sent, `unchanged` ones included; for an EPUB, the whole book. |
+| `new` | Only the chapters the request created or replaced: the new chapters of a follow-up. |
+| `volume` | Every chapter of the volume, those of earlier requests included: the updated volume. |
+
+The `epub` format is always the whole book. The JSON result says its `scope`. With `new` or `volume`,
+`complete` (and `X-Libris-Complete`) is true only when every chapter covered is fully translated.
 
 **Stored and rendered results.** When a request ends successfully, Libris builds its result once, in
-the request's default format, and stores it under `DATA_DIR/results/<request id>/`. That file is
+the request's default format and the `request` scope, and stores it under `DATA_DIR/results/<request id>/`. That file is
 served as is. Other formats are rendered on demand from the database. Stored files are removed after
 `RETENTION_RESULTS_DAYS` (30 days); asking again then renders the result from the database.
 
@@ -550,8 +592,9 @@ tab); see [the autopilot guide](autopilot.md#the-decision-log-and-the-report).
 ## Webhooks
 
 A request may name a `callback_url`. When it ends (any final status, and also `imported`), the
-**worker** sends one `POST` to that URL. The webhook is a convenience: the status document stays the
-reference, and you can always poll it.
+**worker** sends one `POST` to that URL; with `callback_events`, it also sends one per
+[batch of translated chapters](#batches-of-translated-chapters) before. The webhook is a
+convenience: the status document stays the reference, and you can always poll it.
 
 ### Enabling webhooks (administrators)
 
@@ -634,6 +677,36 @@ before anything is stored:
 The name is resolved again before every call, and the call goes to the address just checked (with the
 original name in the `Host` header and the TLS server name), so a DNS answer that changes in between
 cannot redirect it. Proxy environment variables are ignored.
+
+### Batches of translated chapters
+
+A request whose `callback_events` contains `chapters.translated` also gets one webhook per batch of
+chapters whose passages all have a translation, while the job runs: a client can publish chapters one
+batch at a time instead of waiting for the whole request. Chapters already translated when the
+request was imported are not announced. The request's final `translation_request.finished` webhook
+is sent as usual.
+
+```json
+{
+  "event": "chapters.translated",
+  "request_id": "…", "external_id": "…", "series_id": "…", "project_id": "…",
+  "batch": 2,
+  "chapters": [{"chapter_id": "…", "external_id": "chapter-052", "number": 52, "title": "Chapter 52"}],
+  "announced": 2, "total": 3,
+  "status_url": "/api/v1/translation-requests/…",
+  "result_url": "/api/v1/translation-requests/…/result?partial=true",
+  "created_at": 1790000000.0
+}
+```
+
+`batch` counts from 1 per request; `announced` is the number of chapters announced so far, `total` the
+number of chapters in the request. Batches use the same allowed hosts, signature, headers and retries
+as the final webhook, with `X-Libris-Event: chapters.translated` and `X-Libris-Delivery:
+<request id>:chapters.translated:<batch>:<attempt>`. They are sent before the final webhook when
+both are due, but a batch that is retried can arrive after it: order them by `batch`. A batch is a
+draft: until the request ends, the final review may still improve its chapters. Fetch them with
+`?partial=true&scope=new` (or `format=json`, which gives each chapter with its `chapter_id`); the
+final result stays the reference.
 
 ## List your series
 

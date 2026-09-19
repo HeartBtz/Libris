@@ -12,6 +12,7 @@ from app.engines.quality.checks import checks, validate_translation
 from app.engines.translation.versions import save_version
 from app.jobs import segment_state as state
 from app.jobs.concurrency import blocking, book_share, in_parallel, job_lock
+from app.jobs.follow_up import scoped_chapters
 from app.jobs.queue import checkpoint, emit, fence
 from app.models import Issue, Job, Project, Segment
 from app.providers.llm import LLMError, ProviderAuthenticationRequired, ProviderUnavailable, llm
@@ -80,6 +81,10 @@ def _default_targets(db, job: Job) -> list[str]:
         conditions.append(~Segment.status.in_(("error", "refused", "blocked")))
     else:
         conditions.append(Segment.status == "check")
+    chapters = scoped_chapters(job)
+    if chapters is not None:
+        # A follow-up of the volume: chapters delivered earlier are not reviewed again.
+        conditions.append(Segment.chapter_id.in_(chapters))
     return list(db.scalars(select(Segment.id).where(*conditions).order_by(Segment.position)))
 
 

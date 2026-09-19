@@ -47,8 +47,9 @@ Whether a book uses it is decided in this order:
 4. **Convergence rounds.** At most `AUTOPILOT_MAX_ROUNDS` rounds (3 by default), each made of:
    1. the [recovery ladder](#the-recovery-ladder) for every failed or untranslated passage;
    2. on the first round, at high or maximum quality, a **global consistency** check across the book;
-   3. the [final review](#the-final-review): the whole book on the first round, then only the passages
-      still open and those recovered during the round;
+   3. the [final review](#the-final-review): the whole book on the first round (only the new chapters
+      when the job [follows up a volume](#following-up-a-volume)), then only the passages still open
+      and those recovered during the round;
    4. [AI arbitration](#ai-arbitration) of everything still open.
 
    The loop stops as soon as no passage is failed or open.
@@ -170,6 +171,15 @@ Under the autopilot the final review is part of each round. Without it, a whole-
 it once at the end, and **Review log › Start AI review** runs it on demand on the passages still to
 check. `FINAL_REVIEW_ENABLED=false` turns off the automatic review (the button still works), and an
 API request can skip it with `final_review: false`.
+
+### Following up a volume
+
+When new chapters are added to a volume that is already translated (a webnovel sent over time, by an
+import into an existing volume or by the [automation API](api.md#following-a-series-over-time)), the
+job covers only the new or replaced chapters and any chapter still missing a translation: the global
+consistency check samples only their occurrences, and the final review reads only their passages.
+Chapters already delivered are neither translated nor reviewed again; they give their context to the
+new ones.
 
 ### Optional web search (SearXNG)
 

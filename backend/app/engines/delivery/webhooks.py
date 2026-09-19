@@ -219,8 +219,12 @@ def deliver_one(request_id: str, now: float | None = None) -> str | None:
 
 
 def pump(now: float | None = None) -> int:
-    """One pass over the webhooks due; returns how many calls were attempted."""
+    """One pass over the webhooks due; returns how many calls were attempted. Batches of translated
+    chapters go first: a request's progress is sent before its end when both are due."""
+    from app.engines.delivery.chapter_events import pump_events
+
     now = now or time.time()
+    progress = pump_events(now)
     with SessionLocal() as db:
         due = list(
             db.scalars(
@@ -233,4 +237,4 @@ def pump(now: float | None = None) -> int:
                 .limit(BATCH)
             )
         )
-    return sum(1 for request_id in due if deliver_one(request_id, now) is not None)
+    return progress + sum(1 for request_id in due if deliver_one(request_id, now) is not None)

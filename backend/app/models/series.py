@@ -227,3 +227,35 @@ class ImportSession(Identified, Base):
     # The commit's answer, returned again when the same commit is repeated.
     result: Mapped[dict | None] = mapped_column(JSON)
     expires_at: Mapped[float] = mapped_column(Float, index=True)
+
+
+PENDING_EVENT = "state = 'pending'"
+
+
+class WebhookEvent(Identified, Base):
+    """A progress webhook of a request (`chapters.translated`): one row per batch, sent by the worker with
+    the signing, allow-list and retries of the request's final webhook."""
+
+    __tablename__ = "webhook_events"
+    __table_args__ = (
+        UniqueConstraint("request_id", "sequence", name="uq_webhook_event_sequence"),
+        Index(
+            "ix_webhook_events_due",
+            "next_attempt",
+            postgresql_where=text(PENDING_EVENT),
+            sqlite_where=text(PENDING_EVENT),
+        ),
+    )
+    request_id: Mapped[str] = mapped_column(
+        ForeignKey("translation_requests.id", ondelete="CASCADE"), index=True
+    )
+    event: Mapped[str] = mapped_column(String(50))
+    # 1, 2, 3… per request, in the order the batches were found.
+    sequence: Mapped[int] = mapped_column(Integer)
+    chapter_ids: Mapped[list] = mapped_column(JSON, default=list)
+    # pending | delivered | failed
+    state: Mapped[str] = mapped_column(String(20), default="pending")
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    next_attempt: Mapped[float] = mapped_column(Float, default=0)
+    error: Mapped[str] = mapped_column(Text, default="")
+    delivered_at: Mapped[float | None] = mapped_column(Float)

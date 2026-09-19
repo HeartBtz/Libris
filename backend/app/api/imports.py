@@ -47,6 +47,7 @@ from app.engines.ingestion.store import (
 )
 from app.engines.series.bible import refresh_series
 from app.i18n import localize, preferred_language
+from app.jobs.follow_up import follow_up_options
 from app.jobs.launch import launch
 from app.jobs.queue import emit
 from app.models import Chapter, ImportSession, Project, Provider, Series, SourceAsset
@@ -665,7 +666,12 @@ def confirm(db, session: ImportSession, body: CommitInput, user) -> dict:
         if body.start != "none":
             for entry in result["projects"]:
                 project = db.get(Project, entry["id"])
-                job, reason = launch(db, project, body.start)
+                options = {}
+                if entry["status"] == "updated":
+                    # Chapters added to a volume already translated: the earlier ones are not reviewed again.
+                    fresh = [item["chapter_id"] for item in result["chapters"]["items"] if item["status"] != "unchanged"]
+                    options = follow_up_options(db, project, fresh)
+                job, reason = launch(db, project, body.start, options)
                 if job:
                     jobs.append({"project_id": project.id, "job_id": job.id})
                 if reason:

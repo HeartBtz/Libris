@@ -10,7 +10,7 @@ import json
 import re
 from typing import Annotated, Literal
 
-from pydantic import AfterValidator, Field, ValidationError, field_validator, model_validator
+from pydantic import AfterValidator, Field, ValidationError, ValidationInfo, field_validator, model_validator
 
 from app.engines.ingestion.base import ImportedAsset, ImportedChapter
 from app.engines.ingestion.passages import passage_chars
@@ -50,8 +50,21 @@ class SeriesReference(StrictModel):
 
 class VolumeReference(StrictModel):
     external_id: str | None = Field(default=None, pattern=IDENTIFIER)
-    number: int = Field(ge=1, le=10000)
+    # Follow-up of a webnovel: the chapters go to the series' last volume (volume 1 when it has none).
+    # Declared before `number`, which is checked against it.
+    latest: bool = False
+    number: int | None = Field(default=None, ge=1, le=10000, validate_default=True)
     title: str = Field(default="", max_length=500)
+
+    @field_validator("number")
+    @classmethod
+    def numbered(cls, value: int | None, info: ValidationInfo) -> int | None:
+        latest = info.data.get("latest", False)
+        if value is None and not latest:
+            raise ValueError("Indiquez le numéro du volume, ou « latest: true » pour le dernier volume de la série.")
+        if value is not None and latest:
+            raise ValueError("Indiquez le numéro du volume ou « latest: true », pas les deux.")
+        return value
 
 
 class ChapterInput(StrictModel):
@@ -80,6 +93,10 @@ class OutputOptions(StrictModel):
     format: Literal["json", "txt", "txt-zip", "epub-bilingual"] = "json"
 
 
+# Webhook events a request can ask for on top of `translation_request.finished`, which is always sent.
+CallbackEvent = Literal["chapters.translated"]
+
+
 class TranslationPayload(StrictModel):
     external_id: str | None = Field(default=None, pattern=IDENTIFIER)
     series: SeriesReference
@@ -96,6 +113,7 @@ class TranslationPayload(StrictModel):
     output: OutputOptions = Field(default_factory=OutputOptions)
     # Webhook called by the worker when the request ends (see app.engines.delivery.webhooks).
     callback_url: str | None = Field(default=None, max_length=2000)
+    callback_events: list[CallbackEvent] = Field(default_factory=list, max_length=5)
 
     @model_validator(mode="after")
     def distinct_chapters(self):
@@ -109,11 +127,17 @@ class TranslationPayload(StrictModel):
 
     def canonical(self) -> bytes:
         """The stored form: two requests with the same meaning have the same bytes and checksum.
-        Fields added in 0.6 are left out while unset, so a 0.5 request keeps its checksum."""
+        Fields added in 0.6 and later are left out while unset, so an older request keeps its checksum."""
         data = self.model_dump(mode="json")
         for key, default in (("discard_human", False), ("callback_url", None)):
             if data.get(key) == default:
                 data.pop(key, None)
+        if not data.get("callback_events"):
+            data.pop("callback_events", None)
+        else:
+            data["callback_events"] = sorted(set(data["callback_events"]))
+        if not data["volume"].get("latest"):
+            data["volume"].pop("latest", None)
         return json.dumps(data, ensure_ascii=False, sort_keys=True).encode()
 
 

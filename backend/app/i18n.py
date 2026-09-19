@@ -336,12 +336,21 @@ MESSAGES = {
     "Projet local supprimé. Ses documents OpenViking seront effacés par le worker.": "Local project deleted. Its OpenViking documents will be removed by the worker.",
     "Série supprimée. Ses documents OpenViking seront effacés par le worker.": "Series deleted. Its OpenViking documents will be removed by the worker.",
     "Série supprimée.": "Series deleted.",
+    # Follow-up of a series: new chapters sent over time
+    "Indiquez le numéro du volume, ou « latest: true » pour le dernier volume de la série.": "Give the volume number, or “latest: true” for the series' last volume.",
+    "Indiquez le numéro du volume ou « latest: true », pas les deux.": "Give the volume number or “latest: true”, not both.",
+    "Indiquez le numéro du volume (champ « volume »), ou « latest » pour le dernier volume de la série.": "Give the volume number (field “volume”), or “latest” for the series' last volume.",
+    "« volume=latest » vaut pour des chapitres TXT : un EPUB est un volume à lui seul.": "“volume=latest” is for TXT chapters: an EPUB is a volume on its own.",
+    "Aucune adresse de rappel.": "No callback address.",
+    "Le premier chapitre doit précéder le dernier.": "The first chapter must come before the last one.",
+    "Aucun chapitre de ce volume dans cet intervalle.": "No chapter of this volume in this range.",
 }  # fmt: skip
 
 TEMPLATES = {
     "Réponses invalides (jusqu’à {count} essais) ; passage ignoré, à reprendre ultérieurement.": "Invalid answers (up to {count} attempts); passage skipped, to be retried later.",
     "Hôte de webhook invalide : {value}": "Invalid webhook host: {value}",
     "Réseau privé invalide (notation CIDR attendue) : {value}": "Invalid private network (CIDR notation expected): {value}",
+    "Événement de webhook inconnu : {value}.": "Unknown webhook event: {value}.",
     "Cet EPUB est déjà importé dans « {title} ».": "This EPUB is already imported in “{title}”.",
     "Cet EPUB est déjà importé dans le projet archivé « {title} ». Restaurez-le depuis les archives.": "This EPUB is already imported in the archived project “{title}”. Restore it from the archives.",
     "Le fichier EPUB d’origine de « {title} » est introuvable sur le serveur : l’EPUB, l’archive de projet et l’aperçu sont indisponibles. Les exports TXT, Markdown et Book Bible restent possibles ; restaurez le dossier des livres (DATA_DIR/books) pour retrouver les autres.": "The original EPUB file of “{title}” cannot be found on the server: the EPUB, the project archive and the preview are unavailable. TXT, Markdown and Book Bible exports remain possible; restore the books folder (DATA_DIR/books) to get the others back.",

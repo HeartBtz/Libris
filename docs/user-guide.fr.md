@@ -255,6 +255,19 @@ Trois boutons terminent l’import :
 L’écran final résume l’import et liste les **Décisions automatiques** prises sur les numéros, avec leur raison.
 **Ouvrir le volume** ou **Ouvrir la série** vous y emmène.
 
+### Suivre une série au fil des chapitres
+
+Pour un webnovel publié au fil de l’eau, importez chaque nouveau lot de chapitres dans la même série, vers le
+**Flux continu de la série** ou le **Volume existant** qui les reçoit déjà. Les chapitres se rangent d’après leur
+numéro parmi ceux déjà présents ; un chapitre identique est ignoré. Le récapitulatif le rappelle : seuls les
+chapitres nouveaux ou remplacés sont traduits et relus (avec ceux du volume qui n’auraient pas encore de
+traduction). Les chapitres déjà traduits ne sont ni retraduits ni relus : ils servent de contexte (glossaire,
+personnages, résumés, passages précédents), sans nouvel appel au modèle. Pour ne télécharger ensuite que les
+nouveaux chapitres, utilisez l’intervalle de chapitres des [options d’export](#exporter).
+
+Un script peut faire de même par l’API d’automatisation (voir
+[Suivre une série dans le temps](api.md#following-a-series-over-time)).
+
 ## La page d’un livre
 
 Cliquez sur un livre pour ouvrir sa page. Le fil d’Ariane ramène à la bibliothèque ou à la série.
@@ -621,6 +634,9 @@ première option, l’export d’une traduction incomplète est refusé. Pour l�
 choisit entre **Alternée** (l’original, puis sa traduction ; le choix du menu) et **Côte à côte** (deux colonnes,
 qui passent l’une sous l’autre sur un petit écran) ; un passage non traduit y garde son original et une
 traduction vide marquée d’un tiret.
+Pour un volume de chapitres, **Du chapitre** et
+**Au chapitre** (facultatifs, bornes comprises) limitent le ZIP, le texte et le Markdown aux chapitres dont le
+numéro est dans l’intervalle, par exemple les nouveaux chapitres d’un suivi ; le nom du fichier le rappelle.
 
 **Rapport de couverture** ouvre, dans un nouvel onglet, le détail de ce qui est traduit ou non.
 

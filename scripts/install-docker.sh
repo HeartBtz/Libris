@@ -37,7 +37,7 @@ env_value() {
 }
 
 # Image shipped with this checkout; scripts/check_version.py keeps it in step with the release.
-shipped_image="heartbtz/libris:0.6.0"
+shipped_image="heartbtz/libris:0.7.0"
 official_release='^(docker\.io/)?heartbtz/libris:[0-9]+\.[0-9]+\.[0-9]+$'
 
 # Pick the image to run:

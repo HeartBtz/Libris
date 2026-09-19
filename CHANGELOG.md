@@ -2,9 +2,9 @@
 
 All notable changes are documented here. Libris follows [Semantic Versioning](https://semver.org/); while the project is below 1.0, minor versions may include breaking operational changes that are called out explicitly.
 
-## [Unreleased]
+## [0.7.0] - 2026-09-19
 
-**Upgrading.** Six database migrations run at start-up after `9d3e5b1f7a24` (`alembic upgrade head`, automatic in the Docker deployment): chapter progress webhooks (`4b8e1c6d2f90`), OpenViking cleanup log (`a3f6c1d82e57`), fair queue (`300863c7cbc7`), shared glossaries (`3c8e1a5d2f47`), passage quality scores (`e4b7c2a91d35`) and cost budgets (`4b8e2d6f1c93`). They only add tables, columns and an index: no book, passage or translation is changed, and nothing is translated again. Things to know:
+**Upgrading.** Seven database migrations run at start-up after 0.6.0 (`c4d1a8e27b63`; `alembic upgrade head`, automatic in the Docker deployment): passages kept in the original no longer flagged as human corrections (`9d3e5b1f7a24`), chapter progress webhooks (`4b8e1c6d2f90`), OpenViking cleanup log (`a3f6c1d82e57`), fair queue (`300863c7cbc7`), shared glossaries (`3c8e1a5d2f47`), passage quality scores (`e4b7c2a91d35`) and cost budgets (`4b8e2d6f1c93`). Apart from clearing that flag, they only add tables, columns and an index: no translation is changed, and nothing is translated again. Things to know:
 
 - **Behaviour change — fair order instead of first come, first served.** The worker no longer starts waiting jobs strictly oldest first: it takes the highest priority, then the account and the API token with the fewest jobs running, in turn between accounts, and a job that has waited `QUEUE_PRIORITY_AGING_MINUTES` (60) rises one level. With one account and default priorities, jobs still start in the order they entered the queue (a resumed job enters it again), apart from the turn taken between API tokens. Existing jobs become `normal` priority; existing API tokens may ask for `normal` at most until their `max_priority` is raised.
 - **Behaviour change — follow-up chapters are translated alone.** Chapters sent to a volume already translated are no longer followed by a final review and a consistency check of the whole volume: only the new or replaced chapters (and any chapter still missing a translation) are worked on.

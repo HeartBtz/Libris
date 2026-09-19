@@ -24,7 +24,7 @@ cd Libris
 ./scripts/install-docker.sh
 ```
 
-The installer creates a private `.env` with random secrets, pulls `heartbtz/libris:0.6.0` and PostgreSQL, applies
+The installer creates a private `.env` with random secrets, pulls `heartbtz/libris:0.7.0` and PostgreSQL, applies
 the database migrations, starts the web application and the worker, and waits until they answer. It never replaces
 an existing `.env` or deletes data.
 
@@ -40,12 +40,12 @@ Then add your model in **Settings › LLM providers** and import a first book.
 
 | Tag | Meaning |
 | --- | --- |
-| `0.6.0` | Exact release. Recommended: pin it in production. |
-| `0.6` | Latest patch release of the 0.6 series. |
+| `0.7.0` | Exact release. Recommended: pin it in production. |
+| `0.7` | Latest patch release of the 0.7 series. |
 | `latest` | Latest release. Convenient for a try, not for unattended production. |
 
 ```bash
-docker pull heartbtz/libris:0.6.0
+docker pull heartbtz/libris:0.7.0
 ```
 
 The same image runs the web application and the worker. The optional Codex bridge is built from the source tree.

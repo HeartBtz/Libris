@@ -39,7 +39,7 @@ The installer:
 
 1. creates `.env`, the configuration file, with random secrets and an initial administrator password (only if
    `.env` does not exist yet; it never replaces yours);
-2. downloads the application image `heartbtz/libris:0.6.0` and PostgreSQL;
+2. downloads the application image `heartbtz/libris:0.7.0` and PostgreSQL;
 3. starts the database, updates its schema, then starts the web application and the background worker;
 4. waits until Libris answers, then prints its address.
 
@@ -237,7 +237,7 @@ To delete everything for good (database, books, translations), only after a back
 
 ```bash
 docker compose --profile codex down --volumes --remove-orphans
-docker image rm heartbtz/libris:0.6.0
+docker image rm heartbtz/libris:0.7.0
 ```
 
 Check with `docker volume ls` that no `epub-translator_*` volume is left, then delete the `Libris` directory,

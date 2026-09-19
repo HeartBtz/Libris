@@ -64,7 +64,7 @@ cd Libris
 ./scripts/install-docker.sh
 ```
 
-The installer creates a `.env` with generated secrets, pulls `heartbtz/libris:0.6.0` and starts the stack. It
+The installer creates a `.env` with generated secrets, pulls `heartbtz/libris:0.7.0` and starts the stack. It
 never overwrites an existing configuration or deletes data.
 
 Open **http://localhost:8088** on the same machine and sign in as `admin` with the `BOOTSTRAP_PASSWORD` written

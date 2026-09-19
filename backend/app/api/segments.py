@@ -1,11 +1,12 @@
 import re
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 from sqlalchemy import Text, cast, select
 
 from app.api.common import row
 from app.engines.context.builder import build_context
 from app.engines.translation.versions import save_version
+from app.i18n import localize, preferred_language
 from app.jobs import segment_state as state
 from app.jobs.queue import HELD, emit, enqueue, lock_live_jobs
 from app.models import Issue, Job, RequestLog, Segment, TranslationVersion
@@ -338,10 +339,11 @@ async def ask(sid: str, body: AskInput, user: CurrentUser, db: DB):
 
 
 @router.get("/projects/{project_id}/issues")
-def issues(project_id: str, user: CurrentUser, db: DB):
+def issues(project_id: str, request: Request, user: CurrentUser, db: DB):
     access(db, project_id, user)
+    language = preferred_language(request.headers.get("accept-language"))
     return [
-        row(i)
+        {**row(i), "message": localize(i.message, language)}
         for i in db.scalars(
             select(Issue).where(Issue.project_id == project_id).order_by(Issue.created_at.desc()).limit(1000)
         )

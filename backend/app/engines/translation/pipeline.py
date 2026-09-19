@@ -19,6 +19,7 @@ from app.jobs.concurrency import blocking, book_share, in_parallel, job_lock
 from app.jobs.queue import JobStopped, checkpoint, fence, finish_segment
 from app.models import Entity, Glossary, Issue, Job, Project, Segment
 from app.providers.llm import (
+    MAX_INVALID_ATTEMPTS,
     InvalidResponseExhausted,
     LLMError,
     ProviderAuthenticationRequired,
@@ -268,7 +269,8 @@ def _skip_failed_passage(job: Job, owner: str, sid: str, refused: bool, error: s
                 message=(
                     "Traduction refusée deux fois ; passage ignoré."
                     if refused
-                    else "Cinq réponses invalides ; passage ignoré, à reprendre ultérieurement."
+                    else f"Réponses invalides (jusqu’à {MAX_INVALID_ATTEMPTS} essais) ; passage ignoré, "
+                    "à reprendre ultérieurement."
                 ),
             )
         )

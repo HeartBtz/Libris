@@ -2,6 +2,7 @@ import json
 
 import pytest
 import respx
+from fastapi.testclient import TestClient
 from sqlalchemy import select
 
 from app.db import SessionLocal
@@ -9,8 +10,9 @@ from app.engines.translation import pipeline
 from app.jobs import segment_state as state
 from app.jobs.queue import claim, enqueue
 from app.jobs.worker import execute
-from app.models import Job, Project, Segment
-from app.providers.llm import InvalidResponseExhausted
+from app.main import app
+from app.models import Issue, Job, Project, Segment
+from app.providers.llm import MAX_INVALID_ATTEMPTS, InvalidResponseExhausted
 from app.schemas import TranslationResult
 
 
@@ -82,3 +84,12 @@ async def test_repeated_invalid_responses_skip_one_passage(seeded, monkeypatch):
     for body in bodies[1:]:
         feedback = [m["content"] for m in body["messages"] if "rejected by validation" in m["content"]]
         assert len(feedback) == 1 and "Paragraphes manquants" in feedback[0]
+    with SessionLocal() as db:
+        issue = db.scalar(select(Issue).where(Issue.segment_id == sid, Issue.code == "invalid_response"))
+    assert issue.message.startswith(f"Réponses invalides (jusqu’à {MAX_INVALID_ATTEMPTS} essais)")
+    with TestClient(app) as client:
+        client.post("/api/auth/login", json={"username": "tester", "password": "test-password-123456789"})
+        listed = client.get(f"/api/projects/{pid}/issues", headers={"Accept-Language": "en"}).json()
+    assert f"Invalid answers (up to {MAX_INVALID_ATTEMPTS} attempts); passage skipped" in next(
+        item["message"] for item in listed if item["id"] == issue.id
+    )

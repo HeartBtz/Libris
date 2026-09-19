@@ -323,9 +323,13 @@ MESSAGES = {
     "Impossible de reconstruire l’EPUB traduit.": "The translated EPUB cannot be rebuilt.",
     "EPUBCheck refuse l’EPUB traduit, même après réparation automatique.": "EPUBCheck rejects the translated EPUB, even after automatic repair.",
     "Le fichier EPUB d’origine de ce volume est introuvable sur le serveur.": "The original EPUB file of this volume cannot be found on the server.",
+    # Problems recorded on passages (GET /api/projects/{id}/issues)
+    "Traduction refusée deux fois ; passage ignoré.": "Translation refused twice; passage skipped.",
+    "Texte original conservé par décision humaine ; ce passage n’est pas traduit.": "Original text kept by a human decision; this passage is not translated.",
 }  # fmt: skip
 
 TEMPLATES = {
+    "Réponses invalides (jusqu’à {count} essais) ; passage ignoré, à reprendre ultérieurement.": "Invalid answers (up to {count} attempts); passage skipped, to be retried later.",
     "Hôte de webhook invalide : {value}": "Invalid webhook host: {value}",
     "Réseau privé invalide (notation CIDR attendue) : {value}": "Invalid private network (CIDR notation expected): {value}",
     "Cet EPUB est déjà importé dans « {title} ».": "This EPUB is already imported in “{title}”.",

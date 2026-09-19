@@ -32,6 +32,7 @@ import { MemoryPanel } from "./MemoryPanel";
 import { duration, projectProgress } from "./progress";
 import { fetchAutopilot } from "./Autopilot";
 import { ProviderChain } from "./ProviderChain";
+import { QualityDashboard } from "./QualityDashboard";
 
 registerTranslations({
   "{words} mots · {sections} sections · {images} images · {size} Mo":
@@ -1291,7 +1292,17 @@ function CharacterForm({
   );
 }
 
-export function Quality({ project, run, tick }: { project: Project; run: Run; tick: number }) {
+export function Quality({
+  project,
+  run,
+  tick,
+  onOpenPassage,
+}: {
+  project: Project;
+  run: Run;
+  tick: number;
+  onOpenPassage?: (segmentId: string) => void;
+}) {
   const { t } = useI18n();
   const toast = useToast();
   const [issues, setIssues] = useState<Issue[] | null>(null);
@@ -1321,6 +1332,13 @@ export function Quality({ project, run, tick }: { project: Project; run: Run; ti
           </Button>
         </div>
       </div>
+      <QualityDashboard
+        scope="project"
+        id={project.id}
+        run={run}
+        tick={tick}
+        onOpenPassage={onOpenPassage && ((segmentId) => onOpenPassage(segmentId))}
+      />
       {issues === null ? (
         <LoadingBlock label={t("Relecture ciblée")} />
       ) : issues.length ? (

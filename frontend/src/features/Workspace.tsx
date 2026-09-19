@@ -135,7 +135,18 @@ const stageLabels: Record<string, string> = {
 
 const HELD = ["pending", "waiting", "blocked", "analyzing", "translating", "reviewing", "syncing", "paused"];
 
-export function Workspace({ id, user, run }: { id: string; user: User; run: Run }) {
+export function Workspace({
+  id,
+  user,
+  run,
+  passage,
+}: {
+  id: string;
+  user: User;
+  run: Run;
+  /** A passage to open in the editor once the book is loaded (`#project/<id>/passage/<segment>`). */
+  passage?: string;
+}) {
   const { t, tp } = useI18n();
   const { confirm } = useDialogs();
   const confirmLeave = useLeaveGuard();
@@ -225,6 +236,19 @@ export function Workspace({ id, user, run }: { id: string; user: User; run: Run 
       stream?.close();
     };
   }, [id]);
+  const pendingPassage = useRef(passage || "");
+  useEffect(() => {
+    // Opened from a link to one passage (the series quality dashboard): show it in the editor once.
+    const target = pendingPassage.current;
+    if (!project || !target) return;
+    pendingPassage.current = "";
+    void run(async () => {
+      const segment = await api<Segment>(`/segments/${target}`);
+      setChapter(segment.chapter_id);
+      setFocus({ segment: segment.id, filter: segment.retained_source ? "source_retained" : "" });
+      setTab("editor");
+    });
+  }, [project, run]);
   const refresh = () => setTick((value) => value + 1);
   if (!project)
     return (
@@ -653,7 +677,7 @@ export function Workspace({ id, user, run }: { id: string; user: User; run: Run 
         ) : tab === "glossary" ? (
           <Glossary project={project} run={run} tick={tick} />
         ) : tab === "quality" ? (
-          <Quality project={project} run={run} tick={tick} />
+          <Quality project={project} run={run} tick={tick} onOpenPassage={openPassage} />
         ) : tab === "completion" ? (
           <CompletionPanel project={project} run={run} refresh={refresh} tick={tick} />
         ) : tab === "autopilot" ? (

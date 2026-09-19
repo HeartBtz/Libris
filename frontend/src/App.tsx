@@ -246,7 +246,13 @@ export function App() {
           ) : route.startsWith("series/") ? (
             <SeriesPage key={route} id={route.split("/")[1]} user={user} run={run} />
           ) : route.startsWith("project/") ? (
-            <Workspace key={route} id={route.split("/")[1]} user={user} run={run} />
+            <Workspace
+              key={route}
+              id={route.split("/")[1]}
+              passage={route.split("/")[2] === "passage" ? route.split("/")[3] : undefined}
+              user={user}
+              run={run}
+            />
           ) : (
             <Library run={run} user={user} />
           )}

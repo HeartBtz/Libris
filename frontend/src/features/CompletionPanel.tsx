@@ -16,6 +16,8 @@ import {
   StatusPill,
   Table,
 } from "../ui";
+import { BandDistribution, QualityStats } from "./QualityDashboard";
+import type { QualitySummary } from "./QualityDashboard";
 
 registerTranslations({
   "Chargement du bilan…": "Loading summary…",
@@ -67,6 +69,9 @@ registerTranslations({
   "{count} passages à récupérer ; seuls les premiers sont listés. Relancez-les, puis actualisez le bilan pour voir les suivants.":
     "{count} passages to recover; only the first ones are listed. Rerun them, then refresh the summary to see the next ones.",
   "Sélectionner le passage {position}": "Select passage {position}",
+  "Qualité des passages": "Passage quality",
+  "Scores de 0 à 100 calculés à partir des signaux enregistrés ; l’onglet Qualité classe les chapitres et les passages à relire.":
+    "Scores from 0 to 100 computed from the recorded signals; the Quality tab ranks the chapters and the passages to review.",
 });
 
 interface Report {
@@ -81,6 +86,7 @@ interface Report {
   processing: boolean;
   last_job_status: string;
   recovery_total?: number;
+  quality?: QualitySummary;
   recovery: {
     id: string;
     position: number;
@@ -176,6 +182,19 @@ export function CompletionPanel({
           <Stat label={t("Choix humains protégés")} value={report.protected} />
         </div>
       </Card>
+      {!!report.quality?.scored && (
+        <Card
+          title={t("Qualité des passages")}
+          description={t(
+            "Scores de 0 à 100 calculés à partir des signaux enregistrés ; l’onglet Qualité classe les chapitres et les passages à relire.",
+          )}
+        >
+          <div className="stack">
+            <QualityStats summary={report.quality} />
+            <BandDistribution summary={report.quality} />
+          </div>
+        </Card>
+      )}
       {review && (
         <div className="stat-grid" role="group" aria-label={t("Résultat de la revue finale")}>
           <Stat label={t("Examinés")} value={review.examined} />

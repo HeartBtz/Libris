@@ -3,13 +3,15 @@ what it cost and how long it took. Counted by the database; the residual list is
 
 import time
 
-from sqlalchemy import case, func, select
+from sqlalchemy import case, func, literal_column, select
 
 from app.models import Chapter, Job, Project, RequestLog, Segment, TranslationRequest
 
 REPORT_VERSION = 1
 RESIDUAL_LIMIT = 500
 FLAGGED = ("check", "error", "refused")
+# A literal, not a bound parameter: PostgreSQL must see the same expression in SELECT and GROUP BY.
+TRANSLATED = Segment.translation != literal_column("''")
 
 
 def scope(request: TranslationRequest, project: Project):
@@ -91,10 +93,10 @@ def build_report(
         where = scope(request, project)
         for status, translated, retained, validated, human, count in db.execute(
             select(
-                Segment.status, Segment.translation != "", Segment.retained_source, Segment.validated, Segment.human,
+                Segment.status, TRANSLATED, Segment.retained_source, Segment.validated, Segment.human,
                 func.count(),
             ).where(where).group_by(
-                Segment.status, Segment.translation != "", Segment.retained_source, Segment.validated, Segment.human
+                Segment.status, TRANSLATED, Segment.retained_source, Segment.validated, Segment.human
             )
         ):  # fmt: skip
             passages["total"] += count

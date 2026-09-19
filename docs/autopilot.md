@@ -227,11 +227,16 @@ The report stored on the job looks like this:
   "outcome": "completed_with_residuals",
   "rounds": 2,
   "residuals": [{"segment_id": "…", "chapter_id": "…", "reason": "Texte original conservé automatiquement : …"}],
-  "reason": "1 passage(s) conservé(s) dans la langue d’origine faute de traduction valide."
+  "reason": "1 passage(s) conservé(s) dans la langue d’origine faute de traduction valide.",
+  "quality": {"scored": 411, "average": 91.4, "minimum": 40, "to_review": 6, "review_below": 70,
+              "bands": {"good": 380, "fair": 25, "weak": 5, "poor": 1}, "histogram": [0, 0, 0, 0, 1, 2, 3, 10, 35, 360]}
 }
 ```
 
-`outcome` is `completed`, `completed_with_residuals` or `failed`.
+`outcome` is `completed`, `completed_with_residuals` or `failed`. `quality` sums up the passage
+[quality scores](architecture.md#passage-quality-scores) once the run is settled: the recovery steps,
+the arbitrations and the points closed without a correction all lower a passage's score, so the
+book's **Quality** tab lists first the passages the autopilot had the most trouble with.
 
 ### Cost
 

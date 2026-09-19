@@ -95,6 +95,9 @@ async def test_an_epub_goes_in_and_a_translated_epub_comes_out(owner, api, provi
     assert report["durations"]["job_seconds"] is not None
     assert report["delivery"]["validation"]["available"] is False  # no EPUBCheck in this test run
     assert report["decisions"]["intake"] == [] and report["decisions"]["autopilot"] >= 0
+    # Every translated passage of the volume has a quality score in the report.
+    assert report["quality"]["scored"] == report["passages"]["total"]
+    assert sum(report["quality"]["bands"].values()) == report["quality"]["scored"]
     assert status["result"]["format"] == "epub"
     assert status["result"]["sha256"] == hashlib.sha256(result.content).hexdigest()
     with SessionLocal() as db:
@@ -229,6 +232,9 @@ async def test_residual_passages_keep_their_source_and_are_listed(owner, api, pr
     assert report["residual_total"] == 2 and report["passages"]["source_retained"] == 1
     reasons = {item["segment_id"]: item["reason"] for item in report["residuals"]}
     assert reasons == {kept_id: "Refus répété du fournisseur.", missing_id: "untranslated"}
+    # The passage kept in the original is the first one to review; the untranslated one has no score.
+    assert report["quality"]["review_first"][0]["segment_id"] == kept_id
+    assert missing_id not in {item["segment_id"] for item in report["quality"]["review_first"]}
     result = api.get(created["result_url"], headers=bearer(secret))
     assert result.status_code == 200 and result.headers["x-libris-complete"] == "false"
     document = result.json()

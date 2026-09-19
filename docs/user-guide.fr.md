@@ -326,7 +326,7 @@ Des bandeaux apparaissent sous l’en-tête quand quelque chose mérite votre at
 | **Pilote automatique** | Rapport final et journal des décisions (livres suivis par le pilote) |
 | **Journal des relectures** | Remarques, doutes et alertes sur les passages, et décisions de l’IA |
 | **Bilan & récupération** | Ce qui manque, et la relance de passages choisis |
-| **Qualité** | Signaux de relecture ciblée et contrôle global de cohérence |
+| **Qualité** | Scores de qualité des passages (chapitres et passages à relire en priorité), signaux de relecture ciblée et contrôle global de cohérence |
 | **Book Bible** | Résumé, fiches personnages, maintenance de la mémoire |
 | **Personnages** | Graphe des personnages et de leurs relations |
 | **Glossaire** | Choix terminologiques du livre |
@@ -394,7 +394,7 @@ Au-dessus des passages :
 - **Retraduire la section**, après confirmation.
 
 Chaque passage affiche son numéro, son état (**Validé humainement**, **Original conservé automatiquement**,
-**Correction humaine protégée** ou sa version), ses éventuelles **Consignes** et le badge **Non enregistré** tant
+**Correction humaine protégée** ou sa version), son [score de qualité](#qualité), ses éventuelles **Consignes** et le badge **Non enregistré** tant
 que votre saisie n’est pas enregistrée.
 
 **Corriger une traduction.** Modifiez le texte, puis **Enregistrer** (`Ctrl`/`⌘` + `S`) ou **Valider**
@@ -466,7 +466,27 @@ retraités, et une traduction réussie remplace l’original conservé. Un passa
 
 ### Qualité
 
-L’onglet **Qualité** liste les signaux de **Relecture ciblée** produits par les contrôles : ils orientent votre
+L’onglet **Qualité** commence par le **Score de qualité des passages** : chaque passage traduit reçoit un score
+de 0 à 100, calculé sans appel au modèle à partir de ce que Libris a déjà enregistré (alertes des contrôles,
+termes verrouillés non respectés, critiques de relecture ouvertes, doutes du modèle, longueur inhabituelle,
+appels au modèle échoués, récupérations et arbitrages du pilote automatique, points clos sans correction,
+original conservé). Un passage validé par une personne vaut 100. Le score est recalculé dès que le passage
+ou l’un de ces signaux change.
+
+- **Score moyen**, **Passages notés**, **À relire** (sous 70 et non validés) et **Score le plus bas**, puis la
+  **Répartition des scores** : **Bon** (85 et plus), **Correct** (70 à 84), **Faible** (50 à 69),
+  **Insuffisant** (moins de 50).
+- **À relire en priorité** : les passages les plus faibles d’abord, avec les signaux qui ont fait baisser
+  leur score ; **Ouvrir dans l’éditeur** affiche le passage dans l’onglet **Traduction**.
+- **Chapitres, du plus faible au plus solide** : moyenne, score le plus bas, nombre de passages faibles et
+  passages notés de chaque chapitre.
+
+Dans l’éditeur, chaque passage noté affiche son score à côté de son état ; le survol détaille les signaux.
+L’onglet **Bilan & récupération** reprend le résumé (**Qualité des passages**), comme le rapport du pilote
+automatique et le rapport de fin d’une requête de l’API. Le score oriente la relecture ; il ne mesure pas à
+lui seul la qualité littéraire.
+
+Plus bas, l’onglet liste les signaux de **Relecture ciblée** produits par les contrôles : ils orientent votre
 relecture mais ne mesurent pas à eux seuls la qualité littéraire. **Contrôle global de cohérence** met en file
 une vérification de la terminologie et des personnages sur tout le livre ; **Marquer comme traité** range un
 signal réglé.
@@ -618,6 +638,7 @@ lecture seule et ne montre que les volumes partagés.
 | **Volumes** | **Ordre de lecture** : numéros modifiables, **Monter** / **Descendre**, **Renuméroter dans cet ordre**, **Enregistrer la numérotation** ; **Rattacher un volume unique** ; **Détacher de la série** |
 | **Chapitres** | Webnovels et volumes texte : progression de chaque chapitre, **Filtrer par volume** |
 | **Importer** | L’assistant d’import, déjà positionné sur la série (propriétaire seulement) |
+| **Qualité** | Scores de qualité de tous les volumes non archivés : résumé, **À relire en priorité** (chaque passage s’ouvre dans l’éditeur de son volume), **Chapitres, du plus faible au plus solide** et **Volumes de la série** avec leur moyenne |
 | **Series Bible** | Univers, conventions, chronologie, personnages et relations de la série |
 | **Glossaire** | **Glossaire de série** et **Dérogations des volumes** |
 | **Identités** | Personnages, lieux, organisations et objets reconnus d’un volume à l’autre |

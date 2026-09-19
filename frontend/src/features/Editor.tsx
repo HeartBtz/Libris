@@ -26,6 +26,14 @@ import {
   useMediaQuery,
 } from "../ui";
 import { MarkedText, MarkerTextarea, markers } from "./MarkedText";
+import { ScoreBadge } from "./QualityDashboard";
+import type { QualitySignal } from "./QualityDashboard";
+
+interface PassageScore {
+  score: number;
+  band: string;
+  signals: QualitySignal[];
+}
 
 registerTranslations({
   "Filtrer les passages": "Filter passages",
@@ -193,6 +201,7 @@ export function Editor({
   const [filter, setFilter] = useState("");
   const [offset, setOffset] = useState(0);
   const [loaded, setLoaded] = useState<{ key: string; items: Segment[] } | null>(null);
+  const [scores, setScores] = useState<Record<string, PassageScore>>({});
   const [selected, setSelected] = useState<Segment | null>(null);
   const [preview, setPreview] = useState("");
   const chapter = chapters.find((item) => item.id === chapterId);
@@ -221,6 +230,11 @@ export function Editor({
         `/projects/${project.id}/segments?chapter_id=${chapterId}&status=${filter}&offset=${offset}&limit=${PAGE_SIZE}`,
       );
       if (active) setLoaded({ key, items });
+      // The passage scores are a guide: the editor works without them.
+      const quality = await api<Record<string, PassageScore>>(
+        `/projects/${project.id}/quality/passages?chapter_id=${chapterId}`,
+      ).catch(() => ({}));
+      if (active) setScores(quality);
     });
     return () => {
       active = false;
@@ -410,6 +424,7 @@ export function Editor({
                 refresh={refresh}
                 inspect={() => setSelected(s)}
                 residual={residuals?.get(s.id)}
+                quality={scores[s.id]}
               />
             ))
           ) : (
@@ -514,6 +529,7 @@ export function SegmentRow({
   suggestion,
   hideSource = false,
   residual,
+  quality,
 }: {
   segment: Segment;
   project: Project;
@@ -524,6 +540,8 @@ export function SegmentRow({
   hideSource?: boolean;
   /** Why the autopilot kept this passage in the original, when it did. */
   residual?: string;
+  /** The passage's quality score, when it has one. */
+  quality?: PassageScore;
 }) {
   const { t, tp } = useI18n();
   const { confirm, prompt } = useDialogs();
@@ -659,6 +677,7 @@ export function SegmentRow({
                 ? t("Correction humaine protégée")
                 : t("Version {revision}", { revision: segment.revision })}
           </span>
+          {quality && <ScoreBadge score={quality.score} band={quality.band} signals={quality.signals} />}
           {segment.instructions && (
             <Badge tone="info" title={segment.instructions}>
               {t("Consignes")}

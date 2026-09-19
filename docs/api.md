@@ -518,7 +518,17 @@ the stored ZIP, and in the webhook.
   "decisions": {"autopilot": 17,
                 "intake": [{"file": 2, "name": "Afterword.txt", "chapter_number": 3.0,
                             "confidence": "low", "reason": "…"}]},
-  "delivery": {"validation": {"available": true, "valid": true}, "repairs": [], "inherited_errors": []}
+  "delivery": {"validation": {"available": true, "valid": true}, "repairs": [], "inherited_errors": []},
+  "quality": {"scored": 411, "average": 91.4, "minimum": 40, "to_review": 6, "review_below": 70,
+              "bands": {"good": 380, "fair": 25, "weak": 5, "poor": 1},
+              "histogram": [0, 0, 0, 0, 1, 2, 3, 10, 35, 360],
+              "weakest_chapters": [{"chapter_id": "…", "title": "…", "external_id": null, "number": 12.0,
+                                    "project_id": "…", "passages": 38, "scored": 38, "average": 78.2,
+                                    "minimum": 40, "weak": 3, "…": "…"}],
+              "review_first": [{"segment_id": "…", "chapter_id": "…", "chapter_title": "…",
+                                "chapter_external_id": null, "position": 118, "score": 40, "band": "poor",
+                                "signals": [{"code": "source_retained", "count": 1, "penalty": 60}],
+                                "excerpt": "…", "…": "…"}]}
 }
 ```
 
@@ -531,6 +541,7 @@ the stored ZIP, and in the webhook.
 | `durations` | Seconds since the request was created, spent waiting for the volume, and spent in the job. |
 | `autopilot` | How the autopilot ended (`null` when it did not run). |
 | `decisions` | `autopilot`: the number of decisions the autopilot logged for the job; `intake`: the choices made when reading the upload (volume and chapter numbers, text encoding, reused EPUB). |
+| `quality` | Quality scores (0–100) of the request's translated passages, computed from the signals Libris records (checks, critiques, doubts, failed calls, recoveries, retained originals; see [the architecture](architecture.md#passage-quality-scores)): count, average, lowest, `bands` (`good` from 85, `fair` from 70, `weak` from 50, `poor` below), a ten-bucket `histogram`, `to_review` (below `review_below` and not validated by a person), the 10 weakest chapters and the 10 passages to review first with the signals that lowered them. `null` when the request has no volume. |
 | `delivery` | EPUB only: EPUBCheck `validation`, the `repairs` made (attempt, errors, files, passages restored), `inherited_errors`, and `errors` when the delivery failed. |
 
 The full log of autopilot decisions for a book is shown in the interface (the book's **Autopilot**

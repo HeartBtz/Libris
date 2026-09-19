@@ -12,6 +12,7 @@ from app.models.memory import (
     Outbox,
     Prompt,
 )
+from app.models.quality import PassageQuality
 from app.models.runs import AutopilotDecision, Event, Issue, Job, JobSegmentState, RequestLog
 from app.models.series import (
     ApiToken,
@@ -64,4 +65,5 @@ __all__ = [
     "SourceAsset",
     "TranslationRequest",
     "UsageDaily",
+    "PassageQuality",
 ]

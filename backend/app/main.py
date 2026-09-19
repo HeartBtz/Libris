@@ -35,6 +35,7 @@ from app.api import (
     tokens,
     v1,
 )
+from app.api import quality as quality_dashboard
 from app.config import settings
 from app.db import SessionLocal
 from app.diagnostics import safe_trace
@@ -215,6 +216,7 @@ for module in (
 app.include_router(estimates.router)
 app.include_router(monitoring.router)
 app.include_router(openviking_cleanup.router)
+app.include_router(quality_dashboard.router)
 
 
 @app.get("/openapi.json", include_in_schema=False)

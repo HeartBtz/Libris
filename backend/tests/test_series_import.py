@@ -7,6 +7,7 @@ from epubs import epub_bytes
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
+from app.config import settings
 from app.db import SessionLocal
 from app.engines.ingestion.naming import natural_key, propose_chapters, propose_volumes, series_from_names
 from app.engines.ingestion.text import TextRejected, decode, text_chapter
@@ -126,11 +127,12 @@ def test_epub_series_import_with_correction_and_idempotent_commit(client):
     assert duplicate["files"][0]["duplicate"]["kind"] == "library"
 
 
-def test_epub_needs_a_destination_and_a_confirmed_number(client):
+def test_epub_needs_a_destination_and_a_number_only_when_confirmation_is_required(client, monkeypatch):
     session = upload(client, "epub", [("Untitled.epub", volume(9))])
     item = {"index": 0, "volume_number": None}
     assert client.post(f"/api/imports/{session['id']}/commit", json={"items": [item]}).status_code == 422
-    body = {"destination": {"mode": "series", "series_name": "Saga"}, "items": [item]}
+    body = {"destination": {"mode": "series", "series_name": "Saga"}, "items": [item], "start": "none"}
+    monkeypatch.setattr(settings(), "import_confirm_low_confidence", True)
     refused = client.post(f"/api/imports/{session['id']}/commit", json=body)
     assert refused.status_code == 422 and "volume" in refused.text
     standalone = {"destination": {"mode": "standalone"}, "items": [item]}
@@ -138,6 +140,19 @@ def test_epub_needs_a_destination_and_a_confirmed_number(client):
     with SessionLocal() as db:
         project = db.get(Project, created["projects"][0]["id"])
         assert project.series_id is None and project.volume_number is None
+
+
+def test_without_confirmation_a_missing_volume_number_is_decided_and_explained(client):
+    session = upload(client, "epub", [("Untitled.epub", volume(9))])
+    body = {"destination": {"mode": "series", "series_name": "Saga"}, "items": [{"index": 0, "volume_number": None}],
+            "start": "none"}  # fmt: skip
+    accepted = client.post(f"/api/imports/{session['id']}/commit", json=body)
+    assert accepted.status_code == 200, accepted.text
+    result = accepted.json()
+    assert result["projects"][0]["volume_number"] == 1
+    assert result["decisions"] == [
+        {"index": 0, "name": "Untitled.epub", "volume_number": 1, "reason": "aucun numéro : volume suivant de la série"}
+    ]
 
 
 def test_duplicate_volume_numbers_are_blocking(client):

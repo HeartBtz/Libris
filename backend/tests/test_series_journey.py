@@ -77,6 +77,7 @@ def import_chapters(client, series: str, chapters: dict[int, str], target=None) 
         "target": target or {"mode": "serial"},
         "items": [{"index": i["index"], "chapter_number": i["chapter_number"]} for i in proposal["items"]],
         "settings": {"provider_id": "p-mock", "target_language": "fr", "quality": "fast"},
+        "start": "none",
     }
     response = client.post(f"/api/imports/{session['id']}/commit", json=body)
     assert response.status_code == 200, response.text

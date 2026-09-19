@@ -111,14 +111,26 @@ def original_bytes(db, project) -> bytes:
     )
 
 
+def untranslated(segment: Segment) -> bool:
+    """A passage kept in its source on purpose (source_retained) is decided, not missing."""
+    return not segment.translation and not segment.retained_source
+
+
+def export_row(segment: Segment) -> dict:
+    value = row(segment)
+    if segment.retained_source:
+        value["translated_units"] = [{"id": u["id"], "text": u["text"]} for u in segment.units]
+    return value
+
+
 def translated_epub(db, project, segments: list[Segment]) -> bytes:
     if project.source_format != "epub":
         raise HTTPException(409, not_epub_message(project.title))
-    if any(not segment.translation or segment.retained_source for segment in segments):
+    if any(untranslated(segment) for segment in segments):
         raise HTTPException(409, "Export bloqué : des passages n’ont pas encore de traduction.")
     content = rebuild(
         original_bytes(db, project),
-        [row(segment) for segment in segments],
+        [export_row(segment) for segment in segments],
         project.target_language,
         project.title,
         project.author,
@@ -146,7 +158,7 @@ def export_epubs(body: BatchExportInput, user: CurrentUser, db: DB):
         project = access(db, project_id, user)
         segments = project_segments(db, project_id)
         selected.append((project, segments))
-        if any(not segment.translation or segment.retained_source for segment in segments):
+        if any(untranslated(segment) for segment in segments):
             incomplete.append(project.title)
     if incomplete:
         raise HTTPException(

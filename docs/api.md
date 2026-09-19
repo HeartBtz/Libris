@@ -349,6 +349,8 @@ curl -sS -X POST "$LIBRIS_URL/api/v1/translation-requests" \
 | `pipeline.context_backend` | no | `internal`, `openviking` or `hybrid` (see [OpenViking](openviking.md)). |
 | `pipeline.final_review` | no | Default `true`. `false` skips the final review. It never runs when the server sets `FINAL_REVIEW_ENABLED=false`. |
 | `pipeline.priority` | no | `low`, `normal` (default) or `high`, within the token's ceiling (see [Queue priority and quotas](#queue-priority-and-quotas)). |
+| `pipeline.analysis_mode` | no | `parallel` or `strict`; default: the volume's choice, else `ANALYSIS_MODE` (`parallel`). See [Analysis modes](#analysis-modes-and-threads). |
+| `pipeline.threads` | no | 1–64: passages of this volume worked on at once, analysis and translation alike. It can only lower the volume's share of the provider's capacity. Default: the volume's choice, else that share. |
 | `output.format` | no | Default format of the result: `json`, `txt`, `txt-zip` or `epub-bilingual`. |
 | `callback_url` | no | A webhook called when the request ends (see [Webhooks](#webhooks)). |
 | `callback_events` | no | Extra webhook events, on top of the final one: `["chapters.translated"]` sends a batch each time chapters of the request are translated (see [Batches of translated chapters](#batches-of-translated-chapters)). Needs `callback_url`. |
@@ -359,6 +361,28 @@ checksums), and the normalized document is stored as a source file of the volume
 
 A new volume, and a series created by the request, take `provider_id`, `quality` and
 `context_backend` from `pipeline` when given, otherwise from the series defaults.
+
+### Analysis modes and threads
+
+Before translating, Libris analyses the volume: characters and their names, relations, terms, chapter
+summaries, then the Book Bible. Translation always starts once this analysis is complete.
+
+- `parallel` (the default): every passage is first analysed on its own, `threads` at a time; the
+  results are consolidated in book order, and each passage is then reviewed again, in parallel, against
+  what the passages **before it** established (who a nickname or a pronoun refers to, which names are
+  the same person). Nothing a later passage reveals is ever shown to an earlier one. A numbered volume
+  of a series also waits, before that review, until an earlier volume that is being analysed at the
+  same time has finished its analysis (`queue.reason` is then `earlier_volume`). It makes about twice as
+  many analysis calls as the strict mode, and ends several times sooner (see
+  [architecture](architecture.md#parallel-analysis)).
+- `strict`: one passage after the other, each reading the memory left by the previous ones.
+
+`threads` limits how many passages of the volume are in flight at once, for the analysis and the
+translation. Without it, a volume uses the provider's capacity (**Concurrent books**), shared equally
+between the books running on it, and never more: a higher value is ignored. After a provider answers
+`429` or is overloaded, the job waits, then resumes at half its width and widens again by one passage
+per minute. Near a [cost budget](#token-budget), the calls in flight are counted before they start, and
+the volume narrows down to one call at a time.
 
 ### Options of file uploads
 
@@ -373,7 +397,7 @@ values count as "not given"; unknown options are refused.
 | `volume_external_id` | Your identifier of the volume. |
 | `title`, `author` | Volume title and author (an EPUB keeps its own otherwise). |
 | `source_language`, `target_language` | BCP 47 tags. Both required for TXT. |
-| `provider_id`, `quality`, `context_backend`, `final_review`, `priority` | As in `pipeline` above. |
+| `provider_id`, `quality`, `context_backend`, `final_review`, `priority`, `analysis_mode`, `threads` | As in `pipeline` above. |
 | `start` | `true` (default) runs the whole pipeline; `false` only imports. |
 | `output_format` | `epub` (EPUB input only; the default for an EPUB), `json`, `txt`, `txt-zip` or `epub-bilingual`. |
 | `callback_url` | See [Webhooks](#webhooks). |
@@ -485,13 +509,14 @@ the autopilot reports that it failed, the request fails with the autopilot's rea
   "created_at": 1790000000.0, "updated_at": 1790000100.0, "finished_at": null,
   "stage": "translation", "step": "translation",
   "progress": {"segments": 412, "translated": 180, "percent": 44,
-               "stages": [{"key": "translation", "done": 180, "total": 412, "percent": 44}]},
+               "stages": [{"key": "translation", "done": 180, "total": 412, "percent": 44}],
+               "analysis": null},
   "estimate": {"…": "…"},
   "error": "", "stop_reason": "", "next_attempt": 0,
   "chapters": {"created": 3, "unchanged": 0, "replaced": 0, "new": ["…"],
                "items": [{"chapter_id": "…", "external_id": "chapter-001", "number": 1, "title": "Chapter 1",
                           "segments": 140, "translated": 60, "validated": 0, "flagged": 0, "complete": false}]},
-  "options": {"start": true, "final_review": true, "output_format": "json"},
+  "options": {"start": true, "final_review": true, "output_format": "json", "analysis_mode": null, "threads": null},
   "priority": "normal",
   "queue": null,
   "result": null,
@@ -505,11 +530,11 @@ the autopilot reports that it failed, the request fails with the autopilot's rea
 | --- | --- |
 | `stage` | Current stage of the volume: `import`, `analysis`, `translation`, `review` or `export` (`null` without a job). |
 | `step` | Current step of the job (for example `translation`, `final_review`, `autopilot`, `arbitration`). |
-| `progress` | `segments`, `translated` and `percent` for the request's chapters (every chapter for an EPUB), and `stages`, the volume's progress per stage. |
+| `progress` | `segments`, `translated` and `percent` for the request's chapters (every chapter for an EPUB), and `stages`, the volume's progress per stage. While the volume is analysed, `analysis` says where: `step` (`extraction`, `consolidation`, `reconciliation`, `memory`, then `book_bible` in the parallel mode; `chapter_analysis`, then `book_bible` in the strict mode), `current`/`total` passages or syntheses, `level`/`levels` of the Book Bible tree, and `percent` of the whole analysis; `null` otherwise. |
 | `estimate` | Remaining time and cost, once enough model calls have been observed; otherwise `null`. |
 | `error`, `stop_reason`, `next_attempt` | Why the job stopped or is waiting, and when it will retry (Unix time, `0` when not waiting). |
 | `priority` | The request's priority (`low`, `normal`, `high`), as changed by a person in the interface if it was. |
-| `queue` | While the request waits to start: `position` (its place in the line of its provider, 1 = next), `reason` (`starting`, `provider_busy`, `account_limit`, `token_limit`, `retry_scheduled`, `provider_missing`, or `volume_busy` while another job holds the volume), `effective_priority` (raised by waiting) and `next_attempt`. `null` once it runs or ended. |
+| `queue` | While the request waits to start: `position` (its place in the line of its provider, 1 = next), `reason` (`starting`, `provider_busy`, `account_limit`, `token_limit`, `retry_scheduled`, `earlier_volume` while the analysis waits for an earlier volume of the series, `provider_missing`, or `volume_busy` while another job holds the volume), `effective_priority` (raised by waiting) and `next_attempt`. `null` once it runs or ended. |
 | `chapters` | How many chapters were `created`, `unchanged` or `replaced`, `new` (the ids of the created and replaced ones), and per chapter its passages, translated, validated and flagged counts, and whether it is `complete`. |
 | `result` | Once stored: `format`, `media_type`, `filename`, `size`, `sha256`, `created_at`. |
 | `report` | The [completion report](#completion-report), once the request ended. |

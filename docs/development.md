@@ -451,3 +451,23 @@ data gives the reuse rate.
 
 To measure the prompt cost of a configuration without a real model, use `scripts/measure_prompt_cost.py`,
 described in [operations.md](operations.md).
+
+### Comparing the analysis modes
+
+`scripts/evaluate_analysis_modes.py` analyses the same synthetic serial in the `strict` mode and in the
+`parallel` mode (every passage reconciled, only the ambiguous ones, none) and scores the memory each leaves
+against its ground truth: who each passage involves (pronoun referents included), late aliases resolved,
+identities kept together in the registry, relations, glossary proposals, and identity links shown to a passage
+before the text reveals them. `scripts/benchmark_analysis.py` measures the wall time, calls and tokens of the
+analysis of a long serial for several thread counts. Both use `backend/tests/analysis_world.py` (the serial, its
+ground truth and a simulated analyst that only knows what its prompt holds), which
+`tests/test_parallel_analysis.py` also uses: the parallel mode must score at least as well as the strict one, show
+no later fact to any passage, give the same memory for any number of threads and resume at every stage without
+asking the model twice. The results are in [architecture](architecture.md#evaluation). They measure what each
+mode delivers to each call, not a real model: before changing the default mode, compare both on a real book with
+the protocol above (duplicate the project, same model and prompts, then `strict` against `parallel`).
+
+```bash
+python scripts/evaluate_analysis_modes.py --chapters 60 --volumes 2 --seeds 1,2,3
+python scripts/benchmark_analysis.py --chapters 400 --latency 0.2 --threads 1,4,8,16
+```

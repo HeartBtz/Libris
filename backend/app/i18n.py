@@ -131,6 +131,8 @@ MESSAGES = {
     "OpenViking a signalé une erreur applicative.": "OpenViking reported an application error.",
     "Réponse read OpenViking inattendue.": "Unexpected OpenViking read response.",
     "Réponse search OpenViking inattendue.": "Unexpected OpenViking search response.",
+    "Réponse ls OpenViking inattendue.": "Unexpected OpenViking ls response.",
+    "La racine OpenViking a changé depuis la suppression.": "The OpenViking root changed since the deletion.",
     "Identités account/user requises pour le mode trusted.": "Account/user identities are required for trusted mode.",
     "Graphe d’identités importé incohérent ou cyclique.": "Imported identity graph is inconsistent or cyclic.",
     "Relation sans personnage dans l’archive.": "Relation without a character in the archive.",
@@ -327,6 +329,12 @@ MESSAGES = {
     # Problems recorded on passages (GET /api/projects/{id}/issues)
     "Traduction refusée deux fois ; passage ignoré.": "Translation refused twice; passage skipped.",
     "Texte original conservé par décision humaine ; ce passage n’est pas traduit.": "Original text kept by a human decision; this passage is not translated.",
+    # OpenViking cleanup
+    "Nettoyage introuvable.": "Cleanup not found.",
+    "Aucun de ces dossiers n’est orphelin : rien n’est supprimé.": "None of these directories is an orphan: nothing is deleted.",
+    "Projet local supprimé. Ses documents OpenViking seront effacés par le worker.": "Local project deleted. Its OpenViking documents will be removed by the worker.",
+    "Série supprimée. Ses documents OpenViking seront effacés par le worker.": "Series deleted. Its OpenViking documents will be removed by the worker.",
+    "Série supprimée.": "Series deleted.",
 }  # fmt: skip
 
 TEMPLATES = {
@@ -405,6 +413,7 @@ TEMPLATES = {
     "Requête toujours inachevée après {hours} h : délai maximal dépassé.": "Request still unfinished after {hours} h: maximum delay exceeded.",
     "L’hôte « {host} » n’est pas dans la liste des webhooks autorisés.": "The host “{host}” is not in the list of allowed webhooks.",
     "L’hôte « {host} » désigne une adresse privée ou réservée : webhook refusé.": "The host “{host}” points to a private or reserved address: webhook refused.",
+    "OpenViking n’a pas pu lister ses documents ({reason}). Rien n’a été supprimé.": "OpenViking could not list its documents ({reason}). Nothing was deleted.",
 }  # fmt: skip
 
 

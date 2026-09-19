@@ -13,7 +13,9 @@ class Settings(BaseSettings):
     secret_key: str = ""
     bootstrap_password: str = ""
     bootstrap_username: str = "admin"
-    cookie_secure: bool = False  # Set to True in production; tests need False
+    # Session cookie marked Secure: browsers then send it only over HTTPS and to http://localhost.
+    # Set to false only when people open Libris over plain HTTP on another address (LAN name or IP).
+    cookie_secure: bool = True
     openapi_enabled: bool = True  # /openapi.json, for signed-in users only
     allowed_origins: str = "http://localhost:8088,http://127.0.0.1:8088"
     session_duration_hours: int = Field(default=24, ge=1, le=24 * 90)

@@ -147,3 +147,10 @@ def test_successful_login_resets_the_failure_count(seeded):
             for _ in range(15):
                 client.post("/api/auth/login", json={"username": "tester", "password": "wrong-password-123456"})
             assert login(client).status_code == 200
+
+
+def test_session_cookie_is_secure_by_default(monkeypatch):
+    from app.config import Settings
+
+    monkeypatch.delenv("COOKIE_SECURE", raising=False)
+    assert Settings(_env_file=None).cookie_secure is True

@@ -25,7 +25,7 @@ the report is reviewed, and fixes are released as soon as practical.
 
 - Keep PostgreSQL and the optional Codex bridge on the private Compose network; only the web application should
   publish a port.
-- Use HTTPS for any access beyond the local machine, and set `COOKIE_SECURE=true` behind it.
+- Use HTTPS for any access beyond the local machine, and keep `COOKIE_SECURE=true` (the default) behind it.
 - Protect the `.env` file and back it up with the data: losing `SECRET_KEY` makes saved provider credentials
   unreadable.
 - Translation sends the passages being processed to the providers you configure. Choose them according to your

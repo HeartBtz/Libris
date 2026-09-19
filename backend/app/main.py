@@ -79,7 +79,7 @@ app.add_middleware(BodyLimit)
 async def security_headers(request: Request, call_next):
     if request.method not in {"GET", "HEAD", "OPTIONS"}:
         origin = request.headers.get("origin")
-        if origin and origin not in settings().allowed_origins.split(","):
+        if origin and origin not in settings().allowed_origin_set:
             return error(request, "Origine non autorisée. Configurez ALLOWED_ORIGINS.", 403)
         if request.headers.get("sec-fetch-site") == "cross-site":
             return error(request, "Requête intersite refusée.", 403)

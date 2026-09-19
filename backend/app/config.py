@@ -117,6 +117,11 @@ class Settings(BaseSettings):
     metrics_token: str = ""
 
     @property
+    def allowed_origin_set(self) -> frozenset[str]:
+        """ALLOWED_ORIGINS as a set: spaces around each origin and empty entries are ignored."""
+        return frozenset(origin.strip() for origin in self.allowed_origins.split(",") if origin.strip())
+
+    @property
     def api_payload_mb(self) -> int:
         return self.api_max_payload_mb or self.max_upload_mb
 

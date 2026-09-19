@@ -154,3 +154,17 @@ def test_session_cookie_is_secure_by_default(monkeypatch):
 
     monkeypatch.delenv("COOKIE_SECURE", raising=False)
     assert Settings(_env_file=None).cookie_secure is True
+
+
+def test_allowed_origins_ignore_spaces_and_empty_entries(seeded, monkeypatch):
+    from app.config import settings
+
+    monkeypatch.setattr(settings(), "allowed_origins", " https://a.example , https://b.example,, ")
+    assert settings().allowed_origin_set == {"https://a.example", "https://b.example"}
+    credentials = {"username": "tester", "password": "test-password-123456789"}
+    with TestClient(app) as client:
+        for origin in ("https://a.example", "https://b.example"):
+            response = client.post("/api/auth/login", headers={"Origin": origin}, json=credentials)
+            assert response.status_code == 200, origin
+        response = client.post("/api/auth/login", headers={"Origin": "https://c.example"}, json=credentials)
+        assert response.status_code == 403

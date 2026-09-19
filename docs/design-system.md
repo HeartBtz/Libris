@@ -1,4 +1,7 @@
-# Libris Design System
+# Libris design system
+
+This page is for anyone who changes the interface. It describes the visual direction, the tokens and the shared
+components, so that a new screen looks and behaves like the rest of Libris.
 
 ## Direction
 
@@ -26,10 +29,14 @@ component and screen styles only reference tokens.
 | Lines | `--border`, `--border-strong`, `--border-input` (3:1 against `--surface`) |
 | Accent | `--accent`, `--accent-hover`, `--accent-soft`, `--accent-text`, `--on-accent`, `--focus` |
 | States | `--success`, `--warning`, `--danger`, `--info`, each with `-soft` (tinted background) and, where needed, `-solid` |
-| Formatting codes | `--marker-bg`, `--marker-text` |
+| Formatting codes | `--marker-bg`, `--marker-text`, and four pair hues `--code-0` … `--code-3`, each with `-soft` |
 | Type | `--text-xs` 12 · `--text-sm` 13 · `--text-md` 14 · `--text-lg` 16 · `--text-xl` 20 · `--text-2xl` 24 · `--text-3xl` 30, `--text-book` 17 with `--leading-book` 1.6 |
 | Space | 4 px base: `--space-1` 4 … `--space-12` 48 |
-| Radii | `--radius-sm` 6 · `--radius-md` 10 · `--radius-lg` 14 |
+| Radii | `--radius-sm` 6 · `--radius-md` 10 · `--radius-lg` 14 · `--radius-full` |
+| Controls | `--control-sm` 28 · `--control-md` 32 · `--control-lg` 40, `--touch-target` 40 |
+| Layout | `--sidebar-width` 232 · `--sidebar-collapsed` 60 · `--content-max` 1360 |
+| Elevation | `--shadow-sm`, `--shadow-md`, `--shadow-lg`; layers `--z-sticky`, `--z-sidebar`, `--z-menu`, `--z-dialog`, `--z-toast` |
+| Fonts | `--font-ui` (Inter), `--font-book` (Charter and fallbacks), `--font-mono` |
 | Motion | `--duration-fast` 120 ms · `--duration-normal` 180 ms · `--duration-slow` 260 ms |
 
 The light theme is "warm paper" (`#fbfaf8` background, white surfaces, dark slate text,
@@ -43,20 +50,25 @@ the choice is kept in `localStorage`.
 
 `frontend/src/styles/index.css` imports, in order: `tokens.css`, `base.css` (reset,
 typography, focus ring, reduced motion), `components.css`, `shell.css` (sidebar, page
-header) and one file per screen under `styles/screens/`.
+header) and one file per screen under `styles/screens/` (login, library, workspace, editor,
+review, panels, series).
 
 ## Components
 
 Reusable components live in `frontend/src/ui/` and are exported from `ui/index.ts`:
-`Button` (primary, secondary, ghost, danger; sm, md, lg), `IconButton` (always named,
-with a tooltip), `Badge` and `StatusPill`, `Card`, `Callout`, `Stat`, `PageHeader`,
-`Tabs` and `TabPanel`, `SegmentedControl`, `Field`, `Input`, `TextArea`, `Select`,
-`Checkbox`, `Switch`, `Dialog` (focus trap, Escape, nested dialogs), `useDialogs()`
-(`confirm` and `prompt`, replacing the native dialogs), `useToast()`, `Menu` (keyboard
-navigation, radio items), `Tooltip`, `ProgressBar` (native `<progress>`), `EmptyState`,
-`Skeleton` and `LoadingBlock`, `Table` and `FileButton` (a label styled as a button around
-the native file picker, so it stays keyboard-accessible). Icons are a small inline SVG set in
-`ui/icons.tsx`.
+
+| Group | Components |
+| --- | --- |
+| Actions | `Button` (primary, secondary, ghost, danger; sm, md, lg; `loading`), `ButtonLink`, `IconButton` (always named, with a tooltip), `FileButton` (a label styled as a button around the native file picker, so it stays keyboard-accessible), `Menu` (keyboard navigation, separators, labels, radio items) |
+| Layout | `Page`, `PageHeader`, `Card`, `Callout`, `Stat`, `Tabs` and `TabPanel`, `SegmentedControl`, `Table`, `FormGrid` (1 to 3 columns) |
+| Forms | `Field` (label, hint, error), `Input`, `SearchInput`, `TextArea`, `Select`, `Checkbox`, `Switch` |
+| Status | `Badge`, `StatusPill`, `ProgressBar` (native `<progress>`), `Spinner`, `Kbd` |
+| Loading and empty | `Skeleton`, `LoadingBlock`, `EmptyState` |
+| Overlays | `Dialog` (focus trap, Escape, nested dialogs), `useDialogs()` with `confirm` and `prompt` in place of the native dialogs (under `DialogProvider`), `useToast()` (under `ToastProvider`), `Tooltip` |
+| Helpers | `cx()` for class names, `useFocusTrap`, `useMediaQuery` |
+
+Icons are a small inline SVG set in `ui/icons.tsx`; use `Icon` with one of its names rather than adding an icon
+library.
 
 Loading and empty are distinct states: skeletons while data loads, an empty state only
 once the answer is known to be empty.
@@ -95,12 +107,14 @@ textarea shows its own text.
 ## Responsive rules
 
 - `≤ 640 px`: single column, stacked forms, 40 px minimum touch targets, larger inputs.
-- `≤ 720 px`: the import assistant fills the screen, its rows stack with visible labels and
-  its footer buttons share the width.
+- `≤ 720 px`: the library switches to cards (the table/cards toggle disappears), two- and
+  three-column forms stack, the import assistant fills the screen, its rows stack with visible
+  labels and its footer buttons share the width.
 - `≤ 900 px`: the sidebar becomes a drawer opened from the top bar; the book editor
-  shows one column per passage and a section selector; the library switches to cards.
+  shows one column per passage and a section selector; review items stack.
 - `≤ 1100 px`: side panels (book settings, Book Bible, characters, settings lists)
   move under the main content.
+- `≤ 1280 px`: the library table hides its Model column.
 - Wider screens keep the collapsible sidebar, the chapter list and the two-column editor.
 
 No width from 320 to 1920 px may scroll horizontally; wide tables scroll inside their own
@@ -109,6 +123,10 @@ non-essential animation is disabled under `prefers-reduced-motion`.
 
 ## Language
 
-Visible text goes through `t()` (keys are the French text; English is registered with
-`registerTranslations`). Counts use `tp(count, one, other)`, which picks the form with
-`Intl.PluralRules`; numbers, percentages and dates use the `Intl` helpers of `i18n.tsx`.
+The interface ships in French and English; the choice is kept in `localStorage`. Visible
+text goes through `t()` from `useI18n()`: the key is the French text, and each feature file
+registers its English strings with `registerTranslations` (a few shared keys such as
+`status.*` live in the catalogs of `i18n.tsx`). A string without an English entry shows the
+French key, so add both. Counts use `tp(count, one, other)`, which picks the form with
+`Intl.PluralRules`; numbers, percentages and dates use the `formatNumber`, `formatPercent`,
+`formatCompact` and `formatDateTime` helpers of `i18n.tsx`.

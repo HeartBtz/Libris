@@ -2,15 +2,35 @@
 
 ## Supported versions
 
-| Version                    | Security updates |
-| -------------------------- | ---------------- |
-| Latest `0.x` release       | Supported        |
-| Older commits and releases | Unsupported      |
+| Version | Security fixes |
+| --- | --- |
+| Latest `0.x` release | Yes |
+| Older releases and commits | No |
 
-Do not report vulnerabilities through a public issue with exploit details, credentials or private books. If this repository is hosted on GitHub and private vulnerability reporting is enabled, use **Security → Report a vulnerability**. Otherwise contact the repository owner privately through the hosting service before sharing sensitive details.
+## Reporting a vulnerability
 
-Include the affected commit, deployment mode, expected and observed behavior, and a minimal reproduction using synthetic data. Remove secrets and user content. You should receive an acknowledgement when the maintainer next reviews private reports; this early-stage project does not guarantee a response or remediation time.
+Please report vulnerabilities privately, never in a public issue.
 
-Keep the database and optional Codex bridge private, use HTTPS for remote access, maintain backups, and protect `.env`. Translation requests intentionally send selected book content to the configured providers; choose them according to your privacy requirements.
+- On GitHub, use **Security → Report a vulnerability** when private reporting is enabled.
+- Otherwise, contact the repository owner privately through the hosting platform and wait for a private channel
+  before sharing details.
 
-See the [publication security audit](docs/security-audit.md) for verified controls, operator responsibilities and known limitations.
+Include the affected version or commit, how Libris is deployed, what you expected and what happened, and a
+minimal reproduction with synthetic data. Remove secrets, cookies and book content from logs and screenshots.
+
+Libris is maintained by a small team without a guaranteed response time. You will get an acknowledgement when
+the report is reviewed, and fixes are released as soon as practical.
+
+## Running Libris safely
+
+- Keep PostgreSQL and the optional Codex bridge on the private Compose network; only the web application should
+  publish a port.
+- Use HTTPS for any access beyond the local machine, and set `COOKIE_SECURE=true` behind it.
+- Protect the `.env` file and back it up with the data: losing `SECRET_KEY` makes saved provider credentials
+  unreadable.
+- Translation sends the passages being processed to the providers you configure. Choose them according to your
+  privacy requirements.
+
+The security design (authentication, sessions, tokens, isolation between users, container hardening) is
+described in [docs/architecture.md](docs/architecture.md#security-design); installation hardening is in
+[docs/docker.md](docs/docker.md) and [docs/configuration.md](docs/configuration.md).

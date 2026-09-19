@@ -33,6 +33,8 @@ them.
 
 ## Project
 
+- [libris-translate.com](https://libris-translate.com/): the official website, in English and French.
+
 - [CHANGELOG.md](../CHANGELOG.md): what changed in each release, including upgrade notes.
 - [SECURITY.md](../SECURITY.md): supported versions and how to report a vulnerability privately.
 - [SUPPORT.md](../SUPPORT.md): where to ask for help and what to include.

@@ -9,6 +9,7 @@ ARG VCS_REF=unknown
 LABEL org.opencontainers.image.title="Libris Codex bridge" \
       org.opencontainers.image.version="${LIBRIS_VERSION}" \
       org.opencontainers.image.revision="${VCS_REF}" \
+      org.opencontainers.image.url="https://libris-translate.com/" \
       org.opencontainers.image.source="https://github.com/HeartBtz/Libris" \
       org.opencontainers.image.licenses="AGPL-3.0-only"
 ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1

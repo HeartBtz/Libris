@@ -18,11 +18,12 @@ from app.engines.ingestion.base import (
     SourceAdapter,
 )
 from app.engines.ingestion.naming import CHAPTER_KEYWORD, chapter_from_name, clean_title
+from app.engines.ingestion.passages import DEFAULT_PASSAGE_CHARS
 
 # C0 controls except tab and line feed, DEL and C1 controls: never part of a novel's text.
 FORBIDDEN = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]")
 TERMINAL = tuple(".!?…:;\"'»”’)]」』】）—–-~*")
-MAX_UNIT_CHARS = 3500
+MAX_UNIT_CHARS = DEFAULT_PASSAGE_CHARS
 
 
 class TextRejected(ValueError):
@@ -179,7 +180,11 @@ def text_chapter(
         resource=resource,
         groups=group_units(units, max_chars),
         checksum=hashlib.sha256(text.encode()).hexdigest(),
-        meta={"layout": {"version": 1, "mode": mode, "items": layout, "trailing_newlines": trailing}},
+        meta={
+            "layout": {"version": 1, "mode": mode, "items": layout, "trailing_newlines": trailing},
+            # An archive restore cuts the text again: it must use the same passage size.
+            "passage_max_chars": max_chars,
+        },
     )
     return chapter, warnings
 
@@ -230,6 +235,7 @@ class TxtAdapter(SourceAdapter):
             title=options.get("title") or clean_title(name),
             resource=options["resource"],
             first_line_title=bool(options.get("first_line_title")),
+            max_chars=options.get("max_chars") or MAX_UNIT_CHARS,
             max_length=self.max_length,
         )
         chapter.number = options.get("number")

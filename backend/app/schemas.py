@@ -76,6 +76,10 @@ class ProjectConfig(StrictModel):
     instructions: str = Field(default="", max_length=20000)
     # Stored in Project.config; omitted by clients that predate it, the stored choice is then kept.
     translation_memory: bool = True
+    # Passage size for chapters imported into this volume from now on (empty: PASSAGE_MAX_CHARS).
+    passage_max_chars: int | None = Field(default=None, ge=500, le=20000)
+    # "fused": one call reviews and corrects a passage (high/maximum quality); empty: REVIEW_MODE.
+    review_mode: Literal["separate", "fused"] | None = None
 
 
 class SeriesBatchInput(StrictModel):

@@ -23,6 +23,10 @@ class Settings(BaseSettings):
     import_session_hours: int = Field(default=24, ge=1, le=24 * 30)
     # Characters of one text chapter (TXT file or JSON chapter), after decoding.
     text_chapter_max_chars: int = Field(default=2_000_000, ge=1000, le=50_000_000)
+    # Characters of one passage, the unit of every model call, for volumes and chapters imported from
+    # now on (a volume may choose its own, `config.passage_max_chars`). Longer passages share the fixed
+    # context cost of a call across more text; see docs/operations.md before raising it.
+    passage_max_chars: int = Field(default=3500, ge=500, le=20000)
     # Automation API (/api/v1): JSON body of one request (empty: MAX_UPLOAD_MB), chapters per request,
     # and calls per token and per minute in each API process (0: no limit).
     api_max_payload_mb: int | None = Field(default=None, ge=1, le=4096)

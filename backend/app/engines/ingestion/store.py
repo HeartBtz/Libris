@@ -38,7 +38,7 @@ from app.models import (
 )
 from app.models.common import uid
 
-EXTENSIONS = {"epub": "epub", "txt": "txt", "json": "json"}
+EXTENSIONS = {"epub": "epub", "txt": "txt", "json": "json", "md": "md", "html": "html", "docx": "docx"}
 
 
 @dataclass

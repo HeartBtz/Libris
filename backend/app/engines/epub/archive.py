@@ -62,6 +62,16 @@ def xml(data: bytes) -> etree._Element:
 
 
 def inspect_archive(data: bytes) -> dict[str, bytes]:
+    entries = unpack_archive(data)
+    if entries.get("mimetype") != b"application/epub+zip":
+        raise ValueError("Ce fichier n’est pas un EPUB : mimetype absent ou incorrect.")
+    if "META-INF/container.xml" not in entries:
+        raise ValueError("EPUB sans META-INF/container.xml.")
+    return entries
+
+
+def unpack_archive(data: bytes) -> dict[str, bytes]:
+    """Entries of an untrusted ZIP (EPUB, DOCX) within the upload and decompression limits."""
     limits = settings()
     if len(data) > limits.max_upload_mb * 1024**2:
         raise ValueError("Fichier importé trop volumineux.")
@@ -97,8 +107,4 @@ def inspect_archive(data: bytes) -> dict[str, bytes]:
             if len(value) != info.file_size:
                 raise ValueError("Taille ZIP incohérente.")
             entries[name] = value
-    if entries.get("mimetype") != b"application/epub+zip":
-        raise ValueError("Ce fichier n’est pas un EPUB : mimetype absent ou incorrect.")
-    if "META-INF/container.xml" not in entries:
-        raise ValueError("EPUB sans META-INF/container.xml.")
     return entries

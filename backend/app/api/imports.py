@@ -20,7 +20,7 @@ from starlette.concurrency import run_in_threadpool
 from app.api.projects import import_book, project_views
 from app.config import settings
 from app.engines.epub.check import epubcheck
-from app.engines.ingestion import EpubAdapter, TextRejected, TxtAdapter
+from app.engines.ingestion import UPLOAD_EXTENSIONS, EpubAdapter, TextRejected, chapter_adapter
 from app.engines.ingestion.naming import (
     LOW,
     MEDIUM,
@@ -31,6 +31,7 @@ from app.engines.ingestion.naming import (
     propose_volumes,
     series_from_names,
 )
+from app.engines.ingestion.passages import passage_chars
 from app.engines.ingestion.store import (
     Files,
     add_chapters,
@@ -90,7 +91,8 @@ def owned_session(db, session_id: str, user, lock: bool = False) -> ImportSessio
 
 
 class SessionInput(StrictModel):
-    format: Literal["epub", "txt"]
+    # One EPUB is a volume; one TXT, Markdown, HTML or DOCX file is a chapter.
+    format: Literal["epub", "txt", "md", "html", "docx"]
 
 
 @router.post("", status_code=201)
@@ -109,7 +111,7 @@ def create_session(body: SessionInput, user: CurrentUser, db: DB):
 
 
 def inspect_file(fmt: str, name: str, data: bytes) -> dict:
-    adapter = EpubAdapter() if fmt == "epub" else TxtAdapter(settings().text_chapter_max_chars)
+    adapter = EpubAdapter() if fmt == "epub" else chapter_adapter(fmt, settings().text_chapter_max_chars)
     found = adapter.inspect(name, data)
     return {
         "format": found.format,
@@ -138,7 +140,7 @@ async def add_file(session_id: str, file: UploadFile, request: Request, user: Cu
         raise HTTPException(413, f"Requête trop volumineuse : {limits.max_upload_mb} Mo au maximum.")
     name = safe_display_name(file.filename or "fichier")
     extension = name.rsplit(".", 1)[-1].casefold() if "." in name else ""
-    if extension != session.format:
+    if extension not in UPLOAD_EXTENSIONS[session.format]:
         raise HTTPException(422, f"Ce fichier n’est pas un {session.format.upper()} : « {name} ».")
     inspection = await run_in_threadpool(inspect_file, session.format, name, data)
     sha256 = hashlib.sha256(data).hexdigest()
@@ -171,7 +173,7 @@ def record_file(db, session_id, user, name, data, sha256, inspection, request) -
         existing = db.scalar(
             select(Project)
             .join(SourceAsset, SourceAsset.project_id == Project.id)
-            .where(Project.owner_id == user.id, SourceAsset.sha256 == sha256, SourceAsset.format == "txt")
+            .where(Project.owner_id == user.id, SourceAsset.sha256 == sha256, SourceAsset.format == session.format)
             .limit(1)
         )
         if existing:
@@ -334,6 +336,8 @@ class Defaults(StrictModel):
     provider_id: str | None = None
     quality: Literal["fast", "normal", "high", "maximum"] | None = None
     context_backend: Literal["internal", "openviking", "hybrid"] | None = None
+    # Passage size of what this import creates (empty: the volume's choice, else PASSAGE_MAX_CHARS).
+    passage_max_chars: int | None = Field(default=None, ge=500, le=20000)
 
 
 class CommitInput(StrictModel):
@@ -392,6 +396,9 @@ def apply_defaults(project: Project, defaults: Defaults) -> None:
         value = getattr(defaults, key)
         if value is not None:
             setattr(project, key, value)
+    if defaults.passage_max_chars:
+        # Later chapters of a volume created here are cut like its first ones.
+        project.config = {**(project.config or {}), "passage_max_chars": defaults.passage_max_chars}
 
 
 def commit_epub(db, session: ImportSession, body: CommitInput, user, files: Files) -> dict:
@@ -424,6 +431,7 @@ def commit_epub(db, session: ImportSession, body: CommitInput, user, files: File
             series=series,
             volume_number=item.volume_number if series else None,
             files=files,
+            passage_max_chars=body.settings.passage_max_chars,
         )
         if item.title.strip():
             project.title = item.title.strip()[:500]
@@ -546,7 +554,8 @@ def commit_txt(db, session: ImportSession, body: CommitInput, user, files: Files
     chosen.sort(
         key=lambda item: (item.chapter_number is None, item.chapter_number or 0, natural_key(entries[item.index]["name"]))
     )
-    adapter = TxtAdapter(settings().text_chapter_max_chars)
+    adapter = chapter_adapter(session.format, settings().text_chapter_max_chars)
+    size = passage_chars(project, body.settings.passage_max_chars)
     chapters, replace = [], set()
     for position, item in enumerate(chosen):
         name = entries[item.index]["name"]
@@ -557,8 +566,9 @@ def commit_txt(db, session: ImportSession, body: CommitInput, user, files: Files
                 (staging_dir(session) / f"{item.index}.bin").read_bytes(),
                 title=item.title.strip() or entries[item.index]["title"],
                 number=item.chapter_number,
-                resource=text_resource(project, "txt", key),
+                resource=text_resource(project, session.format, key),
                 first_line_title=body.first_line_title,
+                max_chars=size,
             )
         except TextRejected as exc:
             raise Rejected([f"« {name} » : {exc}"]) from None

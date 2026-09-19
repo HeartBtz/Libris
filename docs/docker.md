@@ -283,7 +283,7 @@ by any earlier version. Archives written by this version cannot be read by versi
 | The page does not load | `docker compose ps`: `api` must be `healthy`. Check `BIND_ADDRESS`, `PORT` and the firewall. |
 | Sign-in answers "origin not allowed" (403) | `ALLOWED_ORIGINS` must match the address in the browser exactly: scheme, host and port, no trailing slash. |
 | Sign-in seems to do nothing, you stay on the login page | You open Libris over plain HTTP on a network address (not `localhost`) with `COOKIE_SECURE=true`: set it to `false`, or use HTTPS. `http://localhost:8088` works with `true`. |
-| The API does not start: `SECRET_KEY` or `BOOTSTRAP_PASSWORD` error | `.env` is missing values: generate one with `python3 scripts/setup.py` (it refuses to overwrite an existing `.env`). |
+| The API does not start: "SECRET_KEY must be at least 32 characters long" or "BOOTSTRAP_PASSWORD must be set" | `.env` is missing values: generate one with `python3 scripts/setup.py` (it refuses to overwrite an existing `.env`). |
 | `migrate` shows "exited" | Normal when the exit code is 0. Otherwise read `docker compose logs migrate`. |
 | The provider test fails | Test the URL from a container, not from your browser; `localhost` means the container itself. |
 | A book stays queued | The worker must be running (`docker compose ps worker`) and the provider must have free **Concurrent books** capacity. |

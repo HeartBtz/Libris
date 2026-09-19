@@ -168,3 +168,10 @@ def test_allowed_origins_ignore_spaces_and_empty_entries(seeded, monkeypatch):
             assert response.status_code == 200, origin
         response = client.post("/api/auth/login", headers={"Origin": "https://c.example"}, json=credentials)
         assert response.status_code == 403
+
+
+def test_startup_errors_name_the_setting_in_english(tmp_path):
+    from app.config import Settings
+
+    with pytest.raises(RuntimeError, match="SECRET_KEY must be at least 32 characters"):
+        Settings(_env_file=None, secret_key="short", data_dir=tmp_path).prepare()

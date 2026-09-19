@@ -55,7 +55,7 @@ async def lifespan(_app: FastAPI):
         if not db.scalar(select(User.id).limit(1)):
             if len(config.bootstrap_password) < 12:
                 raise RuntimeError(
-                    "Définissez BOOTSTRAP_PASSWORD (12 caractères minimum) pour le premier compte."
+                    "BOOTSTRAP_PASSWORD must be set (at least 12 characters) to create the first account."
                 )
             db.add(
                 User(

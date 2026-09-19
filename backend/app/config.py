@@ -129,11 +129,13 @@ class Settings(BaseSettings):
         for name in ("books", "projects", "exports", "sources", "staging", "results", "tmp"):
             (self.data_dir / name).mkdir(parents=True, exist_ok=True)
         if len(self.secret_key) < 32:
-            raise RuntimeError("SECRET_KEY doit contenir au moins 32 caractères (voir .env.example).")
+            raise RuntimeError(
+                "SECRET_KEY must be at least 32 characters long: run scripts/setup.py or see .env.example."
+            )
         if self.api_webhook_secret and len(self.api_webhook_secret) < 32:
-            raise RuntimeError("API_WEBHOOK_SECRET doit contenir au moins 32 caractères, ou rester vide.")
+            raise RuntimeError("API_WEBHOOK_SECRET must be at least 32 characters long, or empty.")
         if self.metrics_token and len(self.metrics_token) < 24:
-            raise RuntimeError("METRICS_TOKEN doit contenir au moins 24 caractères, ou rester vide.")
+            raise RuntimeError("METRICS_TOKEN must be at least 24 characters long, or empty.")
 
 
 @lru_cache

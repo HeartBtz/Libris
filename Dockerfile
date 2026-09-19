@@ -12,6 +12,7 @@ LABEL org.opencontainers.image.title="Libris" \
       org.opencontainers.image.description="Self-hosted, context-aware EPUB translation workbench" \
       org.opencontainers.image.version="${LIBRIS_VERSION}" \
       org.opencontainers.image.revision="${VCS_REF}" \
+      org.opencontainers.image.url="https://libris-translate.com/" \
       org.opencontainers.image.source="https://github.com/HeartBtz/Libris" \
       org.opencontainers.image.documentation="https://github.com/HeartBtz/Libris/blob/main/docs/docker.md" \
       org.opencontainers.image.licenses="AGPL-3.0-only"

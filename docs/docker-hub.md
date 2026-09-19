@@ -8,6 +8,8 @@ editable.
 Your books and translations stay on your server. Text is sent only to the model provider you configure:
 OpenAI-compatible, OpenAI, Anthropic, or Codex.
 
+Website: <https://libris-translate.com/>
+
 ## Quick start
 
 Libris needs PostgreSQL and a background worker, so start it with the supplied Docker Compose file rather than

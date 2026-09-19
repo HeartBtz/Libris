@@ -10,6 +10,8 @@
 
 **Self-hosted literary translation for whole books and long series.**
 
+Website: **[libris-translate.com](https://libris-translate.com/)** ([en français](https://libris-translate.com/fr/))
+
 Libris turns an EPUB, a folder of webnovel chapters or a JSON payload into a translated book, using the
 language model you choose. It reads the book first, builds a memory of its characters, places and terms, and
 keeps that memory across the volumes of a series, so that a name translated in volume 1 is still the same in

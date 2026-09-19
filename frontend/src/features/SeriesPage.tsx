@@ -72,7 +72,7 @@ registerTranslations({
   Traduits: "Translated",
   Validés: "Validated",
   "Travaux en cours": "Running jobs",
-  "À vérifier": "To review",
+  "Relecture facultative": "Optional review",
   Erreurs: "Errors",
   "Prochaines actions": "Next actions",
   "Rien à signaler : chaque volume a un provider et aucune alerte n’attend.":
@@ -80,8 +80,10 @@ registerTranslations({
   "Ajoutez un premier volume ou des chapitres.": "Add a first volume or chapters.",
   "Aucun provider pour « {title} ».": "No provider for “{title}”.",
   "« {title} » n’est pas encore analysé.": "“{title}” is not analyzed yet.",
-  "{count} passage à vérifier dans « {title} ».": "{count} passage to review in “{title}”.",
-  "{count} passages à vérifier dans « {title} ».": "{count} passages to review in “{title}”.",
+  "{count} passage ouvert à une relecture facultative dans « {title} ».":
+    "{count} passage open to optional review in “{title}”.",
+  "{count} passages ouverts à une relecture facultative dans « {title} ».":
+    "{count} passages open to optional review in “{title}”.",
   "Volumes manquants : {volumes}.": "Missing volumes: {volumes}.",
   "Numéros de volume en double : {volumes}.": "Duplicate volume numbers: {volumes}.",
   "{count} envoi de mémoire en échec.": "{count} memory upload failed.",
@@ -137,7 +139,7 @@ registerTranslations({
   Analysé: "Analyzed",
   "Non analysé": "Not analyzed",
   "Contexte modifié": "Context changed",
-  "{count} à vérifier": "{count} to review",
+  "{count} ouverts": "{count} open",
   "Ajouter du contenu à cette série": "Add content to this series",
   "EPUB : de nouveaux volumes numérotés. TXT : des chapitres dans le flux continu, un volume existant ou un nouveau volume. Rien n’est créé avant la confirmation.":
     "EPUB: new numbered volumes. TXT: chapters in the continuous flow, an existing volume or a new volume. Nothing is created before the confirmation.",
@@ -368,10 +370,13 @@ function SeriesDashboard({
     if (project.stats.flagged > 0)
       actions.push({
         key: `flagged-${project.id}`,
-        tone: "warning",
-        text: tp(project.stats.flagged, "{count} passage à vérifier dans « {title} ».", "{count} passages à vérifier dans « {title} ».", {
-          title: project.title,
-        }),
+        tone: "info",
+        text: tp(
+          project.stats.flagged,
+          "{count} passage ouvert à une relecture facultative dans « {title} ».",
+          "{count} passages ouverts à une relecture facultative dans « {title} ».",
+          { title: project.title },
+        ),
         action: open,
       });
   }
@@ -431,11 +436,7 @@ function SeriesDashboard({
         />
         <Stat label={t("Validés")} value={formatNumber(series.progress.validated)} />
         <Stat label={t("Travaux en cours")} value={formatNumber(series.progress.running)} />
-        <Stat
-          label={t("À vérifier")}
-          value={formatNumber(series.issues.flagged)}
-          tone={series.issues.flagged ? "warning" : undefined}
-        />
+        <Stat label={t("Relecture facultative")} value={formatNumber(series.issues.flagged)} />
         <Stat label={t("Erreurs")} value={formatNumber(series.issues.errors)} tone={series.issues.errors ? "danger" : undefined} />
       </div>
       <Card title={t("Prochaines actions")}>
@@ -845,7 +846,7 @@ function SeriesChapters({ series, run }: { series: SeriesDetail; run: Run }) {
                   <Badge tone={chapter.analyzed ? "success" : "neutral"}>
                     {chapter.analyzed ? t("Analysé") : t("Non analysé")}
                   </Badge>
-                  {chapter.flagged > 0 && <Badge tone="warning">{t("{count} à vérifier", { count: chapter.flagged })}</Badge>}
+                  {chapter.flagged > 0 && <Badge tone="info">{t("{count} ouverts", { count: chapter.flagged })}</Badge>}
                   {chapter.context_stale && <Badge tone="warning">{t("Contexte modifié")}</Badge>}
                 </div>
               </li>

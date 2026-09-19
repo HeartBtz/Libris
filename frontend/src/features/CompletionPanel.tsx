@@ -28,7 +28,7 @@ registerTranslations({
   "Traduits": "Translated",
   "Manquants": "Missing",
   "Conservés en original": "Retained in original",
-  "À vérifier": "To review",
+  Ouverts: "Open",
   "Alertes non résolues": "Unresolved alerts",
   "Choix humains protégés": "Protected human choices",
   "Dernier travail : {status}.": "Last job: {status}.",
@@ -171,7 +171,7 @@ export function CompletionPanel({
           <Stat label={t("Traduits")} value={report.translated} tone="success" />
           <Stat label={t("Manquants")} value={report.missing} tone={report.missing ? "warning" : undefined} />
           <Stat label={t("Conservés en original")} value={report.retained} />
-          <Stat label={t("À vérifier")} value={report.flagged} tone={report.flagged ? "warning" : undefined} />
+          <Stat label={t("Ouverts")} value={report.flagged} />
           <Stat label={t("Alertes non résolues")} value={report.issues} tone={report.issues ? "warning" : undefined} />
           <Stat label={t("Choix humains protégés")} value={report.protected} />
         </div>

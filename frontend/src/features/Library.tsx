@@ -107,7 +107,7 @@ registerTranslations({
   "Traduction de {name}": "Translation of {name}",
   "{percent} traduit · {validated}/{total} validés": "{percent} translated · {validated}/{total} validated",
   "{count} en cours": "{count} running",
-  "{count} à vérifier": "{count} to review",
+  "{count} ouverts": "{count} open",
   "{count} erreur": "{count} error",
   "{count} erreurs": "{count} errors",
   "{count} chapitre à revoir": "{count} chapter to recheck",
@@ -666,7 +666,7 @@ export function SeriesCard({ series }: { series: Series }) {
       </div>
       {(seriesAttention(s) || s.memory.pending > 0) && (
         <div className="series-card-issues">
-          {s.issues.flagged > 0 && <Badge tone="warning">{t("{count} à vérifier", { count: s.issues.flagged })}</Badge>}
+          {s.issues.flagged > 0 && <Badge tone="info">{t("{count} ouverts", { count: s.issues.flagged })}</Badge>}
           {s.issues.errors > 0 && (
             <Badge tone="danger">{tp(s.issues.errors, "{count} erreur", "{count} erreurs")}</Badge>
           )}

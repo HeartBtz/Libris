@@ -19,13 +19,14 @@ registerTranslations({
   "{translated}/{total} passages traduits · {retained} conservés en original.":
     "{translated}/{total} passages translated · {retained} retained in the original.",
   "{done}/{total} propositions IA traitées": "{done}/{total} AI proposals processed",
-  "{done}/{total} passages examinés · {resolved} résolus · {remaining} à vérifier.":
-    "{done}/{total} passages reviewed · {resolved} resolved · {remaining} to review.",
+  "{done}/{total} passages examinés · {resolved} résolus · {remaining} ouverts.":
+    "{done}/{total} passages reviewed · {resolved} resolved · {remaining} open.",
   "Génération et réception du fichier en cours…": "Generating and receiving the file…",
   "Fichier reçu ; téléchargement transmis au navigateur.": "File received; download sent to the browser.",
   "Export échoué. Consultez le message d’erreur et réessayez.": "Export failed. Check the error message and try again.",
   "Livre prêt à exporter.": "Book ready to export.",
-  "Terminez les alertes restantes avant l’export final.": "Resolve the remaining alerts before the final export.",
+  "Le résultat sera prêt à la fin du travail automatique ; l’export reste possible à tout moment.":
+    "The result will be ready when the automatic work ends; exporting stays possible at any time.",
   "Avancement par étape": "Progress by stage",
   "Étape {number} : {stage}": "Stage {number}: {stage}",
   "En cours": "In progress",
@@ -94,7 +95,7 @@ export function StageProgress({
           : stage.key === "review"
             ? progress.operation === "accept_critiques" && progress.state !== "completed"
               ? t("{done}/{total} propositions IA traitées", { done: stage.done, total: stage.total })
-              : t("{done}/{total} passages examinés · {resolved} résolus · {remaining} à vérifier.", {
+              : t("{done}/{total} passages examinés · {resolved} résolus · {remaining} ouverts.", {
                   done: stage.done,
                   total: stage.total,
                   resolved: progress.review.resolved,
@@ -108,7 +109,7 @@ export function StageProgress({
                   ? t("Export échoué. Consultez le message d’erreur et réessayez.")
                   : stage.percent === 100
                     ? t("Livre prêt à exporter.")
-                    : t("Terminez les alertes restantes avant l’export final.");
+                    : t("Le résultat sera prêt à la fin du travail automatique ; l’export reste possible à tout moment.");
   return (
     <section className="stepper" aria-label={t("Avancement par étape")}>
       <ol className="stepper-steps">

@@ -20,17 +20,25 @@ import { Inspector, SegmentRow } from "./Editor";
 import type { SuggestionDraft } from "./Editor";
 import { EstimateNote } from "./Estimate";
 import { MarkedText } from "./MarkedText";
+import { DecisionLog } from "./Autopilot";
 
 const PAGE_SIZE = 20;
 const BUSY = ["pending", "waiting", "paused", "blocked", "analyzing", "translating", "reviewing", "syncing"];
 
 registerTranslations({
-  "Validations de traduction": "Translation validations",
-  "Corrigez si nécessaire, puis validez. Le passage quitte la file une fois la décision enregistrée.":
-    "Correct as needed, then validate. The passage leaves the queue once the decision is saved.",
-  "Actualiser la file": "Refresh queue",
-  "{count} passage à vérifier": "{count} passage to review",
-  "{count} passages à vérifier": "{count} passages to review",
+  "Journal des relectures": "Review log",
+  "L’IA tranche seule les remarques, doutes et alertes de chaque passage ; ses décisions sont consignées ci-dessous. Rien n’attend votre validation : consultez ou corrigez un passage si vous le souhaitez.":
+    "The AI settles each passage's remarks, doubts and alerts on its own; its decisions are logged below. Nothing waits for your validation: look at or correct a passage if you wish.",
+  "Remarques et doutes relevés sur les passages. Corrigez ou validez un passage si vous le souhaitez ; rien n’empêche l’export.":
+    "Remarks and doubts raised on the passages. Correct or validate a passage if you wish; nothing prevents the export.",
+  "Actualiser le journal": "Refresh the log",
+  "{count} passage ouvert à une relecture facultative": "{count} passage open to optional review",
+  "{count} passages ouverts à une relecture facultative": "{count} passages open to optional review",
+  "Décisions de l’IA sur les relectures": "AI decisions on the reviews",
+  "Chaque remarque, doute ou alerte tranché par l’IA, avec sa raison.":
+    "Every remark, doubt or alert the AI settled, with its reason.",
+  "Passages ouverts à une relecture facultative": "Passages open to optional review",
+  Ouverts: "Open",
   "Bilan de la revue finale": "Final review summary",
   Examinés: "Reviewed",
   Résolus: "Resolved",
@@ -93,8 +101,9 @@ registerTranslations({
   "Refuser cette proposition": "Reject this proposal",
   "Ce passage a été signalé par un contrôle technique. Le détail est affiché ci-dessus ; aucune proposition IA n’a été enregistrée pour ce signalement.":
     "This passage was flagged by a technical check. The details are shown above; no AI proposal was saved for this report.",
-  "Aucune validation en attente.": "No validations pending.",
-  "Les passages signalés par l’IA ou les contrôles apparaîtront ici.": "Passages flagged by AI or checks will appear here.",
+  "Aucun passage ouvert.": "No open passage.",
+  "Les remarques de l’IA et des contrôles apparaîtront ici ; elles ne bloquent jamais le résultat.":
+    "Remarks from the AI and the checks will appear here; they never hold the result back.",
   "Page précédente": "Previous page",
   "Page suivante": "Next page",
   "Page {page} sur {pages}": "Page {page} of {pages}",
@@ -115,12 +124,17 @@ export function ValidationPanel({
   run,
   refresh,
   tick,
+  automatic = false,
+  onOpenPassage,
 }: {
   project: Project;
   chapters: Chapter[];
   run: Run;
   refresh: () => void;
   tick: number;
+  /** The autopilot settles open points itself: this screen is then a log, never a to-do list. */
+  automatic?: boolean;
+  onOpenPassage?: (segment: string) => void;
 }) {
   const { t, tp } = useI18n();
   const { confirm } = useDialogs();
@@ -139,6 +153,7 @@ export function ValidationPanel({
   const [drafts, setDrafts] = useState<Record<string, SuggestionDraft>>({});
   const [finalReview, setFinalReview] = useState<FinalReview | null>(null);
   const [startingReview, setStartingReview] = useState(false);
+  const [logSegment, setLogSegment] = useState("");
   const flagged = project.stats.flagged;
   const pages = Math.max(1, Math.ceil(flagged / PAGE_SIZE));
 
@@ -226,20 +241,29 @@ export function ValidationPanel({
     <section className="review-panel">
       <div className="panel-header">
         <div>
-          <h2>{t("Validations de traduction")}</h2>
+          <h2>{t("Journal des relectures")}</h2>
           <p className="muted">
-            {t("Corrigez si nécessaire, puis validez. Le passage quitte la file une fois la décision enregistrée.")}
+            {automatic
+              ? t(
+                  "L’IA tranche seule les remarques, doutes et alertes de chaque passage ; ses décisions sont consignées ci-dessous. Rien n’attend votre validation : consultez ou corrigez un passage si vous le souhaitez.",
+                )
+              : t(
+                  "Remarques et doutes relevés sur les passages. Corrigez ou validez un passage si vous le souhaitez ; rien n’empêche l’export.",
+                )}
           </p>
         </div>
         <div className="panel-actions">
-          <Badge tone={flagged ? "warning" : "success"}>
-            {tp(flagged, "{count} passage à vérifier", "{count} passages à vérifier")}
+          <Badge tone={flagged ? "info" : "success"}>
+            {tp(
+              flagged,
+              "{count} passage ouvert à une relecture facultative",
+              "{count} passages ouverts à une relecture facultative",
+            )}
           </Badge>
           <Button icon="refresh" loading={reloading} onClick={refreshQueue}>
-            {t("Actualiser la file")}
+            {t("Actualiser le journal")}
           </Button>
           <Button
-            variant="primary"
             icon="check"
             loading={acceptingAll}
             disabled={!segments?.some((segment) => segment.critique.some((item) => !item.queued))}
@@ -276,7 +300,7 @@ export function ValidationPanel({
             <Stat label={t("Examinés")} value={summary.examined} />
             <Stat label={t("Résolus")} value={summary.resolved} tone="success" />
             <Stat label={t("Corrigés")} value={summary.revised} />
-            <Stat label={t("À vérifier")} value={summary.remaining} tone={summary.remaining ? "warning" : undefined} />
+            <Stat label={t("Ouverts")} value={summary.remaining} />
             <Stat label={t("Protégés")} value={summary.protected} />
             <Stat label={t("Échecs")} value={summary.failed} tone={summary.failed ? "danger" : undefined} />
           </div>
@@ -390,6 +414,21 @@ export function ValidationPanel({
         </Card>
       )}
 
+      {automatic && onOpenPassage && (
+        <DecisionLog
+          project={project}
+          run={run}
+          tick={tick}
+          initialStage="arbitration"
+          segment={logSegment}
+          onSegment={setLogSegment}
+          onOpenPassage={onOpenPassage}
+          title={t("Décisions de l’IA sur les relectures")}
+          description={t("Chaque remarque, doute ou alerte tranché par l’IA, avec sa raison.")}
+        />
+      )}
+
+      <h3 className="section-title">{t("Passages ouverts à une relecture facultative")}</h3>
       <div id="validation-queue" className="validation-queue">
         {segments === null ? (
           <LoadingBlock label={t("Chargement des validations…")} lines={5} />
@@ -538,8 +577,8 @@ export function ValidationPanel({
           <Card>
             <EmptyState
               icon="check"
-              title={t("Aucune validation en attente.")}
-              description={t("Les passages signalés par l’IA ou les contrôles apparaîtront ici.")}
+              title={t("Aucun passage ouvert.")}
+              description={t("Les remarques de l’IA et des contrôles apparaîtront ici ; elles ne bloquent jamais le résultat.")}
             />
           </Card>
         )}

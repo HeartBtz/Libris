@@ -308,7 +308,7 @@ MESSAGES = {
     "Le format EPUB n’est disponible que pour un EPUB envoyé.": "The EPUB format is only available for an uploaded EPUB.",
     "Indiquez la série par son nom ou par son identifiant, pas les deux.": "Give the series by its name or by its identifier, not both.",
     "Envoyez les fichiers dans le champ « file » (ou « files »).": "Send the files in the “file” (or “files”) field.",
-    "Envoyez un fichier JSON, un EPUB, ou des chapitres .txt (un seul type par requête).": "Send a JSON file, an EPUB, or .txt chapters (a single kind per request).",
+    "Envoyez un fichier JSON, un EPUB, ou des chapitres .txt ou .docx (un seul type par requête).": "Send a JSON file, an EPUB, or .txt or .docx chapters (a single kind per request).",
     "Envoyez un seul fichier JSON ou EPUB par requête.": "Send a single JSON or EPUB file per request.",
     "Indiquez le numéro du volume (champ « volume »).": "Give the volume number (“volume” field).",
     "Indiquez la langue source et la langue cible.": "Give the source language and the target language.",
@@ -355,9 +355,19 @@ MESSAGES = {
     "Budget du livre": "Book budget",
     "ce mois-ci": "this month",
     "depuis sa création": "since it was created",
+    # One file split into chapters at its headings (app.engines.ingestion.split)
+    "lignes de titre de chapitre (« Chapitre 12 », « Prologue »…)": "chapter heading lines (“Chapter 12”, “Prologue”…)",
+    "lignes numérotées qui se suivent (« 1. Titre », « 2. Titre »…)": "numbered lines that follow each other (“1. Title”, “2. Title”…)",
+    "Le premier chapitre découpé doit commencer au début du fichier (position 0).": "The first chapter of a split must start at the beginning of the file (position 0).",
+    "Les positions des chapitres découpés doivent être croissantes.": "The positions of the split chapters must increase.",
+    "Seuls les fichiers TXT, Markdown et DOCX peuvent être découpés en chapitres.": "Only TXT, Markdown and DOCX files can be split into chapters.",
+    "Le découpage par titres s’applique à un seul fichier par requête.": "Splitting by headings applies to a single file per request.",
+    "Le découpage par titres s’applique aux fichiers TXT et DOCX, pas à un EPUB.": "Splitting by headings applies to TXT and DOCX files, not to an EPUB.",
 }  # fmt: skip
 
 TEMPLATES = {
+    # Parallel analysis (app.engines.translation.parallel_analysis)
+    "En attente de la fin de l’analyse du volume précédent « {title} » de la série.": "Waiting for the analysis of the earlier volume “{title}” of the series to finish.",
     # Fair queue (app.jobs.fairness)
     "Priorité « {requested} » refusée : « {ceiling} » au plus pour ce compte ou ce jeton.": "Priority “{requested}” refused: “{ceiling}” at most for this account or token.",
     "File d’attente pleine pour ce compte : {limit} travaux en attente au plus. Réessayez quand l’un d’eux aura démarré.": "Queue full for this account: {limit} waiting jobs at most. Try again once one of them has started.",
@@ -452,6 +462,12 @@ TEMPLATES = {
     "Coût estimé {estimate} pour {remaining} restants ({label}) : lancement refusé. Relevez le budget ou lancez un travail plus petit.": "Estimated cost {estimate} for {remaining} left ({label}): launch refused. Raise the budget or start a smaller job.",
     "Coût estimé {estimate} pour {remaining} restants ({label}) : le travail sera mis en pause près du plafond.": "Estimated cost {estimate} for {remaining} left ({label}): the job will be paused near the cap.",
     "{label} atteint ({spent} sur {amount}, {period}) : requête refusée. Relevez le budget du jeton ou attendez la période suivante.": "{label} reached ({spent} of {amount}, {period}): request refused. Raise the token's budget or wait for the next period.",
+    # One file split into chapters at its headings
+    "titres de niveau {level} du document": "level {level} headings of the document",
+    "Le titre « {title} » ne suit pas l’ordre des chapitres : il reste dans le chapitre précédent.": "The heading “{title}” does not follow the order of the chapters: it stays in the previous chapter.",
+    "Chapitres absents du fichier : {numbers}.": "Chapters missing from the file: {numbers}.",
+    "Position {start} invalide : elle ne correspond à aucune ligne du fichier.": "Invalid position {start}: it matches no line of the file.",
+    "Format {fmt} non découpable.": "The {fmt} format cannot be split.",
 }  # fmt: skip
 
 

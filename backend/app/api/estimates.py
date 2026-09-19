@@ -30,9 +30,9 @@ PROMPT_OVERHEAD = 12_500
 RETRY_FACTOR = 1.15
 # Share of passages that get a conditional step: a revision only follows a critique with issues,
 # the final review only reads the passages flagged by the checks.
-DEFAULT_SHARE = {"translation_revision": 0.6, "final_review": 0.5}
+DEFAULT_SHARE = {"translation_revision": 0.6, "final_review": 0.5, "chapter_reconciliation": 0.5}
 FAMILIES = {
-    "analyze": ("chapter_analysis", "book_analysis"),
+    "analyze": ("chapter_analysis", "chapter_extraction", "chapter_reconciliation", "book_analysis"),
     "translate": (
         "translation",
         "translation_review",
@@ -45,7 +45,13 @@ FAMILIES = {
 }
 FAMILIES["review"] = FAMILIES["translate"]
 PASSAGE_STEPS = {"chapter_analysis", "translation", "translation_review", "translation_revision",
-                 "review_revision", "polishing", "final_review"}
+                 "review_revision", "polishing", "final_review", "chapter_extraction", "chapter_reconciliation"}
+
+
+def analysis_mode_of(project: Project) -> str:
+    """The volume's analysis mode, else ANALYSIS_MODE (a launch may still choose another)."""
+    chosen = (project.config or {}).get("analysis_mode")
+    return chosen if chosen in {"parallel", "strict"} else settings().analysis_mode
 
 
 @dataclass
@@ -70,6 +76,10 @@ def default_tokens(operation: str, passage: float) -> tuple[float, float]:
     rewritten = 1.3 * passage + 300  # translated text, a little longer in French, wrapped in JSON
     return {
         "chapter_analysis": (PROMPT_OVERHEAD + passage, 800),
+        # Parallel analysis: an extraction, then a reconciliation that also reads the extraction and
+        # the memory of the passages before (app.engines.translation.parallel_analysis).
+        "chapter_extraction": (PROMPT_OVERHEAD + passage, 800),
+        "chapter_reconciliation": (PROMPT_OVERHEAD + passage + 2500, 800),
         "book_analysis": (PROMPT_OVERHEAD + 4 * 800, 1000),
         "translation": (PROMPT_OVERHEAD + passage, rewritten),
         "translation_review": (PROMPT_OVERHEAD + 2 * passage, 500),
@@ -94,15 +104,28 @@ def plan(db, project: Project, operation: str) -> tuple[list[Step], int, int]:
                 in_book, Segment.id.not_in(analyzed)
             )
         ).one()
-        steps = [Step("chapter_analysis", passages)]
+        parallel = analysis_mode_of(project) == "parallel"
+        if parallel:
+            # Every passage extracted, then reconciled (ANALYSIS_RECONCILIATION=flagged: the ambiguous ones).
+            flagged = settings().analysis_reconciliation != "all"
+            steps = [Step("chapter_extraction", passages), Step("chapter_reconciliation", passages, flagged)]
+        else:
+            steps = [Step("chapter_analysis", passages)]
         if not project.bible_validated:
-            sizes = db.scalars(
+            sizes = list(db.scalars(
                 select(func.count(Segment.id))
                 .join(Chapter, Segment.chapter_id == Chapter.id)
                 .where(in_book, Chapter.analyzed.is_(False))
                 .group_by(Chapter.id)
-            )
-            steps.append(Step("book_analysis", sum(math.ceil(size / 4) for size in sizes)))
+            ))  # fmt: skip
+            syntheses = sum(math.ceil(size / 4) for size in sizes)
+            if parallel:
+                # The Book Bible as a tree: chapter syntheses merged four by four, level by level.
+                nodes = len(sizes)
+                while nodes > 1:
+                    nodes = math.ceil(nodes / 4)
+                    syntheses += nodes
+            steps.append(Step("book_analysis", syntheses))
         return steps, passages, chars
 
     # Same selection as the pipeline: a translation skips what is done or human, a review

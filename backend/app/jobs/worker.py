@@ -91,10 +91,10 @@ async def heartbeat(job_id: str, owner: str, task: asyncio.Task, clock=time.mono
             logger.warning("job=%s heartbeat=deferred reason=%s", job_id, type(exc).__name__)
 
 
-def _suspend_safely(job_id: str, *arguments) -> None:
+def _suspend_safely(job_id: str, *arguments, **options) -> None:
     """A recovery transition must never become the failure that takes the worker down."""
     try:
-        suspend(job_id, *arguments)
+        suspend(job_id, *arguments, **options)
     except SQLAlchemyError:
         # The lease expires on its own and the job is reclaimed from its checkpoint.
         logger.error("job=%s status=suspend_deferred reason=database_unavailable", job_id)
@@ -172,8 +172,14 @@ async def execute(job_id: str, owner: str) -> None:
     except JobStopped:
         pass
     except ProviderUnavailable as exc:
+        # Passages in flight side by side: the resumed job starts again at half its width (429, overload).
+        from app.jobs.concurrency import throttled
+
+        backoff = throttled(job_id, job.checkpoint or {})
         if not _fallback_safely(job_id, owner, str(exc), authentication=False):
-            _suspend_safely(job_id, owner, "waiting", "provider_unavailable", str(exc), exc.retry_after)
+            _suspend_safely(
+                job_id, owner, "waiting", "provider_unavailable", str(exc), exc.retry_after, progress=backoff
+            )
     except ProviderAuthenticationRequired as exc:
         if not _fallback_safely(job_id, owner, str(exc), authentication=True):
             _suspend_safely(job_id, owner, "blocked", "authentication_required", str(exc))

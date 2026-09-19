@@ -1,4 +1,4 @@
-import type { Project } from "../types";
+import type { AnalysisPhase, Project } from "../types";
 import { formatPercent, registerTranslations, useI18n } from "../i18n";
 import { ProgressBar } from "../ui";
 import { duration, projectProgress } from "./progress";
@@ -14,15 +14,41 @@ registerTranslations({
   "{stage} de {title}": "{stage} for {title}",
   "Reprise prévue à {time}": "Retry scheduled at {time}",
   "En attente d’une place chez le provider": "Waiting for provider capacity",
+  "Extraction {done}/{total} passages": "Extraction {done}/{total} passages",
+  "Consolidation de la mémoire": "Memory consolidation",
+  "Réconciliation {done}/{total} passages": "Reconciliation {done}/{total} passages",
+  "Écriture de la mémoire {done}/{total}": "Memory writing {done}/{total}",
+  "Book Bible · niveau {level}/{levels}": "Book Bible · level {level}/{levels}",
 });
+
+/** The step of a running analysis, when the server reports it (parallel or strict). */
+function phaseDetail(phase: AnalysisPhase, t: (text: string, values?: Record<string, string | number>) => string) {
+  const counts = { done: phase.current, total: phase.total };
+  switch (phase.step) {
+    case "extraction":
+      return t("Extraction {done}/{total} passages", counts);
+    case "consolidation":
+      return t("Consolidation de la mémoire");
+    case "reconciliation":
+      return t("Réconciliation {done}/{total} passages", counts);
+    case "memory":
+      return t("Écriture de la mémoire {done}/{total}", counts);
+    case "book_bible":
+      return phase.levels ? t("Book Bible · niveau {level}/{levels}", { level: phase.level || 1, levels: phase.levels }) : "";
+    default:
+      return "";
+  }
+}
 
 export function BookProgress({ project, compact = false }: { project: Project; compact?: boolean }) {
   const { t, locale } = useI18n();
   const progress = projectProgress(project);
   const stage = progress.current;
   const stats = project.stats;
+  const phase = stage.key === "analysis" && progress.analysis_phase ? phaseDetail(progress.analysis_phase, t) : "";
   const detail =
-    stage.key === "analysis"
+    phase ||
+    (stage.key === "analysis"
       ? t("{done}/{total} passages · {sections}/{chapters} sections", {
           done: stats.analyzed_segments,
           total: stats.total,
@@ -43,7 +69,7 @@ export function BookProgress({ project, compact = false }: { project: Project; c
             ? t("Livre prêt à exporter")
             : project.source_format && project.source_format !== "epub"
               ? t("Chapitres importés")
-              : t("EPUB importé");
+              : t("EPUB importé"));
   const complete = stage.key === "export" && stage.percent === 100;
   return (
     <div className={compact ? "book-progress book-progress-compact" : "book-progress"} title={detail}>

@@ -89,6 +89,10 @@ class PipelineOptions(StrictModel):
     final_review: bool = True
     # Place in the fair queue, within what the token allows (app.jobs.fairness); None: normal.
     priority: Literal["low", "normal", "high"] | None = None
+    # Analysis mode and passages worked on at once for this request (None: the volume's choice, else
+    # ANALYSIS_MODE and the provider's capacity shared between books).
+    analysis_mode: Literal["parallel", "strict"] | None = None
+    threads: int | None = Field(default=None, ge=1, le=64)
 
 
 class OutputOptions(StrictModel):

@@ -17,6 +17,7 @@ import type {
   Series,
   SeriesChapter,
   SeriesDetail,
+  SplitProposal,
   VolumeProposal,
 } from "../types";
 import {
@@ -239,6 +240,33 @@ registerTranslations({
   "Rattachement": "Attachment",
 });
 
+// One TXT, Markdown or DOCX file holding many chapters, split at its headings.
+registerTranslations({
+  "Découper en {count} chapitres": "Split into {count} chapters",
+  "Découper {name} en chapitres": "Split {name} into chapters",
+  "Chapitres trouvés : {reason}.": "Chapters found: {reason}.",
+  "Ce fichier est trop long pour un seul chapitre : il doit être découpé.":
+    "This file is too long for a single chapter: it must be split.",
+  "Découpage proposé : cochez-le pour l’appliquer.": "Suggested split: tick it to apply it.",
+  "Chapitres du fichier {name}": "Chapters of the file {name}",
+  "Avant-propos": "Front matter",
+  "Numéro du chapitre {position}": "Number of chapter {position}",
+  "Titre du chapitre {position}": "Title of chapter {position}",
+  "{count} caractères": "{count} characters",
+  "Fusionner avec le précédent": "Merge with the previous one",
+  "Fusionner le chapitre {position} avec le précédent": "Merge chapter {position} with the previous one",
+  "Fusionné avec le chapitre précédent.": "Merged with the previous chapter.",
+  "Rétablir la coupure": "Restore the break",
+  "Rétablir la coupure avant le chapitre {position}": "Restore the break before chapter {position}",
+  "Chapitre {number} : numéro invalide.": "Chapter {number}: invalid number.",
+  "Le chapitre {number} existe déjà (« {title} ») avec un autre contenu : cochez Remplacer ou ignorez ce fichier.":
+    "Chapter {number} already exists (“{title}”) with other content: tick Replace or skip this file.",
+  "{count} chapitre identique au chapitre existant : ignoré.": "{count} chapter identical to the existing one: skipped.",
+  "{count} chapitres identiques aux chapitres existants : ignorés.": "{count} chapters identical to the existing ones: skipped.",
+  "Remplacera {count} chapitre existant.": "Will replace {count} existing chapter.",
+  "Remplacera {count} chapitres existants.": "Will replace {count} existing chapters.",
+});
+
 type Format = ImportFormat | "archive";
 type ChapterFormat = Exclude<ImportFormat, "epub">;
 /** Extensions the server accepts for each import format (app/engines/ingestion UPLOAD_EXTENSIONS). */
@@ -266,6 +294,27 @@ interface Upload {
   inspection: FileInspection | null;
 }
 
+interface SplitRow {
+  start: number;
+  number: string;
+  title: string;
+  heading: boolean;
+  firstLine: string;
+  excerpt: string;
+  characters: number;
+  /** The boundary before this part is removed: its text joins the previous chapter. */
+  merged: boolean;
+}
+
+interface SplitState {
+  enabled: boolean;
+  required: boolean;
+  reason: string;
+  warnings: string[];
+  parts: SplitRow[];
+  existing: NonNullable<ChapterProposal["split_existing"]>;
+}
+
 interface Row {
   index: number;
   name: string;
@@ -279,12 +328,14 @@ interface Row {
   /** Why the server would refuse this file: it is sent as skipped. */
   excluded: string;
   existingChapter: ChapterProposal["existing_chapter"];
-  /** A chapter the server reported as conflicting when committing. */
-  conflict: { title: string } | null;
+  /** A chapter the server reported as conflicting when committing (`number`: for a split file). */
+  conflict: { title: string; number?: number } | null;
   libraryTitle: string;
   confirmed: boolean;
   skip: boolean;
   replace: boolean;
+  /** A file holding many chapters, split at its headings (null: one file, one chapter). */
+  split: SplitState | null;
 }
 
 interface Defaults {
@@ -325,6 +376,30 @@ export function fileSize(bytes: number) {
   return bytes >= 1024 ** 2
     ? `${formatNumber(bytes / 1024 ** 2, { maximumFractionDigits: 1 })} Mo`
     : `${formatNumber(Math.max(1, Math.round(bytes / 1024)))} Ko`;
+}
+
+/** The chapters a split row creates: its parts that were not merged into the previous one. */
+const activeParts = (split: SplitState) => split.parts.filter((part) => !part.merged);
+const isSplit = (row: Row) => !!row.split?.enabled;
+
+function splitState(proposal: SplitProposal, existing: ChapterProposal["split_existing"], frontMatter: string): SplitState {
+  return {
+    enabled: proposal.default || !!proposal.required,
+    required: !!proposal.required,
+    reason: proposal.reason,
+    warnings: proposal.warnings,
+    existing: existing || [],
+    parts: proposal.parts.map((part) => ({
+      start: part.start,
+      number: String(part.number),
+      title: part.title || (part.heading ? part.first_line : frontMatter),
+      heading: part.heading,
+      firstLine: part.first_line,
+      excerpt: part.excerpt,
+      characters: part.characters,
+      merged: false,
+    })),
+  };
 }
 
 function missingNumbers(numbers: number[]): number[] {
@@ -556,6 +631,7 @@ export function ImportWizard({
       const file = files.get(item.index)!;
       const number = format === "epub" ? (item as VolumeProposal).volume_number : (item as ChapterProposal).chapter_number;
       const duplicate = file.duplicate;
+      const proposedSplit = format !== "epub" ? (file.meta.split as SplitProposal | undefined) : undefined;
       const excluded =
         duplicate?.kind === "batch"
           ? t("Doublon de « {name} » dans cet import.", { name: duplicate.name })
@@ -579,6 +655,9 @@ export function ImportWizard({
         confirmed: false,
         skip: false,
         replace: false,
+        split: proposedSplit
+          ? splitState(proposedSplit, (item as ChapterProposal).split_existing, t("Avant-propos"))
+          : null,
       };
     });
     for (const file of view.files)
@@ -600,6 +679,7 @@ export function ImportWizard({
           confirmed: false,
           skip: true,
           replace: false,
+          split: null,
         });
     setRows(built);
   }
@@ -624,7 +704,10 @@ export function ImportWizard({
       ),
     [existingChapters],
   );
-  const numbersInBatch = kept.map((row) => parseNumber(row.number)).filter((n): n is number => typeof n === "number");
+  const numbersInBatch = kept
+    .flatMap((row) => (isSplit(row) ? activeParts(row.split!).map((part) => part.number) : [row.number]))
+    .map((value) => parseNumber(value))
+    .filter((n): n is number => typeof n === "number");
   const duplicates = Array.from(new Set(numbersInBatch.filter((n, i) => numbersInBatch.indexOf(n) !== i))).sort(
     (a, b) => a - b,
   );
@@ -641,6 +724,54 @@ export function ImportWizard({
       return { title: row.existingChapter.title, same: row.existingChapter.same_content };
     return null;
   };
+  /** A chapter already in the volume under the number of a part of a split file. */
+  const existingForPart = (row: Row, number: number | null | undefined) => {
+    if (typeof number !== "number") return null;
+    const known = chaptersByNumber.get(number);
+    if (known)
+      return {
+        title: known.title,
+        same: !!row.split?.existing.some((item) => item.chapter_id === known.id && item.same_content),
+      };
+    if (row.conflict?.number === number) return { title: row.conflict.title, same: false };
+    return null;
+  };
+  function splitChecks(row: Row, split: SplitState) {
+    const errors: string[] = [];
+    const warnings: string[] = [...row.warnings, ...split.warnings];
+    const notes: string[] = [];
+    let identical = 0;
+    let replaced = 0;
+    let canReplace = false;
+    activeParts(split).forEach((part) => {
+      const number = parseNumber(part.number);
+      if (typeof number !== "number") {
+        errors.push(t("Chapitre {number} : numéro invalide.", { number: part.number || "?" }));
+        return;
+      }
+      if (duplicates.includes(number)) errors.push(`${number} · ${t("Numéro en double dans ce lot.")}`);
+      const existing = existingForPart(row, number);
+      if (existing?.same) identical += 1;
+      else if (existing) {
+        canReplace = true;
+        if (row.replace) replaced += 1;
+        else
+          errors.push(
+            t("Le chapitre {number} existe déjà (« {title} ») avec un autre contenu : cochez Remplacer ou ignorez ce fichier.", {
+              number,
+              title: existing.title,
+            }),
+          );
+      }
+    });
+    if (identical)
+      notes.push(
+        tp(identical, "{count} chapitre identique au chapitre existant : ignoré.", "{count} chapitres identiques aux chapitres existants : ignorés."),
+      );
+    if (replaced) notes.push(tp(replaced, "Remplacera {count} chapitre existant.", "Remplacera {count} chapitres existants."));
+    if (row.libraryTitle) warnings.push(t("Ce fichier a déjà été importé dans « {title} ».", { title: row.libraryTitle }));
+    return { errors, warnings, notes, needsConfirm: false, canReplace };
+  }
   function checks(row: Row) {
     const errors: string[] = [];
     const warnings: string[] = [...row.warnings];
@@ -648,6 +779,7 @@ export function ImportWizard({
     let needsConfirm = false;
     let canReplace = false;
     if (row.excluded || row.skip) return { errors, warnings, notes: [t("Ignoré à l’import.")], needsConfirm, canReplace };
+    if (row.split?.enabled) return splitChecks(row, row.split);
     const number = parseNumber(row.number);
     if (format === "epub") {
       if (!seriesMode) return { errors, warnings, notes, needsConfirm, canReplace };
@@ -791,6 +923,16 @@ export function ImportWizard({
           confirmed: row.confirmed,
           replace: row.replace,
           skip: row.skip || !!row.excluded,
+          // The chosen boundaries only: the server cuts the stored file itself.
+          ...(isSplit(row) && !row.skip && !row.excluded
+            ? {
+                split: activeParts(row.split!).map((part) => ({
+                  start: part.start,
+                  number: parseNumber(part.number),
+                  title: part.title.trim(),
+                })),
+              }
+            : {}),
         };
       }),
       first_line_title: format === "txt" && firstLineTitle,
@@ -835,6 +977,11 @@ export function ImportWizard({
         const conflicts = detail.conflicts as { number: number | null; title: string }[];
         setRows((all) =>
           (all || []).map((row) => {
+            if (isSplit(row)) {
+              const numbers = activeParts(row.split!).map((part) => parseNumber(part.number));
+              const hit = conflicts.find((item) => item.number !== null && numbers.includes(item.number));
+              return hit ? { ...row, conflict: { title: hit.title, number: hit.number ?? undefined } } : row;
+            }
             const found = conflicts.find((item) => item.number !== null && item.number === parseNumber(row.number));
             return found ? { ...row, conflict: { title: found.title } } : row;
           }),
@@ -883,6 +1030,14 @@ export function ImportWizard({
 
   const updateRow = (index: number, change: Partial<Row>) =>
     setRows((all) => (all || []).map((row) => (row.index === index ? { ...row, ...change } : row)));
+  const updateSplit = (index: number, change: (split: SplitState) => Partial<SplitState>) =>
+    setRows((all) =>
+      (all || []).map((row) => (row.index === index && row.split ? { ...row, split: { ...row.split, ...change(row.split) } } : row)),
+    );
+  const updatePart = (index: number, position: number, change: Partial<SplitRow>) =>
+    updateSplit(index, (split) => ({
+      parts: split.parts.map((part, order) => (order === position ? { ...part, ...change } : part)),
+    }));
   const move = (index: number, delta: number) =>
     setRows((all) => {
       const list = [...(all || [])];
@@ -1289,7 +1444,7 @@ export function ImportWizard({
                               : t("Numéro de chapitre de {name}", { name: row.name })
                           }
                           value={row.number}
-                          disabled={ignored}
+                          disabled={ignored || isSplit(row)}
                           onChange={(e) => updateRow(row.index, { number: e.target.value })}
                         />
                       </Field>
@@ -1298,7 +1453,7 @@ export function ImportWizard({
                       <Input
                         aria-label={t("Titre de {name}", { name: row.name })}
                         value={format === "txt" && firstLineTitle ? row.firstLine || row.title : row.title}
-                        disabled={ignored || (format === "txt" && firstLineTitle)}
+                        disabled={ignored || (format === "txt" && firstLineTitle) || isSplit(row)}
                         maxLength={500}
                         onChange={(e) => updateRow(row.index, { title: e.target.value })}
                       />
@@ -1337,6 +1492,14 @@ export function ImportWizard({
                           </li>
                         ))}
                       </ul>
+                    )}
+                    {row.split && !ignored && (
+                      <SplitEditor
+                        name={row.name}
+                        split={row.split}
+                        onToggle={(enabled) => updateSplit(row.index, () => ({ enabled }))}
+                        onPart={(position, change) => updatePart(row.index, position, change)}
+                      />
                     )}
                     <div className="wizard-row-actions wizard-row-wide">
                       {check.needsConfirm && confirmRequired && !ignored && (
@@ -1394,9 +1557,15 @@ export function ImportWizard({
       );
     }
     if (step === "confirm") {
-      const existingCount = kept.filter((row) => existingFor(row, parseNumber(row.number))).length;
-      const identical = kept.filter((row) => existingFor(row, parseNumber(row.number))?.same).length;
-      const replaced = kept.filter((row) => row.replace && existingFor(row, parseNumber(row.number))).length;
+      // One entry per chapter to create: a whole file, or each part of a split file.
+      const pieces = kept.flatMap((row) =>
+        isSplit(row)
+          ? activeParts(row.split!).map((part) => ({ row, existing: existingForPart(row, parseNumber(part.number)) }))
+          : [{ row, existing: existingFor(row, parseNumber(row.number)) }],
+      );
+      const existingCount = pieces.filter((piece) => piece.existing).length;
+      const identical = pieces.filter((piece) => piece.existing?.same).length;
+      const replaced = pieces.filter((piece) => piece.row.replace && piece.existing).length;
       const skipped = (rows || []).length - kept.length;
       const seriesDefault = (value: string | null | undefined) =>
         value ? t("Par défaut ({value})", { value }) : t("Par défaut");
@@ -1437,7 +1606,7 @@ export function ImportWizard({
                         : t("Nouveau volume {number}", { number: newVolumeNumber })}
                   </dd>
                   <dt>{t("Chapitres créés")}</dt>
-                  <dd className="tabular">{kept.length - existingCount}</dd>
+                  <dd className="tabular">{pieces.length - existingCount}</dd>
                   <dt>{t("Chapitres identiques (ignorés)")}</dt>
                   <dd className="tabular">{identical}</dd>
                   <dt>{t("Chapitres remplacés")}</dt>
@@ -1682,6 +1851,103 @@ export function ImportWizard({
       )}
       {body}
     </Dialog>
+  );
+}
+
+/** The chapters of one file split at its headings: turn the split off, rename, renumber or merge. */
+function SplitEditor({
+  name,
+  split,
+  onToggle,
+  onPart,
+}: {
+  name: string;
+  split: SplitState;
+  onToggle: (enabled: boolean) => void;
+  onPart: (position: number, change: Partial<SplitRow>) => void;
+}) {
+  const { t } = useI18n();
+  const count = activeParts(split).length;
+  let chapter = 0;
+  return (
+    <div className="wizard-split wizard-row-wide">
+      <Checkbox
+        label={t("Découper en {count} chapitres", { count })}
+        aria-label={t("Découper {name} en chapitres", { name })}
+        description={
+          split.required
+            ? t("Ce fichier est trop long pour un seul chapitre : il doit être découpé.")
+            : split.enabled
+              ? t("Chapitres trouvés : {reason}.", { reason: split.reason })
+              : t("Découpage proposé : cochez-le pour l’appliquer.")
+        }
+        checked={split.enabled}
+        disabled={split.required}
+        onChange={(e) => onToggle(e.target.checked)}
+      />
+      {split.enabled && (
+        <ol className="wizard-split-parts" aria-label={t("Chapitres du fichier {name}", { name })}>
+          {split.parts.map((part, position) => {
+            if (!part.merged) chapter += 1;
+            const label = String(chapter);
+            return (
+              <li key={part.start} className={cx("wizard-split-part", part.merged && "is-merged")}>
+                {part.merged ? (
+                  <>
+                    <span className="wizard-split-merged muted">
+                      <strong>{part.title}</strong> · {t("Fusionné avec le chapitre précédent.")}
+                    </span>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      icon="refresh"
+                      aria-label={t("Rétablir la coupure avant le chapitre {position}", { position: part.title })}
+                      onClick={() => onPart(position, { merged: false })}
+                    >
+                      {t("Rétablir la coupure")}
+                    </Button>
+                  </>
+                ) : (
+                  <>
+                    <Field label={t("N° ch.")} className="wizard-split-number">
+                      <Input
+                        inputMode="decimal"
+                        aria-label={t("Numéro du chapitre {position}", { position: label })}
+                        value={part.number}
+                        onChange={(e) => onPart(position, { number: e.target.value })}
+                      />
+                    </Field>
+                    <Field label={t("Titre")} className="wizard-split-title">
+                      <Input
+                        aria-label={t("Titre du chapitre {position}", { position: label })}
+                        value={part.title}
+                        maxLength={500}
+                        onChange={(e) => onPart(position, { title: e.target.value })}
+                      />
+                    </Field>
+                    {position > 0 && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        icon="chevronUp"
+                        aria-label={t("Fusionner le chapitre {position} avec le précédent", { position: label })}
+                        onClick={() => onPart(position, { merged: true })}
+                      >
+                        {t("Fusionner avec le précédent")}
+                      </Button>
+                    )}
+                    <p className="wizard-split-excerpt muted">
+                      <span className="tabular">{t("{count} caractères", { count: formatNumber(part.characters) })}</span>
+                      {part.excerpt && ` · ${part.excerpt}`}
+                    </p>
+                  </>
+                )}
+              </li>
+            );
+          })}
+        </ol>
+      )}
+    </div>
   );
 }
 

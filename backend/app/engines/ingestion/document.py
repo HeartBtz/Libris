@@ -35,6 +35,8 @@ class Block:
     # Code, tables of symbols, rules: kept exactly, never sent to the model.
     fixed: bool = False
     gap: int = 1
+    # Index of the source line the block starts on (Markdown), for the split by headings.
+    line: int = -1
 
 
 @dataclass

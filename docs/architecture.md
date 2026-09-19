@@ -27,8 +27,8 @@ contributing, see [development](development.md).
 | `engines/epub` | ZIP preflight, EbookLib reading, lxml DOM, units with inline codes, segmentation, rebuilding a translated copy of the archive, EPUBCheck. |
 | `engines/series` | Series memory (canonical identities, links, relations, series glossary, Series Bible), rebuilt from the volumes (`refresh_series`), and the audit log. |
 | `engines/context` | Context selection for each model call: narrative query, local, external or hybrid memory, budget, inspector; series conventions inherited from earlier volumes (`series.py`); section order (`prefix.py`). |
-| `engines/memory` | Human decisions, characters, glossary, OpenViking events and catalogs, the send queue, the opt-in cleanup of deleted items. |
-| `engines/translation` | Analysis, translation, review, revision and polishing, global consistency, final review, repair in groups (`repair.py`), translation memory (`memory.py`), versions. |
+| `engines/memory` | Human decisions, characters, glossary, OpenViking events and catalogs, the send queue, the opt-in cleanup of deleted items, the timeline of what earlier passages established (`timeline.py`, used by the parallel analysis). |
+| `engines/translation` | Analysis (strict in `analysis.py`, parallel in `parallel_analysis.py`), translation, review, revision and polishing, global consistency, final review, repair in groups (`repair.py`), translation memory (`memory.py`), versions. |
 | `engines/autopilot` | The convergence loop (`loop.py`), recovery ladder (`recovery.py`), AI arbitration (`arbitration.py`), memory decisions (`memory.py`), provider fallback (`providers.py`), skipping optional steps (`degrade.py`) and the decision log (`decisions.py`). |
 | `engines/budget.py` | Cost budgets of books and API tokens: the estimate against the cap before a launch, the check before every model call of a job (cheaper provider or pause), token spend, the estimated against real cost of the reports. |
 | `engines/quality` | Deterministic checks: unit ids, markup codes, empty output, length, repetition, unchanged text, terminology. |
@@ -44,8 +44,10 @@ contributing, see [development](development.md).
 1. **Import.** Files are uploaded to an import session (`/api/imports`), inspected, then committed:
    each becomes a volume (EPUB) or a chapter (text formats) of a series. The automation API writes the
    same rows directly.
-2. **Analysis.** Passage by passage, in order: chapter summaries, characters, relations and narrative
-   state, then the Book Bible. Stored as memories in SQL.
+2. **Analysis.** Chapter summaries, characters, relations and narrative state, then the Book Bible,
+   stored as memories in SQL. By default the passages are analysed side by side, then each is
+   reconciled with what precedes it ([parallel analysis](#parallel-analysis)); the strict mode goes
+   passage by passage. Translation starts once the analysis of the volume is complete.
 3. **Translation.** Each passage is translated with a context built from the book's memory, then
    reviewed, revised or polished depending on the quality level.
 4. **Whole-book steps.** Global consistency, final review, and under the autopilot the convergence
@@ -113,6 +115,16 @@ the unit of every model call.
   DOCX goes through the same archive and XML checks as EPUB; headings come from paragraph styles, and
   tables and text boxes are included. JSON chapters from the automation API go through the same text
   path.
+- **Split by headings.** `engines/ingestion/split.py` finds the chapters of one TXT, Markdown or DOCX
+  file: heading styles first (DOCX styles, Markdown `#`), then heading lines read by
+  `naming.chapter_heading` (`Chapter 12`, `CHAPTER XII`, `第12章`, `Prologue`…), then numbered lines
+  that follow each other. A run of headings with no text between them (a table of contents) is
+  skipped, headings whose number goes back stay in the previous chapter, and the text before the first
+  heading becomes a front matter chapter. Each part is then stored and read as the file it would be if
+  uploaded alone (a line range of the TXT or Markdown file, a minimal DOCX of its paragraphs), so
+  numbering, deduplication, exports and project archives treat it like any other chapter file. The
+  import assistant receives the proposal with the inspection and sends the chosen boundaries back;
+  the server only accepts starts of lines (or paragraphs) of the stored file.
 - **Identifiers.** Units of text chapters derive from a virtual resource (`txt/<hash>`, `json/<hash>`…,
   from the volume and the chapter number or external id) and the line index: importing the same chapter
   again gives the same identifiers, and a replaced chapter keeps the identifiers of unchanged lines.
@@ -330,7 +342,8 @@ quota is checked where work enters the queue (a launch, a resume, an automation 
 its volumes), not by the worker: an accepted request always starts.
 
 `GET /api/queue` runs the same order without locks to tell each waiting job its place in its provider's line and
-what holds it (`provider_busy`, `account_limit`, `token_limit`, `retry_scheduled`, `provider_missing`, or
+what holds it (`provider_busy`, `account_limit`, `token_limit`, `retry_scheduled`, `earlier_volume` (a
+[parallel analysis](#parallel-analysis) waiting for an earlier volume of its series), `provider_missing`, or
 `starting`). Quotas and aging are runtime settings (`app_settings["queue"]`, see
 [configuration](configuration.md#fair-queue)).
 
@@ -353,6 +366,7 @@ segment_id, key`; idempotent writes):
 | `repair` | One validated four-unit group of a passage being repaired (`key` = revision:operation:start). |
 | `bible`, `consistency` | Book Bible batches and consistency samples already processed (empty `segment_id`). |
 | `analysis_skipped` | Autopilot: analysis given up for this passage. |
+| `extraction`, `reconciled` | Parallel analysis: the passage's own extraction, then its final analysis (`data`; outcome `reconciled`, or `kept` when the reconciliation was given up). The Book Bible tree stores its syntheses as `bible` rows (`key` = `tree:<level>:…`). |
 | `autopilot_ladder`, `autopilot_arbitrated` | Autopilot: passage taken through the recovery ladder, or its open points arbitrated, during round `key` (`r1`, `r2`…), with the outcome. |
 
 Progress (`project.progress`, `stats`) reads these rows. Once a job has been finished for
@@ -371,11 +385,22 @@ taking its write lock).
 
 ### Several passages of one book at once
 
-Translation, final review and consistency checks process several passages of a book at once, in a
-sliding window: passages start in book order, and at most N are in flight. N is the provider's
-`max_concurrency`, shared equally (rounded up) among the books using it at that moment and read again
-before each start; `WORKER_BOOK_PARALLELISM` caps it (`1` makes processing strictly sequential). In
-each process, calls to a provider go through a queue sized to its capacity, served in arrival order,
+The parallel analysis, translation, final review and consistency checks process several passages of a
+book at once, in a sliding window: passages start in book order, and at most N are in flight. N is
+read again before each start (`jobs/concurrency.py: job_parallelism`):
+
+1. the provider's `max_concurrency`, shared equally (rounded up) among the books using it at that
+   moment, capped by `WORKER_BOOK_PARALLELISM` (`1` makes processing strictly sequential);
+2. lowered by the job's `threads` (the launch's, else the volume's `config.threads`), never raised: a
+   big book cannot take another book's share;
+3. after a provider outage (HTTP 429, overload, timeout), the resumed job runs at half the width it had
+   (`checkpoint.throttle`) and regains one passage per minute without a new outage;
+4. under a cost budget, the calls in flight are reserved before they start at the price of a reference
+   call (`engines/budget.py: parallel_width`): the spend plus the reservations stays below the switch
+   threshold, so near the cap the job narrows to one call and the per-call check decides as for a
+   sequential job.
+
+In each process, calls to a provider go through a queue sized to its capacity, served in arrival order,
 before the database-level admission that bounds all processes together.
 
 The trade-off: a passage's context only contains what is already saved. A previous neighbour still in
@@ -383,9 +408,9 @@ flight shows its source only, and its narrative state is missing from `CHAPTER_S
 in flight, at most the N − 1 previous ones are affected. With `WORKER_BOOK_PARALLELISM=1`, each passage
 sees the translation of all the passages before it.
 
-Analysis stays sequential: each analysis reads the chapter summary, characters and relations left by
-the previous passages and rewrites the summary "up to this point"; in parallel, the chronological
-memory would be built out of order. Book Bible synthesis stays sequential for the same reason.
+The strict analysis is sequential: each analysis reads the chapter summary, characters and relations
+left by the previous passages and rewrites the summary "up to this point". The parallel analysis
+rebuilds that chronology after the fact instead ([below](#parallel-analysis)).
 
 Resumption and safety:
 
@@ -401,6 +426,109 @@ Resumption and safety:
   a passage and the book's live jobs (human correction, kept original, queuing an accepted proposal)
   first lock those jobs (`lock_live_jobs`, by increasing id), then the passage, so a passage/job
   deadlock with the worker cannot happen in PostgreSQL.
+
+### Parallel analysis
+
+`ANALYSIS_MODE=parallel` (the default; a volume's `config.analysis_mode`, a launch or an API request may
+choose `strict`) analyses a volume in five stages (`engines/translation/parallel_analysis.py`). The
+goal is speed without losing anything the strict, chronological analysis gives a passage.
+
+1. **Extraction** (`chapter_extraction`, N passages at once). Each passage is analysed on its own: its
+   raw neighbours (the source of the two passages before and after, as in the strict mode), what was
+   known before the job (earlier volumes of the series, confirmed identities, the locked glossary, the
+   memory of passages analysed by an earlier job), never the analysis of another passage of the same
+   run. The prompt asks for every name form as written and for an `unresolved` event for a pronoun or
+   description it cannot tie to someone. Stored per passage in the job state (`extraction`).
+2. **Consolidation** (in memory, deterministic). The extractions are applied in book order to a
+   timeline (`engines/memory/timeline.py`): names tied into identities (with the passage of their first
+   and last naming), relations, proposed terms, the summaries of the passages. Passages already
+   analysed (a follow-up of a webnovel) enter it with their stored analysis.
+3. **Reconciliation** (`chapter_reconciliation`, N passages at once). Each extraction is reviewed with
+   the timeline **as it was before that passage**: `KNOWN_IDENTITIES` (with aliases), `RECENT_CHARACTERS`
+   (the last characters named, for pronouns), `KNOWN_RELATIONSHIPS`, `KNOWN_TERMS`, `EARLIER_PASSAGES`
+   (the summaries of the six passages before, and first of the passages further back where the recent
+   characters were last named), plus everything the strict analysis reads. The model
+   resolves aliases and references, merges entries that denote one person, keeps apart what the story
+   has not tied yet, and writes the rolling chapter summary. Since the timeline is known for every
+   position, these calls run in parallel. `ANALYSIS_RECONCILIATION=all` (default) reconciles every
+   passage; `flagged` only those whose extraction left something to resolve.
+4. **Memory.** The reconciled analyses are written in book order by the strict mode's own code
+   (`_store_analysis`: identities through `upsert_profiles`, relations, glossary proposals, chapter
+   summaries, memories and their OpenViking events): the resulting memory has the same shape.
+5. **Book Bible** as a tree: one synthesis per chapter (its passages four by four, as in the strict
+   mode), then merged four by four, level by level, each level in parallel. A volume that already had
+   a bible merges the new chapters' synthesis into it last.
+
+Guarantees:
+
+- **No spoiler.** The derived sections a passage receives are taken before its own extraction joins the
+  timeline; an extraction reads no other analysis of the run. The raw neighbours are those of the
+  strict mode. `tests/test_parallel_analysis.py` checks every prompt of a run.
+- **Series.** Before its reconciliation, a numbered volume waits while an earlier volume of its series
+  has a live analysis job that has not finished (the job goes back to `waiting`, `stop_reason =
+  earlier_volume`, and is claimed again every 15 seconds). A paused, blocked or failed earlier volume
+  does not hold it: nothing waits for a person.
+- **Barrier.** Translation starts only when the five stages are done: the worker runs it after the
+  analysis returns.
+- **Same result whatever the threads.** The views depend only on the stored extractions, applied in
+  book order, never on the order in which calls finish.
+- **Resumable at every stage.** Extractions, reconciliations and Book Bible syntheses are stored as they
+  arrive; the memory stage skips passages already written; a resumed job asks the model only what it
+  has not got, and an identical request is served from the request cache.
+- **Autopilot.** A refused or invalid extraction skips the passage's analysis (`analysis_skipped`, as in
+  the strict mode); a failed reconciliation keeps the extraction; both are written to the decision log.
+
+Progress: the checkpoint's `step` is `extraction`, `consolidation`, `reconciliation`, `memory`, then
+`book_bible` with `level`/`levels`; `GET /api/projects/{id}` and the `/api/v1` status document give it
+as `analysis_phase` / `progress.analysis`.
+
+#### Evaluation
+
+Without a real model, the design was evaluated on a synthetic serial with known ground truth
+(`backend/tests/analysis_world.py`): seven characters, a masked figure revealed half-way through, a
+nickname introduced after a quarter of the text and used alone afterwards, a name change in the second
+volume, short forms of full names, pronoun-only passages (some several passages or a chapter break away
+from their referent), relations and glossary terms. A deterministic simulated analyst answers from its
+prompt only: it recognises names but links two names, or a pronoun to a person, only when the passage
+or a context section it received says so. The scores therefore measure what each mode puts in front of
+each call. `scripts/evaluate_analysis_modes.py` runs every mode on the same serial:
+
+Three seeds, 60 chapters × 2 volumes each (907 passages in all); recall and precision against the ground
+truth, spoilers counted in the stored memory and in every prompt sent:
+
+| Measure | strict | parallel (`all`) | parallel (`flagged`) | no reconciliation |
+| --- | --- | --- | --- | --- |
+| Characters of each passage: precision / recall | 1.00 / 0.977 | 1.00 / 0.999 | 1.00 / 0.999 | 1.00 / 0.968 |
+| Pronoun-only passages resolved (194) | 0.761 | 0.984 | 0.984 | 0.673 |
+| … referent 3 passages away or more (63) | 0.285 | 0.965 | 0.965 | 0.000 |
+| Late aliases resolved in the passage (409) | 1.000 | 1.000 | 0.975 | 0.472 |
+| Identities, relations, glossary: precision / recall | 1.00 / 1.00 | 1.00 / 1.00 | 1.00 / 1.00 | 1.00 / 1.00 |
+| Spoilers (memory / prompts) | 0 / 0 | 0 / 0 | 0 / 0 | 0 / 0 |
+| Analysis calls | 1,267 | 2,294 | 1,666 | 1,387 |
+| Prompt tokens | 2.64 M | 3.76 M | 2.27 M | 1.58 M |
+
+The parallel mode keeps every score of the strict mode and finds far more pronoun referents (the strict
+rolling summary is per chapter, and its neighbours reach two passages back); reconciling only the flagged
+passages loses part of the alias resolution, and skipping the reconciliation loses half of it: every
+passage is reconciled by default. These figures measure the information each call receives, not a real
+model's use of it; confirm on a real book with the protocol of [development](development.md#evaluating-translation-quality).
+
+`scripts/benchmark_analysis.py` measures the analysis of a 400-chapter serial (800 passages), every
+model call answered after 0.2 s, on a provider allowing 16 calls at once:
+
+| Mode | Threads | Wall time | Calls | Prompt tokens | Completion tokens |
+| --- | --- | --- | --- | --- | --- |
+| strict | 1 | 289 s | 1,200 (800 analyses, 400 Bible) | 2.88 M | 76 k |
+| parallel | 1 | 493 s | 2,134 (800 + 800, 534 Bible) | 3.07 M | 146 k |
+| parallel | 4 | 128 s | 2,134 | 3.09 M | 146 k |
+| parallel | 8 | 69 s | 2,134 | 3.09 M | 146 k |
+| parallel | 16 | 60 s | 2,134 | 3.09 M | 146 k |
+
+With 16 calls at once the analysis ends 4.8 times sooner than the strict one, for 1.8 times more calls and
+1.07 times more prompt tokens (an extraction carries no memory). Beyond 8 threads the in-process overhead of
+this benchmark (SQLite, context building) dominates the 0.2 s calls; with a real model taking seconds per call
+the gain follows the threads more closely (about calls ÷ threads × latency, plus the few levels of the Book
+Bible tree). The translation stage, which makes most of a book's calls, is unchanged.
 
 ### Outages and failures
 

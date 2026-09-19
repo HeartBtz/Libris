@@ -11,7 +11,7 @@ from app.engines.context.series import enforced_glossary
 from app.engines.quality.checks import checks, validate_translation
 from app.engines.translation.versions import save_version
 from app.jobs import segment_state as state
-from app.jobs.concurrency import blocking, book_share, in_parallel, job_lock
+from app.jobs.concurrency import blocking, in_parallel, job_lock, job_share
 from app.jobs.follow_up import scoped_chapters
 from app.jobs.queue import checkpoint, emit, fence
 from app.models import Issue, Job, Project, Segment
@@ -121,7 +121,7 @@ async def resolve_validations(job: Job, owner: str, select_targets=None) -> None
         )
         return review_passage(job, owner, sid)
 
-    await in_parallel(enumerate(ids), book_share(job.provider_id), launch)
+    await in_parallel(enumerate(ids), job_share(job, owner), launch)
 
 
 def _review_inputs(job: Job, owner: str, sid: str):

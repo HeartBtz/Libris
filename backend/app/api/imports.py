@@ -33,6 +33,16 @@ from app.engines.ingestion.naming import (
     series_from_names,
 )
 from app.engines.ingestion.passages import passage_chars
+from app.engines.ingestion.split import (
+    FRONT_MATTER,
+    SPLIT_FORMATS,
+    SplitRejected,
+    bounds,
+    is_heading_start,
+    parts_of,
+    read_source,
+)
+from app.engines.ingestion.split import proposal as split_proposal
 from app.engines.ingestion.store import (
     Files,
     add_chapters,
@@ -115,8 +125,17 @@ def create_session(body: SessionInput, user: CurrentUser, db: DB):
 
 
 def inspect_file(fmt: str, name: str, data: bytes) -> dict:
-    adapter = EpubAdapter() if fmt == "epub" else chapter_adapter(fmt, settings().text_chapter_max_chars)
+    limit = settings().text_chapter_max_chars
+    adapter = EpubAdapter() if fmt == "epub" else chapter_adapter(fmt, limit)
     found = adapter.inspect(name, data)
+    split = split_proposal(fmt, name, data) if fmt in SPLIT_FORMATS else None
+    if split:
+        # A file too long for one chapter is still importable when each of its chapters fits.
+        too_long = [error for error in found.errors if error.startswith("Chapitre trop long")]
+        if too_long and max(part["characters"] for part in split["parts"]) <= limit:
+            found.errors = [error for error in found.errors if error not in too_long]
+            split = {**split, "required": True, "default": True}
+        found.meta = {**found.meta, "split": split}
     return {
         "format": found.format,
         "title": found.title,
@@ -257,6 +276,15 @@ def proposal(db, session: ImportSession, user, series_id: str | None, project_id
     items = []
     for item, guess in zip(usable, guesses, strict=True):
         current = existing.get(guess.value) if guess.value is not None else None
+        split = (item.get("meta") or {}).get("split")
+        if split:
+            # Chapters of the target volume that the parts of a split file would meet.
+            item = {**item, "split_existing": [
+                {"number": part["number"], "chapter_id": existing[part["number"]].id,
+                 "title": existing[part["number"]].title,
+                 "same_content": existing[part["number"]].source_checksum == part.get("checksum")}
+                for part in split["parts"] if part["number"] in existing
+            ]}  # fmt: skip
         items.append(
             {
                 "index": item["index"],
@@ -271,6 +299,7 @@ def proposal(db, session: ImportSession, user, series_id: str | None, project_id
                 }
                 if current
                 else None,
+                **({"split_existing": item["split_existing"]} if "split_existing" in item else {}),
             }
         )
     items.sort(key=lambda item: (item["chapter_number"] is None, item["chapter_number"] or 0, natural_key(item["title"])))
@@ -327,6 +356,15 @@ class Target(StrictModel):
     volume_title: str = Field(default="", max_length=500)
 
 
+class SplitPart(StrictModel):
+    """One chapter of a file split at its headings: where it starts (a line, or a paragraph for DOCX,
+    as proposed by the inspection), its number and title. The text always comes from the stored file."""
+
+    start: int = Field(ge=0, le=100_000_000)
+    number: float = Field(ge=0, le=100000, allow_inf_nan=False)
+    title: str = Field(default="", max_length=500)
+
+
 class Item(StrictModel):
     index: int
     title: str = Field(default="", max_length=500)
@@ -335,6 +373,8 @@ class Item(StrictModel):
     confirmed: bool = False
     replace: bool = False
     skip: bool = False
+    # TXT, Markdown or DOCX file split into several chapters (see app.engines.ingestion.split).
+    split: list[SplitPart] | None = Field(default=None, min_length=1, max_length=5000)
 
 
 class Defaults(StrictModel):
@@ -551,6 +591,29 @@ def text_volume(db, series: Series, target: Target, defaults: Defaults, user) ->
     return project, True
 
 
+def invalid_split(message: str) -> HTTPException:
+    return HTTPException(422, {"code": "invalid_split", "message": message})
+
+
+def split_parts(session: ImportSession, entry: dict, item: Item) -> list[tuple]:
+    """The chosen parts of a split file, checked against the stored file: (part, bytes, name, heading)."""
+    if session.format not in SPLIT_FORMATS:
+        raise invalid_split("Seuls les fichiers TXT, Markdown et DOCX peuvent être découpés en chapitres.")
+    data = (staging_dir(session) / f"{item.index}.bin").read_bytes()
+    try:
+        source = read_source(session.format, entry["name"], data)
+        chosen = parts_of(source, [part.model_dump() for part in item.split])
+    except SplitRejected as exc:
+        raise invalid_split(f"« {entry['name']} » : {exc}") from None
+    except TextRejected as exc:
+        raise Rejected([f"« {entry['name']} » : {exc}"]) from None
+    spans = bounds(source, [part.start for part in item.split])
+    return [
+        (part, content, name, is_heading_start(source, start, end))
+        for part, (_, content, name), (start, end) in zip(item.split, chosen, spans, strict=True)
+    ]
+
+
 def commit_txt(db, session: ImportSession, body: CommitInput, user, files: Files) -> dict:
     if body.destination.mode != "series":
         raise Rejected(["Des chapitres TXT appartiennent obligatoirement à une série : choisissez-la ou créez-la."])
@@ -558,6 +621,7 @@ def commit_txt(db, session: ImportSession, body: CommitInput, user, files: Files
     entries = {item["index"]: item for item in session.files}
     guesses = {item["index"]: item for item in proposal(db, session, user, None, None)["items"]}
     errors, chosen, decisions = [], [], []
+    splits: dict[int, list[tuple]] = {}
     confirm = settings().import_confirm_low_confidence
     for item in body.items:
         entry = entries.get(item.index)
@@ -570,6 +634,11 @@ def commit_txt(db, session: ImportSession, body: CommitInput, user, files: Files
             errors.append(f"« {entry['name']} » est illisible : retirez-le de l’import.")
         if entry["duplicate"] and entry["duplicate"]["kind"] == "batch":
             errors.append(f"« {entry['name']} » est en double dans ce lot : retirez-le.")
+        if item.split is not None and not entry["errors"]:
+            # Split into chapters: each part carries its own number, chosen in the preview.
+            splits[item.index] = split_parts(session, entry, item)
+            chosen.append(item)
+            continue
         guess = guesses.get(item.index, {})
         if item.chapter_number is None and not item.confirmed:
             if confirm:
@@ -585,34 +654,54 @@ def commit_txt(db, session: ImportSession, body: CommitInput, user, files: Files
         chosen.append(item)
     if not chosen:
         errors.append("Aucun fichier à importer.")
-    numbers = [item.chapter_number for item in chosen if item.chapter_number is not None]
+    # One piece per chapter to create: a whole file, or one part of a split file.
+    pieces = []
+    for item in chosen:
+        if item.index in splits:
+            pieces += [(item, order, part.number) for order, part in enumerate(item.split)]
+        else:
+            pieces.append((item, None, item.chapter_number))
+    numbers = [number for _, _, number in pieces if number is not None]
     for number in sorted({n for n in numbers if numbers.count(n) > 1}):
         errors.append(f"Le chapitre {number:g} apparaît plusieurs fois dans ce lot.")
     if errors:
         raise Rejected(errors)
     series = resolve_series(db, body.destination, user, "webnovel", body.settings)
     project, created = text_volume(db, series, target, body.settings, user)
-    chosen.sort(
-        key=lambda item: (item.chapter_number is None, item.chapter_number or 0, natural_key(entries[item.index]["name"]))
+    pieces.sort(
+        key=lambda piece: (piece[2] is None, piece[2] or 0, natural_key(entries[piece[0].index]["name"]), piece[1] or 0)
     )
     adapter = chapter_adapter(session.format, settings().text_chapter_max_chars)
     size = passage_chars(project, body.settings.passage_max_chars)
     chapters, replace = [], set()
-    for position, item in enumerate(chosen):
+    for position, (item, order, number) in enumerate(pieces):
         name = entries[item.index]["name"]
-        key = f"{item.chapter_number:g}" if item.chapter_number is not None else f"name:{name}"
+        key = f"{number:g}" if number is not None else f"name:{name}"
+        if order is None:
+            data = (staging_dir(session) / f"{item.index}.bin").read_bytes()
+            title = item.title.strip() or entries[item.index]["title"]
+            options = {"first_line_title": body.first_line_title}
+        else:
+            # Each part is read as the file it would be if uploaded alone, named with its number.
+            part, data, name, heading = splits[item.index][order]
+            title = part.title.strip() or ("" if heading else FRONT_MATTER)
+            options = {"first_line_title": heading}
         try:
             chapter = adapter.parse(
                 name,
-                (staging_dir(session) / f"{item.index}.bin").read_bytes(),
-                title=item.title.strip() or entries[item.index]["title"],
-                number=item.chapter_number,
+                data,
+                title=title,
+                number=number,
                 resource=text_resource(project, session.format, key),
-                first_line_title=body.first_line_title,
                 max_chars=size,
+                **options,
             )
         except TextRejected as exc:
             raise Rejected([f"« {name} » : {exc}"]) from None
+        if order is not None:
+            if title:
+                chapter.title = title[:500]
+            chapter.meta["split_from"] = entries[item.index]["name"]
         chapters.append(chapter)
         if item.replace:
             replace.add(position)
@@ -635,8 +724,13 @@ def commit_txt(db, session: ImportSession, body: CommitInput, user, files: Files
         "chapters": {
             **counts,
             "items": [
-                {"index": item.index, "chapter_id": outcome.chapter_id, "status": outcome.status}
-                for item, outcome in zip(chosen, outcomes, strict=True)
+                {
+                    "index": item.index,
+                    "chapter_id": outcome.chapter_id,
+                    "status": outcome.status,
+                    **({"part": order, "number": outcome.number, "title": outcome.title} if order is not None else {}),
+                }
+                for (item, order, _), outcome in zip(pieces, outcomes, strict=True)
             ],
         },
         "decisions": decisions,

@@ -171,7 +171,7 @@ créé avant la dernière étape** : les fichiers attendent sur le serveur, et *
 | Choix | Pour quoi |
 | --- | --- |
 | **Livres EPUB** | Un ou plusieurs EPUB 2 ou 3 : les volumes d’une série ou des volumes uniques |
-| **Chapitres TXT (webnovel)** | Un fichier texte par chapitre, toujours rattaché à une série |
+| **Chapitres TXT (webnovel)** | Un fichier texte par chapitre, toujours rattaché à une série ; un fichier qui contient plusieurs chapitres peut être [découpé à ses titres](#un-fichier-qui-contient-plusieurs-chapitres) |
 | **Chapitres Markdown, HTML ou DOCX** | Un fichier par chapitre ; titres, paragraphes, listes et citations sont traduits, le code et les tableaux restent tels quels. Choisissez le **Format des chapitres** |
 | **Restaurer une archive Libris** | Un projet exporté depuis Libris (`.zip`), avec tout son travail |
 
@@ -227,6 +227,37 @@ numéros incertains.
 Certains problèmes bloquent la suite et sont comptés en rouge : numéros en double dans le lot, volume déjà présent
 dans la série sous ce numéro, série sans nom. Les numéros manquants sont seulement signalés. Les fichiers
 illisibles et les EPUB déjà présents dans votre bibliothèque sont écartés (**Fichiers écartés**).
+
+#### Un fichier qui contient plusieurs chapitres
+
+Un webnovel arrive souvent en un seul gros fichier TXT, Markdown ou DOCX. Quand Libris y trouve au moins deux
+titres de chapitre, la ligne du fichier propose **Découper en N chapitres** et montre la liste des chapitres
+trouvés (numéro, titre, taille et début du texte). Libris reconnaît :
+
+- les styles de titre d’un DOCX (**Titre 1**, **Heading 1**…) et les titres `#` d’un fichier Markdown ;
+- sinon les lignes de titre : `Chapter 12`, `Chapitre 12 : Titre`, `CHAPTER XII`, `第12章`, `Prologue`,
+  `Épilogue`, `Interlude`… ;
+- sinon des lignes numérotées (`1. Titre`, `2. Titre`…), seulement si elles se suivent.
+
+Une phrase qui cite « chapter 3 » au milieu du texte ne coupe rien, et une table des matières en tête du fichier
+(des titres à la suite, sans texte entre eux) est ignorée : elle reste dans le premier chapitre. Le texte placé
+avant le premier titre devient un chapitre **Avant-propos** s’il contient des mots. Les numéros viennent des
+titres ; un prologue ou un épilogue reçoit un numéro entre ses voisins (0,5 entre l’avant-propos et le
+chapitre 1, par exemple). Les numéros manquants et les titres hors d’ordre sont signalés.
+
+Le découpage est coché d’office quand les titres ne laissent pas de doute ; sinon il est proposé, à cocher
+vous-même. Dans la liste, vous pouvez :
+
+- changer le **Titre** ou le numéro d’un chapitre ;
+- **Fusionner avec le précédent** (le titre reste alors dans le texte du chapitre d’avant) et **Rétablir la
+  coupure** ;
+- décocher **Découper en N chapitres** pour garder le fichier en un seul chapitre.
+
+À l’import, chaque partie devient un chapitre, exactement comme si elle avait été envoyée seule dans un fichier
+portant son numéro : mêmes règles de numérotation, et un chapitre déjà présent et identique est ignoré. Un
+fichier trop long pour un seul chapitre (`TEXT_CHAPTER_MAX_CHARS`) reste importable s’il est découpé.
+
+#### Chapitres déjà présents
 
 Pour un chapitre déjà présent dans la série :
 
@@ -314,7 +345,9 @@ l’estimation ; **Suivre l’étape active** revient à l’étape en cours.
 
 Sous la barre, l’indicateur **Suivi connecté** montre que la page se met à jour d’elle-même ; en cas de coupure,
 il passe à **Reconnexion du suivi…** et se rétablit seul. Il indique aussi l’étape en cours (« Traduction · 42 /
-120 »). Une ligne de compteurs résume les passages validés, ouverts à une relecture facultative, en erreur, la
+120 »). Pendant une analyse parallèle, il affiche **Extraction des passages**, **Consolidation de la mémoire**,
+**Réconciliation chronologique**, **Écriture de la mémoire**, puis **Synthèse de la Book Bible** avec son niveau
+(« niveau 2/3 ») ; la carte du livre dans la bibliothèque affiche la même étape. Une ligne de compteurs résume les passages validés, ouverts à une relecture facultative, en erreur, la
 mémoire utilisée et les passages conservés en original.
 
 ### Les bandeaux
@@ -331,7 +364,8 @@ Des bandeaux apparaissent sous l’en-tête quand quelque chose mérite votre at
   lieu pendant l’analyse.
 - **Pause volontaire — utilisez Reprendre pour continuer.**
 - **Ce travail attend son tour dans la file d’attente.** : sa position et ce qui le retient (fournisseur
-  occupé, nombre de travaux simultanés du compte ou du jeton atteint) ; **Voir la file d’attente** ouvre la
+  occupé, nombre de travaux simultanés du compte ou du jeton atteint, analyse d’un volume précédent de la série
+  pas encore terminée) ; **Voir la file d’attente** ouvre la
   [file d’attente](#la-file-dattente).
 - **Budget atteint : travail en pause** : le livre (ou le jeton d’API qui a lancé la requête) a atteint son
   budget ; le message donne la dépense et le plafond. **Relever le budget** ouvre les réglages du livre ; une
@@ -516,7 +550,16 @@ signal réglé.
 ## La mémoire du livre : Book Bible, personnages, glossaire
 
 L’analyse lit chaque passage et construit la mémoire du livre : résumés, personnages, lieux, relations et
-propositions de termes. Cette mémoire accompagne ensuite chaque requête de traduction.
+propositions de termes. Cette mémoire accompagne ensuite chaque requête de traduction, qui ne commence qu’une
+fois l’analyse du volume terminée.
+
+Par défaut, l’analyse est **parallèle** : plusieurs passages sont analysés en même temps, chacun seul, puis
+chaque passage est revu avec tout ce que les passages **précédents** ont établi (qui est derrière un surnom ou un
+« elle », quels noms désignent la même personne). Rien de ce qu’un passage plus loin révèle n’est montré à un
+passage antérieur. C’est plusieurs fois plus rapide sur un long roman, pour environ deux fois plus d’appels
+d’analyse (la traduction, elle, ne change pas). Dans une série, un volume attend, avant cette relecture, la fin
+de l’analyse d’un volume précédent lancé en même temps. Le mode **chronologique strict** (un passage après
+l’autre) reste disponible dans les réglages du livre.
 
 ### Book Bible
 
@@ -615,6 +658,12 @@ stratégie ou les langues ; **Enregistrer les réglages** applique les changemen
     **Relecture et révision en un appel**, moins coûteux ;
   - **Taille des passages (caractères)** : s’applique aux chapitres importés ensuite ; les passages existants ne
     sont pas redécoupés ;
+  - **Mode d’analyse** : **Réglage de l’installation**, **Parallèle, puis réconciliation chronologique** ou
+    **Chronologique strict (un passage après l’autre)**, plus lent ;
+  - **Passages traités en même temps** : vide, le livre utilise la capacité du fournisseur partagée entre les
+    livres en cours ; un nombre ne peut que la réduire, pour l’analyse comme pour la traduction. Après une
+    saturation du fournisseur (erreur 429), le travail reprend à mi-régime puis réaccélère seul ; près d’un
+    budget, il ralentit jusqu’à un appel à la fois ;
   - **Fournisseurs de secours** : essayés dans l’ordre quand le provider du livre est en panne ou refuse ses
     identifiants, avant ceux de l’installation.
 - **Partage** (propriétaire seulement) : invitez un utilisateur existant comme **Lecteur** (il consulte le livre)

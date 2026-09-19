@@ -128,6 +128,8 @@ def advance(db: Session, request: TranslationRequest, files: Files, payload: Tra
     if busy(db, project, HELD):
         return
     options = {"final_review": bool(request.options.get("final_review", True)), "translation_request": request.id}
+    # The request's analysis mode and threads (app.engines.translation.parallel_analysis).
+    options.update({key: request.options[key] for key in ("analysis_mode", "threads") if request.options.get(key)})
     if request.options.get("input") != "epub":
         # Chapters sent to a volume already translated: only them (and anything unfinished) are worked on.
         options.update(follow_up_options(db, project, request.options.get("new_chapter_ids") or []))

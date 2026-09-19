@@ -162,6 +162,7 @@ class Candidate:
     next_attempt: float = 0
     lease_until: float = 0
     reclaim: bool = False
+    stop_reason: str = ""
 
 
 @dataclass
@@ -188,6 +189,7 @@ def candidate_query():
         Job.project_id,
         Job.next_attempt,
         Job.lease_until,
+        Job.stop_reason,
     ).join(Project, Project.id == Job.project_id)
 
 
@@ -201,6 +203,7 @@ def candidates(rows) -> list[Candidate]:
             next_attempt=row[10] or 0,
             lease_until=row[11] or 0,
             reclaim=row[3] in RUNNING,
+            stop_reason=row[12] or "",
         )
         for row in rows
     ]
@@ -303,7 +306,8 @@ def snapshot(db: Session, now: float, project_ids: set[str] | None = None) -> di
     `position` is the job's place in the line of its provider (1: next to start when that provider
     has a free slot); `reason` says what holds it: `starting` (it starts within seconds),
     `provider_busy`, `account_limit`, `token_limit`, `retry_scheduled` (a provider outage is being
-    waited out until `next_attempt`) or `provider_missing`.
+    waited out until `next_attempt`), `earlier_volume` (the volume's analysis waits for an earlier
+    volume of its series) or `provider_missing`.
     """
     from app.jobs.queue import RUNNING
 
@@ -353,7 +357,9 @@ def snapshot(db: Session, now: float, project_ids: set[str] | None = None) -> di
                 token_counts[item.token_id] = token_counts.get(item.token_id, 0) + 1
         entries.append(_entry(item, now, config, reason, lines[lane]))
     for item in sorted(later, key=lambda item: item.next_attempt):
-        entries.append(_entry(item, now, config, "retry_scheduled", None))
+        # A parallel analysis waiting for an earlier volume of its series to finish its analysis.
+        held = "earlier_volume" if item.stop_reason == "earlier_volume" else "retry_scheduled"
+        entries.append(_entry(item, now, config, held, None))
     visible = project_ids is None
     return {
         "waiting": [e for e in entries if visible or e["project_id"] in project_ids],

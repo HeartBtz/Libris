@@ -57,6 +57,11 @@ registerTranslations({
   "volume {volume}": "volume {volume}",
   "flux continu": "continuous flow",
   "lot {current}/{total}": "batch {current}/{total}",
+  "Extraction des passages": "Passage extraction",
+  "Consolidation de la mémoire": "Memory consolidation",
+  "Réconciliation chronologique": "Chronological reconciliation",
+  "Écriture de la mémoire": "Memory writing",
+  "niveau {level}/{levels}": "level {level}/{levels}",
   "Reprendre le travail annulé": "Resume cancelled work",
   "Reprendre après connexion": "Resume after signing in",
   Reprendre: "Resume",
@@ -126,6 +131,10 @@ registerTranslations({
 
 const stageLabels: Record<string, string> = {
   chapter_analysis: "Analyse des passages",
+  extraction: "Extraction des passages",
+  consolidation: "Consolidation de la mémoire",
+  reconciliation: "Réconciliation chronologique",
+  memory: "Écriture de la mémoire",
   book_bible: "Synthèse de la Book Bible",
   translation: "Traduction",
   automatic_recovery: "Seconde passe ciblée",
@@ -431,6 +440,9 @@ export function Workspace({
     checkpoint.step === "book_bible" && checkpoint.batch_current
       ? t("lot {current}/{total}", { current: String(checkpoint.batch_current), total: String(checkpoint.batch_total) })
       : "",
+    checkpoint.step === "book_bible" && checkpoint.levels
+      ? t("niveau {level}/{levels}", { level: String(checkpoint.level), levels: String(checkpoint.levels) })
+      : "",
   ]
     .filter(Boolean)
     .join(" · ");
@@ -631,7 +643,7 @@ export function Workspace({
             )}
           </Callout>
         )}
-        {job?.status === "waiting" && (
+        {job?.status === "waiting" && job.stop_reason !== "earlier_volume" && (
           <Callout tone="warning" role="status">
             {t("Reprise automatique prévue le {date}.", { date: date(job.next_attempt) })}{" "}
             {tp(

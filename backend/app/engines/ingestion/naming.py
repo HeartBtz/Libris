@@ -22,8 +22,9 @@ VOLUME_KEYWORD = re.compile(
 VOLUME_SHORT = re.compile(r"(?<![^\W\d_])v\.?\s?(\d{1,4})(?!\d)", re.IGNORECASE)
 VOLUME_HASH = re.compile(r"#\s*(\d{1,4})(?!\d)")
 VOLUME_BRACKET = re.compile(r"[\[(]\s*(\d{1,4})\s*[\])]")
+CHAPTER_WORDS = "chapter|chapitre|chap|ch|c|capitulo|capítulo|kapitel|episode|ep"
 CHAPTER_KEYWORD = re.compile(
-    r"(?<![^\W\d_])(?:chapter|chapitre|chap|ch|c|capitulo|capítulo|kapitel|episode|ep)\.?\s*[-_#]?\s*" + NUMBER
+    r"(?<![^\W\d_])(?:" + CHAPTER_WORDS + r")\.?\s*[-_#]?\s*" + NUMBER
     + r"(?![\d])",
     re.IGNORECASE,
 )
@@ -249,3 +250,84 @@ def missing_numbers(numbers: list[int], start: int = 1) -> list[int]:
     if not present:
         return []
     return [value for value in range(min(start, present[0]), present[-1]) if value not in set(present)]
+
+
+# Chapter headings inside a text (app.engines.ingestion.split): a whole line that names a chapter. Only
+# the long chapter words count here ("c 3" or "ep 3" at the start of a line is too often plain text).
+HEADING_WORDS = "chapter|chapitre|chap\\.|ch\\.|capitulo|capítulo|kapitel|episode|épisode"
+KEYWORD_HEADING = re.compile(
+    r"^(?:" + HEADING_WORDS + r")\s*(?:n[°o]\.?\s*)?[#]?\s*"
+    r"(?P<number>\d{1,5}(?:[.,]\d{1,2})?|[ivxlcdm]{1,8})(?P<rest>(?:[\s:.,;\-–—_|/].*)?)$",
+    re.IGNORECASE,
+)
+CJK_DIGITS = {"零": 0, "〇": 0, "一": 1, "二": 2, "两": 2, "兩": 2, "三": 3, "四": 4, "五": 5, "六": 6, "七": 7,
+              "八": 8, "九": 9}  # fmt: skip
+CJK_UNITS = {"十": 10, "百": 100, "千": 1000}
+CJK_HEADING = re.compile(r"^第\s*(?P<number>[0-9０-９零〇一二两兩三四五六七八九十百千]{1,8})\s*[章话話回节節](?P<rest>.*)$")
+SPECIAL_HEADING = re.compile(
+    r"^(?P<word>prologue|prolog|epilogue|épilogue|epilog|interlude|afterword|postface)(?P<rest>(?:[\s:.,;\-–—].*)?)$",
+    re.IGNORECASE,
+)
+NUMBERED_HEADING = re.compile(r"^(?P<number>\d{1,4})[.)]\s+(?P<rest>\S.*)$")
+HEADING_SEPARATORS = " \t:.,;-–—_|/"
+
+
+def cjk_value(text: str) -> int | None:
+    """第十二章 → 12, 第一百零五章 → 105; Arabic and full-width digits are read as they are."""
+    if text.isdigit():
+        return int(text)
+    section, current = 0, 0
+    for char in text:
+        if char in CJK_DIGITS:
+            current = CJK_DIGITS[char]
+        elif char in CJK_UNITS:
+            section += (current or 1) * CJK_UNITS[char]
+            current = 0
+        else:
+            return None
+    return section + current
+
+
+@dataclass
+class Heading:
+    """A line read as a chapter heading: its number (None for a prologue…), kind and subtitle."""
+
+    number: float | None
+    kind: str  # keyword | cjk | special | numbered
+    subtitle: str
+
+
+def chapter_heading(line: str) -> Heading | None:
+    """The chapter a heading line names, or None when the line reads as ordinary text.
+
+    "Chapter 12", "Chapitre 12 : Titre", "CHAPTER XII", "第12章", "Prologue", "12. Title". A title glued
+    to the number without punctuation must start with a capital ("Chapter 3 The Storm", not
+    "Chapter 3 was long"), and a heading is short: a sentence that starts with a chapter word is text.
+    """
+    text = " ".join(line.split())
+    if not text or len(text) > 150:
+        return None
+    if match := KEYWORD_HEADING.match(text):
+        raw = match["number"]
+        number = _number(raw) if raw[0].isdigit() else roman_value(raw)
+        kind = "keyword"
+    elif match := CJK_HEADING.match(text):
+        number, kind = cjk_value(match["number"]), "cjk"
+    elif match := SPECIAL_HEADING.match(text):
+        number, kind = None, "special"
+    elif match := NUMBERED_HEADING.match(text):
+        number, kind = _number(match["number"]), "numbered"
+    else:
+        return None
+    if kind in ("keyword", "cjk") and number is None:
+        return None
+    rest = match["rest"]
+    subtitle = rest.strip(HEADING_SEPARATORS + "\u3000")
+    if subtitle and kind != "cjk":
+        glued = rest[:1].isspace() and kind != "numbered"
+        first = subtitle[0]
+        if (glued or kind in ("special", "numbered")) and not (first.isupper() or first.isdigit() or first in "\"'«“‘(["):
+            return None
+        if len(subtitle) > 100 or (len(subtitle.split()) > 8 and subtitle.endswith((".", "!", "?"))):
+            return None
+    return Heading(float(number) if number is not None else None, kind, subtitle)

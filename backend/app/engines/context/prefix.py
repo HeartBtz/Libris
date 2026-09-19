@@ -28,6 +28,12 @@ TIERS = {
     "EDITORIAL_CHARACTERS": 2,
     "CHARACTER_RELATIONSHIPS": 2,
     "SERIES_CONVENTIONS": 2,
+    # Parallel analysis: what the passages before this one established (app.engines.memory.timeline).
+    "KNOWN_IDENTITIES": 2,
+    "KNOWN_RELATIONSHIPS": 2,
+    "KNOWN_TERMS": 2,
+    "RECENT_CHARACTERS": 3,
+    "EARLIER_PASSAGES": 3,
     # Changes with every passage.
     "CHAPTER_STATE": 3,
     "PREVIOUS_CONTEXT": 4,

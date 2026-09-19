@@ -41,9 +41,12 @@ def read_markdown(text: str) -> Document:
     blocks: list[Block] = []
     gap = 0
 
+    start = index
+
     def add(block: Block) -> None:
         nonlocal gap
         block.gap = gap if blocks else 0
+        block.line = start
         blocks.append(block)
         gap = 0
 
@@ -53,6 +56,7 @@ def read_markdown(text: str) -> Document:
             gap += 1
             index += 1
             continue
+        start = index
         if fence := FENCE.match(line):
             closing = next(
                 (end for end in range(index + 1, len(lines)) if lines[end].strip().startswith(fence[1])),

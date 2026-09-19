@@ -17,6 +17,11 @@ HELD = (*ACTIVE, "paused", "blocked")
 STEP_STATUS = {
     "chapter_analysis": "analyzing",
     "book_bible": "analyzing",
+    # Parallel analysis (app.engines.translation.parallel_analysis).
+    "extraction": "analyzing",
+    "consolidation": "analyzing",
+    "reconciliation": "analyzing",
+    "memory": "analyzing",
     "translation": "translating",
     "automatic_recovery": "translating",
     "recovery_required": "translating",
@@ -218,13 +223,21 @@ def finish_segment(job_id: str, owner: str, segment_id: str) -> None:
 
 
 def suspend(
-    job_id: str, owner: str, status: str, reason: str, message: str = "", retry_after: float = 0
+    job_id: str,
+    owner: str,
+    status: str,
+    reason: str,
+    message: str = "",
+    retry_after: float = 0,
+    progress: dict | None = None,
 ) -> None:
     with SessionLocal() as db:
         job = db.scalar(select(Job).where(Job.id == job_id).with_for_update())
         # An explicit user pause/cancel or a new owner always wins over automatic recovery.
         if not job or job.lease_owner != owner or job.status not in RUNNING:
             return
+        if progress:
+            job.checkpoint = {**(job.checkpoint or {}), **progress}
         if status == "waiting":
             job.outage_count += 1
             from app.automation_settings import recovery_base_seconds

@@ -392,6 +392,29 @@ def guard(job_id: str, owner: str) -> None:
     raise JobStopped()
 
 
+def parallel_width(job_id: str) -> int | None:
+    """Calls a job may keep in flight at once without its caps being overshot together; None: no cap.
+
+    `guard` only sees calls already paid for: N calls started side by side would all pass it and cross
+    the cap together. Each call in flight is therefore reserved, before it starts, at the price of a
+    reference call of the job's provider: the spend plus the reservations stays below the switch
+    threshold. Near it the job narrows down to one call at a time, and `guard` decides as for a
+    sequential job (app.jobs.concurrency.job_parallelism reads this before each start).
+    """
+    with SessionLocal() as db:
+        job = db.get(Job, job_id)
+        project = db.get(Project, job.project_id) if job else None
+        if project is None:
+            return None
+        found = limits(db, project, job_token(db, job))
+        price = unit_price(db.get(Provider, job.provider_id) if job.provider_id else None)
+        if not found or price <= 0:
+            return None
+        threshold = budget_config(db)["switch_threshold"]
+        room = min(limit.amount * threshold - limit.spent for limit in found)
+        return max(1, int(room // price))
+
+
 # Reports.
 
 

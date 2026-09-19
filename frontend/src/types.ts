@@ -66,6 +66,10 @@ export interface ProjectSettingsConfig {
   fallback_provider_ids?: string[] | null;
   /** Absent: REVIEW_MODE. */
   review_mode?: "separate" | "fused" | null;
+  /** Absent: ANALYSIS_MODE (parallel by default). */
+  analysis_mode?: "parallel" | "strict" | null;
+  /** Passages worked on at once, analysis and translation; absent: the provider's share. */
+  threads?: number | null;
   /** Absent: PASSAGE_MAX_CHARS; only chapters imported later are cut with it. */
   passage_max_chars?: number | null;
   translation_memory?: boolean;
@@ -251,6 +255,32 @@ export interface ChapterProposal {
   confidence: Confidence;
   reason: string;
   existing_chapter: null | { chapter_id: string; title: string; same_content: boolean };
+  /** Chapters of the target volume met by the parts of a file split at its headings. */
+  split_existing?: { number: number; chapter_id: string; title: string; same_content: boolean }[];
+}
+/** One chapter of a TXT, Markdown or DOCX file split at its headings (inspection `meta.split`). */
+export interface SplitPartProposal {
+  /** Line (TXT, Markdown) or paragraph (DOCX) where the chapter starts. */
+  start: number;
+  number: number;
+  number_from_heading: boolean;
+  title: string;
+  heading: boolean;
+  first_line: string;
+  characters: number;
+  excerpt: string;
+  checksum: string;
+}
+export interface SplitProposal {
+  unit: "line" | "block";
+  confidence: Confidence;
+  reason: string;
+  /** Applied unless the person turns it off (the headings leave no doubt). */
+  default: boolean;
+  /** The file is too long to stay one chapter. */
+  required?: boolean;
+  warnings: string[];
+  parts: SplitPartProposal[];
 }
 export interface Proposal {
   series?: { name: string; confidence: Confidence; series_reason: string; existing_series_id: string | null };
@@ -298,6 +328,15 @@ export interface ProgressStage {
   total: number;
   percent: number;
 }
+export interface AnalysisPhase {
+  step: "extraction" | "consolidation" | "reconciliation" | "memory" | "chapter_analysis" | "book_bible";
+  current: number;
+  total: number;
+  level?: number;
+  levels?: number;
+  percent: number;
+}
+
 export interface ProjectProgress {
   active_stage: ProgressStage["key"];
   state: string;
@@ -308,6 +347,8 @@ export interface ProjectProgress {
   model: string | null;
   current: ProgressStage;
   stages: ProgressStage[];
+  /** A running analysis: its step, i/N and, for a Book Bible built as a tree, level k/K. */
+  analysis_phase?: AnalysisPhase | null;
   review: {
     examined: number;
     total: number;

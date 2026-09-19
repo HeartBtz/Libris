@@ -228,6 +228,8 @@ docker compose start worker
 | `docker compose exec api python -m app.maintenance.compact_request_logs [--dry-run]` | Rewrites old request rows in the compact form new rows use. Safe to interrupt and run again. |
 | `docker compose exec api python -m app.maintenance.compare_providers --project <book id> --providers <id>,<id> [--sample 5] [--output report.json]` | Compares providers on the same passages. See below. |
 | `python scripts/measure_prompt_cost.py [options]` | Measures the tokens a configuration sends per passage, without any real model. See below. |
+| `python scripts/benchmark_analysis.py [options]` | Wall time, calls and tokens of the analysis of a long synthetic serial, strict against parallel, for several thread counts ([development](development.md#comparing-the-analysis-modes)). |
+| `python scripts/evaluate_analysis_modes.py [options]` | Memory quality of the analysis modes against a synthetic ground truth ([development](development.md#comparing-the-analysis-modes)). |
 | `docker compose exec api alembic check` | Confirms that the database schema matches the application. |
 
 ## Cost control

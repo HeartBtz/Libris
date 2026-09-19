@@ -364,6 +364,8 @@ def create_request(
                 "asset_id": asset.id,
                 "start": payload.pipeline.start,
                 "final_review": payload.pipeline.final_review,
+                "analysis_mode": payload.pipeline.analysis_mode,
+                "threads": payload.pipeline.threads,
                 "priority": priority,
                 "output_format": payload.output.format,
                 "ingested": False,
@@ -518,6 +520,8 @@ def create_epub_request(
                 "asset_id": asset.id if asset else None,
                 "start": options.start,
                 "final_review": options.final_review,
+                "analysis_mode": options.analysis_mode,
+                "threads": options.threads,
                 "priority": priority,
                 "output_format": options.output_format or "epub",
                 "ingested": True,
@@ -606,8 +610,8 @@ async def read_multipart(request: Request, limit: int) -> Submission:
         else:
             values[key] = value
     kinds = {extension(upload.filename or "") for upload in uploads}
-    if not uploads or len(kinds) != 1 or not kinds <= {"json", "epub", "txt"}:
-        raise invalid("Envoyez un fichier JSON, un EPUB, ou des chapitres .txt (un seul type par requête).")
+    if not uploads or len(kinds) != 1 or not kinds <= {"json", "epub", "txt", "docx"}:
+        raise invalid("Envoyez un fichier JSON, un EPUB, ou des chapitres .txt ou .docx (un seul type par requête).")
     kind = kinds.pop()
     if kind in {"json", "epub"} and len(uploads) != 1:
         raise invalid("Envoyez un seul fichier JSON ou EPUB par requête.")
@@ -619,6 +623,8 @@ async def read_multipart(request: Request, limit: int) -> Submission:
         options = upload_options(values)
     except PayloadRejected as exc:
         raise rejected(exc) from None
+    if kind == "epub" and options.split != "none":
+        raise invalid("Le découpage par titres s’applique aux fichiers TXT et DOCX, pas à un EPUB.")
     if kind == "epub":
         data = await read_upload(uploads[0], limit)
         return Submission(epub=data, name=safe_display_name(uploads[0].filename or "book.epub"), options=options,
@@ -634,7 +640,7 @@ async def read_multipart(request: Request, limit: int) -> Submission:
         payload, decisions = text_payload(files, options, settings().api_max_chapters)
     except PayloadRejected as exc:
         raise rejected(exc) from None
-    return Submission(payload=payload, decisions=decisions, kind="txt")
+    return Submission(payload=payload, decisions=decisions, kind=kind)
 
 
 def parse(data: bytes) -> TranslationPayload:
@@ -661,6 +667,8 @@ async def read_input(request: Request) -> Submission:
             options = upload_options(values)
         except PayloadRejected as exc:
             raise rejected(exc) from None
+        if options.split != "none":
+            raise invalid("Le découpage par titres s’applique aux fichiers TXT et DOCX, pas à un EPUB.")
         data = await request.body()
         if len(data) > limit:
             raise too_large()
@@ -772,6 +780,9 @@ def detail_view(db, request: TranslationRequest, language: str) -> dict:
             ]
             if progress
             else [],
+            # A running analysis: extraction i/N, consolidation, reconciliation i/N, memory i/N, Book Bible
+            # level k/K (parallel mode), or chapter_analysis i/N then book_bible (strict mode).
+            "analysis": progress.get("analysis_phase") if progress else None,
         },
         "estimate": progress["estimate"] if progress and job else None,
         "error": message_for(request.error or (job.error if job else ""), language),
@@ -780,7 +791,8 @@ def detail_view(db, request: TranslationRequest, language: str) -> dict:
         "chapters": {**(request.options.get("chapters") or {}), "items": chapters,
                      "new": list(request.options.get("new_chapter_ids", request.chapter_ids) or [])},
         "options": {
-            key: request.options.get(key) for key in ("start", "final_review", "output_format")
+            key: request.options.get(key)
+            for key in ("start", "final_review", "output_format", "analysis_mode", "threads")
         },
         "priority": priority_label(job.priority if job else request.options.get("priority", 1)),
         "queue": queue_view(db, request, job),

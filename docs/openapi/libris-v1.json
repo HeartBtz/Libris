@@ -1625,7 +1625,7 @@
           "Translation requests"
         ],
         "summary": "Send a translation request",
-        "description": "Send **an EPUB** (multipart field `file`, or the raw file as `application/epub+zip` with its options in the query string), **TXT chapters** (multipart, one or more `.txt` files in `file` or `files`, one chapter each) or **a JSON document**. One request carries one kind of file.\n\nThe request is stored before the answer and its pipeline starts in the worker: `202 Accepted` with a `Location` header. The same content sent again with the same `Idempotency-Key` or `external_id` answers `200` with the original request and `Idempotent-Replayed: true`.\n\nWithout the `pipeline:start` scope, send `start=false` to import only.\n\nChapters sent to a volume already translated (`volume.latest`, or the same volume again) are appended and only they are translated. The request waits its turn in the fair queue at the `priority` it asks for, and is refused when its token's cost budget is reached.\n\n**Scope:** `content:write`, and `pipeline:start` to start the pipeline.",
+        "description": "Send **an EPUB** (multipart field `file`, or the raw file as `application/epub+zip` with its options in the query string), **TXT or DOCX chapters** (multipart, one or more `.txt` or `.docx` files in `file` or `files`, one chapter each, or one file split at its chapter headings with `split=headings`) or **a JSON document**. One request carries one kind of file.\n\nThe request is stored before the answer and its pipeline starts in the worker: `202 Accepted` with a `Location` header. The same content sent again with the same `Idempotency-Key` or `external_id` answers `200` with the original request and `Idempotent-Replayed: true`.\n\nWithout the `pipeline:start` scope, send `start=false` to import only.\n\nChapters sent to a volume already translated (`volume.latest`, or the same volume again) are appended and only they are translated. The request waits its turn in the fair queue at the `priority` it asks for, and is refused when its token's cost budget is reached.\n\n**Scope:** `content:write`, and `pipeline:start` to start the pipeline.",
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -1899,6 +1899,47 @@
               "type": "string"
             },
             "x-libris-raw-epub-only": true
+          },
+          {
+            "name": "analysis_mode",
+            "in": "query",
+            "required": false,
+            "description": "Raw EPUB body only (`Content-Type: application/epub+zip`). `parallel`: the passages are analysed side by side, then each is reconciled with what precedes it; `strict`: one passage after the other. Default: the volume's choice, else `ANALYSIS_MODE`.",
+            "schema": {
+              "enum": [
+                "parallel",
+                "strict"
+              ],
+              "type": "string"
+            },
+            "x-libris-raw-epub-only": true
+          },
+          {
+            "name": "threads",
+            "in": "query",
+            "required": false,
+            "description": "Raw EPUB body only (`Content-Type: application/epub+zip`). Passages worked on at once, analysis and translation alike (1–64). It can only lower the volume's share of the provider's capacity; default: that share.",
+            "schema": {
+              "maximum": 64,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "x-libris-raw-epub-only": true
+          },
+          {
+            "name": "split",
+            "in": "query",
+            "required": false,
+            "description": "Raw EPUB body only (`Content-Type: application/epub+zip`). TXT or DOCX: `headings` splits one file holding many chapters at its chapter headings (numbers and titles from the headings, the split recorded in `report.decisions.intake`); `none` (default) keeps each file as one chapter. Refused for an EPUB.",
+            "schema": {
+              "default": "none",
+              "enum": [
+                "none",
+                "headings"
+              ],
+              "type": "string"
+            },
+            "x-libris-raw-epub-only": true
           }
         ],
         "requestBody": {
@@ -1946,12 +1987,12 @@
             "multipart/form-data": {
               "schema": {
                 "additionalProperties": false,
-                "description": "An EPUB (one file in `file`), TXT chapters (one or more `.txt` files in `file` or `files`; `series` or `series_id`, `volume`, `source_language` and `target_language` required) or one `.json` document in `file` with no other field. Empty fields count as not given; unknown fields are refused.",
+                "description": "An EPUB (one file in `file`), TXT or DOCX chapters (one or more `.txt` or `.docx` files in `file` or `files`; `series` or `series_id`, `volume`, `source_language` and `target_language` required) or one `.json` document in `file` with no other field. Empty fields count as not given; unknown fields are refused.",
                 "properties": {
                   "file": {
                     "type": "string",
                     "format": "binary",
-                    "description": "The EPUB, the JSON document or a TXT chapter."
+                    "description": "The EPUB, the JSON document or a TXT or DOCX chapter."
                   },
                   "files": {
                     "type": "array",
@@ -1959,7 +2000,7 @@
                       "type": "string",
                       "format": "binary"
                     },
-                    "description": "TXT chapters, one file each, numbered from their names."
+                    "description": "TXT or DOCX chapters, one file each, numbered from their names."
                   },
                   "external_id": {
                     "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]{0,199}$",
@@ -2092,16 +2133,39 @@
                     ],
                     "type": "string",
                     "description": "Place in the fair queue: `low`, `normal` (default) or `high`, within the token's `max_priority` and its account's ceiling (otherwise `403 priority_not_allowed`). Does not change what the request is."
+                  },
+                  "analysis_mode": {
+                    "enum": [
+                      "parallel",
+                      "strict"
+                    ],
+                    "type": "string",
+                    "description": "`parallel`: the passages are analysed side by side, then each is reconciled with what precedes it; `strict`: one passage after the other. Default: the volume's choice, else `ANALYSIS_MODE`."
+                  },
+                  "threads": {
+                    "maximum": 64,
+                    "minimum": 1,
+                    "type": "integer",
+                    "description": "Passages worked on at once, analysis and translation alike (1–64). It can only lower the volume's share of the provider's capacity; default: that share."
+                  },
+                  "split": {
+                    "default": "none",
+                    "enum": [
+                      "none",
+                      "headings"
+                    ],
+                    "type": "string",
+                    "description": "TXT or DOCX: `headings` splits one file holding many chapters at its chapter headings (numbers and titles from the headings, the split recorded in `report.decisions.intake`); `none` (default) keeps each file as one chapter. Refused for an EPUB."
                   }
                 },
                 "type": "object"
               },
               "encoding": {
                 "file": {
-                  "contentType": "application/epub+zip, application/json, text/plain"
+                  "contentType": "application/epub+zip, application/json, text/plain, application/vnd.openxmlformats-officedocument.wordprocessingml.document"
                 },
                 "files": {
-                  "contentType": "text/plain"
+                  "contentType": "text/plain, application/vnd.openxmlformats-officedocument.wordprocessingml.document"
                 }
               }
             },
@@ -2447,7 +2511,8 @@
                         "total": 412,
                         "percent": 44
                       }
-                    ]
+                    ],
+                    "analysis": null
                   },
                   "estimate": null,
                   "error": "",
@@ -2477,7 +2542,9 @@
                   "options": {
                     "start": true,
                     "final_review": true,
-                    "output_format": "json"
+                    "output_format": "json",
+                    "analysis_mode": null,
+                    "threads": null
                   },
                   "priority": "normal",
                   "queue": null,
@@ -3249,6 +3316,49 @@
   },
   "components": {
     "schemas": {
+      "AnalysisPhase": {
+        "type": "object",
+        "description": "Where a running analysis is; `null` when no analysis runs.",
+        "properties": {
+          "step": {
+            "type": "string",
+            "enum": [
+              "extraction",
+              "consolidation",
+              "reconciliation",
+              "memory",
+              "chapter_analysis",
+              "book_bible"
+            ],
+            "description": "Parallel analysis: `extraction`, `consolidation`, `reconciliation`, `memory`, then `book_bible`; strict analysis: `chapter_analysis`, then `book_bible`."
+          },
+          "current": {
+            "type": "integer",
+            "description": "Passages (or Book Bible syntheses) started in this step."
+          },
+          "total": {
+            "type": "integer"
+          },
+          "level": {
+            "type": "integer",
+            "description": "`book_bible` of a parallel analysis: the level of the tree being built."
+          },
+          "levels": {
+            "type": "integer",
+            "description": "Levels of the Book Bible tree."
+          },
+          "percent": {
+            "type": "integer",
+            "description": "How far the whole analysis is, 0–100."
+          }
+        },
+        "required": [
+          "step",
+          "current",
+          "total",
+          "percent"
+        ]
+      },
       "ChapterCounts": {
         "type": "object",
         "description": "How many chapters the request created, found unchanged or replaced, and each chapter's progress.",
@@ -4280,6 +4390,28 @@
             ],
             "default": null,
             "description": "Place in the fair queue: `low`, `normal` (default) or `high`, within the token's `max_priority` and its account's ceiling (otherwise `403 priority_not_allowed`). Does not change what the request is."
+          },
+          "analysis_mode": {
+            "enum": [
+              "parallel",
+              "strict"
+            ],
+            "type": [
+              "string",
+              "null"
+            ],
+            "default": null,
+            "description": "`parallel`: the passages are analysed side by side, then each is reconciled with what precedes it; `strict`: one passage after the other. Default: the volume's choice, else `ANALYSIS_MODE`."
+          },
+          "threads": {
+            "maximum": 64,
+            "minimum": 1,
+            "type": [
+              "integer",
+              "null"
+            ],
+            "default": null,
+            "description": "Passages worked on at once, analysis and translation alike (1–64). It can only lower the volume's share of the provider's capacity; default: that share."
           }
         },
         "type": "object"
@@ -4303,13 +4435,24 @@
               "$ref": "#/components/schemas/StageProgress"
             },
             "description": "The volume's progress per stage."
+          },
+          "analysis": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AnalysisPhase"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
           "segments",
           "translated",
           "percent",
-          "stages"
+          "stages",
+          "analysis"
         ]
       },
       "Provider": {
@@ -4503,6 +4646,7 @@
             "enum": [
               "epub",
               "txt",
+              "docx",
               "json"
             ],
             "description": "What was sent."
@@ -4585,12 +4729,31 @@
                   "string",
                   "null"
                 ]
+              },
+              "analysis_mode": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "enum": [
+                  "parallel",
+                  "strict",
+                  null
+                ]
+              },
+              "threads": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
               }
             },
             "required": [
               "start",
               "final_review",
-              "output_format"
+              "output_format",
+              "analysis_mode",
+              "threads"
             ]
           },
           "priority": {
@@ -4743,6 +4906,7 @@
             "enum": [
               "epub",
               "txt",
+              "docx",
               "json"
             ],
             "description": "What was sent."

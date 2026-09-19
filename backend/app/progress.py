@@ -243,6 +243,39 @@ def _review_states(db, project_ids: list[str]) -> dict[str, ReviewState]:
     return states
 
 
+# Steps of an analysis job and their share of the analysis stage. Parallel mode: extraction,
+# consolidation, reconciliation, memory, Book Bible (app.engines.translation.parallel_analysis);
+# strict mode: chapter_analysis then book_bible.
+ANALYSIS_PHASES = {
+    "extraction": (0.0, 0.45),
+    "consolidation": (0.45, 0.0),
+    "reconciliation": (0.45, 0.45),
+    "memory": (0.9, 0.05),
+    "chapter_analysis": (0.0, 0.9),
+    "book_bible": (0.95, 0.05),
+}
+
+
+def analysis_phase(job: Job | None) -> dict | None:
+    """Where a running analysis is: its step, i/N, and the level k/K of a Book Bible built as a tree."""
+    if job is None or job.status not in HELD or job.operation != "analyze":
+        return None
+    checkpoint = job.checkpoint or {}
+    step = checkpoint.get("step")
+    if step not in ANALYSIS_PHASES:
+        return None
+    phase = {"step": step, "current": int(checkpoint.get("current") or 0), "total": int(checkpoint.get("total") or 0)}
+    if step == "book_bible" and checkpoint.get("levels"):
+        phase.update(level=int(checkpoint.get("level") or 0), levels=int(checkpoint["levels"]))
+    start, weight = ANALYSIS_PHASES[step]
+    if step == "book_bible" and phase.get("levels"):
+        share = (phase["level"] - 1 + min(1, phase["current"] / max(phase["total"], 1))) / phase["levels"]
+    else:
+        share = min(1, phase["current"] / phase["total"]) if phase["total"] else 0
+    phase["percent"] = min(100, round((start + weight * share) * 100))
+    return phase
+
+
 def _progress(project: Project, facts: BookFacts, review: ReviewState, models: dict, statuses: dict) -> dict:
     stats = facts.stats
     active_job = next((job for job in facts.jobs if job.status in HELD), None)
@@ -250,6 +283,7 @@ def _progress(project: Project, facts: BookFacts, review: ReviewState, models: d
     checkpoint = job.checkpoint if job else {}
     analysis_done = stats["analyzed_segments"] + stats["synthesized_chapters"]
     analysis_total = stats["total"] + stats["chapters"]
+    phase = analysis_phase(active_job)
     translation_started = bool(stats["translated"] or stats["errors"] or stats["refused"])
     review_done = len(review.done_ids) or stats["reviewed_segments"]
     review_total = len(review.targets) or stats["review_total"]
@@ -275,7 +309,8 @@ def _progress(project: Project, facts: BookFacts, review: ReviewState, models: d
             "label": "Analyse & mémoire",
             "done": analysis_done,
             "total": analysis_total,
-            "percent": _percent(analysis_done, analysis_total),
+            # A parallel analysis writes its memory at the end: its phases tell how far it is.
+            "percent": max(_percent(analysis_done, analysis_total), phase["percent"] if phase else 0),
         },
         {
             "key": "translation",
@@ -311,7 +346,7 @@ def _progress(project: Project, facts: BookFacts, review: ReviewState, models: d
     ):
         active = "translation"
     elif active_job and (
-        active_job.operation == "analyze" or step in {"chapter_analysis", "book_bible"}
+        active_job.operation == "analyze" or step in ANALYSIS_PHASES
     ):
         active = "analysis"
     elif not translation_started and analysis_done < analysis_total:
@@ -347,6 +382,7 @@ def _progress(project: Project, facts: BookFacts, review: ReviewState, models: d
     }
     return {
         "active_stage": active,
+        "analysis_phase": phase,
         "state": job.status if job else project.status,
         "operation": job.operation if job else None,
         "job_id": job.id if job else None,

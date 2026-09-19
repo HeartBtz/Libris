@@ -78,7 +78,9 @@ def watch(db: Session, request: TranslationRequest, job: Job, now: float) -> boo
     """Bounds the life of a request whose job does not end; True when the request ended here."""
     limits = settings()
     since = request.options.get("stalled_since")
-    if job.status in STALLED:
+    # A parallel analysis waiting for an earlier volume's analysis is not stalled: that volume's own job
+    # is bounded (app.engines.translation.parallel_analysis); the request deadline still applies.
+    if job.status in STALLED and job.stop_reason != "earlier_volume":
         if not since:
             request.options = {**request.options, "stalled_since": now}
         elif now - since > limits.api_request_stall_minutes * 60:

@@ -180,7 +180,7 @@ SCHEMAS: dict[str, dict] = {
             "series_id": nullable(IDENTIFIER),
             "project_id": nullable(s("string", "The volume (UUID).")),
             "job_id": nullable(s("string", "The pipeline job; `null` while the request waits (`queued`).")),
-            "input": s("string", "What was sent.", enum=["epub", "txt", "json"]),
+            "input": s("string", "What was sent.", enum=["epub", "txt", "docx", "json"]),
             "status": ref("RequestStatus"),
             "status_url": s("string", "Path of the status document."),
             "result_url": s("string", "Path of the result."),
@@ -201,7 +201,25 @@ SCHEMAS: dict[str, dict] = {
             "translated": s("integer"),
             "percent": s("integer"),
             "stages": s("array", "The volume's progress per stage.", items=ref("StageProgress")),
+            "analysis": nullable(ref("AnalysisPhase")),
         }
+    ),
+    "AnalysisPhase": obj(
+        {
+            "step": s(
+                "string",
+                "Parallel analysis: `extraction`, `consolidation`, `reconciliation`, `memory`, then `book_bible`; "
+                "strict analysis: `chapter_analysis`, then `book_bible`.",
+                enum=["extraction", "consolidation", "reconciliation", "memory", "chapter_analysis", "book_bible"],
+            ),
+            "current": s("integer", "Passages (or Book Bible syntheses) started in this step."),
+            "total": s("integer"),
+            "level": s("integer", "`book_bible` of a parallel analysis: the level of the tree being built."),
+            "levels": s("integer", "Levels of the Book Bible tree."),
+            "percent": s("integer", "How far the whole analysis is, 0–100."),
+        },
+        "Where a running analysis is; `null` when no analysis runs.",
+        ["step", "current", "total", "percent"],
     ),
     "ChapterProgress": obj(
         {
@@ -837,7 +855,13 @@ def detail_schema() -> None:
         "next_attempt": s("number", "When a waiting job retries (Unix time, `0` when not waiting)."),
         "chapters": ref("ChapterCounts"),
         "options": obj(
-            {"start": s("boolean"), "final_review": s("boolean"), "output_format": nullable(s("string"))}
+            {
+                "start": s("boolean"),
+                "final_review": s("boolean"),
+                "output_format": nullable(s("string")),
+                "analysis_mode": nullable(s("string", enum=["parallel", "strict", None])),
+                "threads": nullable(s("integer")),
+            }
         ),
         "priority": s(
             "string",
@@ -900,6 +924,9 @@ FIELD_NOTES = {
     "VolumeReference.title": "Title of a new volume (default: “Series — number”).",
     "ChapterInput.title": "Optional; without it the chapter is named by its number.",
     "UploadOptions.title": "Volume title (an EPUB keeps its own otherwise).",
+    "UploadOptions.split": "TXT or DOCX: `headings` splits one file holding many chapters at its chapter headings "
+    "(numbers and titles from the headings, the split recorded in `report.decisions.intake`); `none` (default) "
+    "keeps each file as one chapter. Refused for an EPUB.",
     "author": "Author of the volume.",
     "source_language": "BCP 47 tag such as `en`, `fr-FR`, `zh-Hant`.",
     "target_language": "BCP 47 tag.",
@@ -914,6 +941,10 @@ FIELD_NOTES = {
     "start": "Run the whole pipeline (needs the `pipeline:start` scope); false only imports.",
     "provider_id": "Provider to use; defaults to the volume's, then the series' provider.",
     "final_review": "Run the final review (never when the server disables it).",
+    "analysis_mode": "`parallel`: the passages are analysed side by side, then each is reconciled with what "
+    "precedes it; `strict`: one passage after the other. Default: the volume's choice, else `ANALYSIS_MODE`.",
+    "threads": "Passages worked on at once, analysis and translation alike (1–64). It can only lower the "
+    "volume's share of the provider's capacity; default: that share.",
     "output": "Default format of the result.",
     "output_format": "Default format of the result; `epub` only for an EPUB (and its default); "
     "`epub-bilingual` is a bilingual EPUB for proofreading, for any input.",
@@ -1032,6 +1063,7 @@ DETAIL_EXAMPLE = {
         "translated": 180,
         "percent": 44,
         "stages": [{"key": "translation", "done": 180, "total": 412, "percent": 44}],
+        "analysis": None,
     },  # fmt: skip
     "estimate": None,
     "error": "",
@@ -1056,7 +1088,7 @@ DETAIL_EXAMPLE = {
         ],
         "new": ["5b1c2d3e-0000-4000-8000-000000000005"],
     },  # fmt: skip
-    "options": {"start": True, "final_review": True, "output_format": "json"},
+    "options": {"start": True, "final_review": True, "output_format": "json", "analysis_mode": None, "threads": None},
     "priority": "normal",
     "queue": None,
     "result": None,
@@ -1080,8 +1112,9 @@ OPERATIONS: dict[tuple[str, str], dict] = {
         "tags": ["Translation requests"],
         "summary": "Send a translation request",
         "description": "Send **an EPUB** (multipart field `file`, or the raw file as `application/epub+zip` with "
-        "its options in the query string), **TXT chapters** (multipart, one or more `.txt` files in `file` or "
-        "`files`, one chapter each) or **a JSON document**. One request carries one kind of file.\n\n"
+        "its options in the query string), **TXT or DOCX chapters** (multipart, one or more `.txt` or `.docx` "
+        "files in `file` or `files`, one chapter each, or one file split at its chapter headings with "
+        "`split=headings`) or **a JSON document**. One request carries one kind of file.\n\n"
         "The request is stored before the answer and its pipeline starts in the worker: `202 Accepted` with a "
         "`Location` header. The same content sent again with the same `Idempotency-Key` or `external_id` "
         "answers `200` with the original request and `Idempotent-Replayed: true`.\n\n"
@@ -1498,15 +1531,16 @@ def model_schemas() -> dict:
 def upload_body(options: dict) -> dict:
     form = clean(copy.deepcopy(options))
     form["description"] = (
-        "An EPUB (one file in `file`), TXT chapters (one or more `.txt` files in `file` or `files`; `series` or "
+        "An EPUB (one file in `file`), TXT or DOCX chapters (one or more `.txt` or `.docx` files in `file` or "
+        "`files`; `series` or "
         "`series_id`, `volume`, `source_language` and `target_language` required) or one `.json` document in "
         "`file` with no other field. Empty fields count as not given; unknown fields are refused."
     )
     form["properties"] = {
         "file": {"type": "string", "format": "binary", "description": "The EPUB, the JSON document or a TXT "
-                                                                     "chapter."},
+                                                                     "or DOCX chapter."},
         "files": {"type": "array", "items": {"type": "string", "format": "binary"},
-                  "description": "TXT chapters, one file each, numbered from their names."},
+                  "description": "TXT or DOCX chapters, one file each, numbered from their names."},
         **form.get("properties", {}),
     }  # fmt: skip
     form.pop("required", None)
@@ -1518,8 +1552,10 @@ def upload_body(options: dict) -> dict:
             "multipart/form-data": {
                 "schema": form,
                 "encoding": {
-                    "file": {"contentType": "application/epub+zip, application/json, text/plain"},
-                    "files": {"contentType": "text/plain"},
+                    "file": {"contentType": "application/epub+zip, application/json, text/plain, "
+                             "application/vnd.openxmlformats-officedocument.wordprocessingml.document"},
+                    "files": {"contentType": "text/plain, "
+                              "application/vnd.openxmlformats-officedocument.wordprocessingml.document"},
                 },
             },  # fmt: skip
             "application/epub+zip": {"schema": {"type": "string", "format": "binary"}},

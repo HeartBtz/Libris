@@ -9,6 +9,7 @@ import asyncio
 import contextvars
 import functools
 import threading
+import time
 import weakref
 from collections.abc import Awaitable, Callable, Coroutine, Iterable
 from concurrent.futures import ThreadPoolExecutor
@@ -19,7 +20,7 @@ from sqlalchemy import func, select
 from app.config import settings
 from app.db import SessionLocal
 from app.jobs.clock import database_now
-from app.models import Job, Provider
+from app.models import Job, Project, Provider
 
 T = TypeVar("T")
 Item = TypeVar("Item")
@@ -83,6 +84,90 @@ def book_parallelism(provider_id: str | None) -> int:
 
 def book_share(provider_id: str | None) -> Callable[[], Awaitable[int]]:
     return functools.partial(blocking, book_parallelism, provider_id)
+
+
+# Threads of a job: one knob for its analysis and its translation (`threads` of the launch, else of the
+# volume). It only lowers the book's share of the provider: a big book never takes another book's part.
+MAX_THREADS = 64
+# After a provider outage (HTTP 429, overload), a resumed job runs at half its width, then regains one
+# passage in flight per THROTTLE_RAMP_SECONDS without a new outage.
+THROTTLE_RAMP_SECONDS = 60
+_last_width: dict[str, int] = {}
+
+
+def threads_value(chosen) -> int | None:
+    try:
+        value = int(chosen) if chosen is not None else 0
+    except (TypeError, ValueError):
+        return None
+    return min(value, MAX_THREADS) if value > 0 else None
+
+
+def job_threads(db, job: Job) -> int | None:
+    """The launch's `threads`, else the volume's `config.threads`; None follows the provider's share."""
+    chosen = (job.options or {}).get("threads")
+    if chosen is None:
+        project = db.get(Project, job.project_id)
+        chosen = (project.config or {}).get("threads") if project else None
+    return threads_value(chosen)
+
+
+def budget_width(job_id: str) -> int | None:
+    """How many calls a job's budget allows in flight at once; None: no budget near its cap.
+
+    The hook where a cost cap reserves the calls a job launches side by side before they start: near
+    the cap, the calls already in flight count as spent, and the job narrows (down to one call) so
+    that parallel calls cannot overshoot the cap together (app.engines.budget.parallel_width).
+    """
+    from app.engines.budget import parallel_width
+
+    return parallel_width(job_id)
+
+
+def job_parallelism(job_id: str, owner: str, provider_id: str | None) -> int:
+    """The width of one job: the provider's share, its threads, an outage throttle and its budget."""
+    width = book_parallelism(provider_id)
+    with SessionLocal() as db:
+        job = db.get(Job, job_id)
+        threads = job_threads(db, job) if job else None
+        if threads:
+            width = max(1, min(width, threads))
+        progress = dict(job.checkpoint or {}) if job else {}
+        throttle = progress.get("throttle")
+        if throttle:
+            since = float(progress.get("throttle_at") or 0)
+            if time.time() - since >= THROTTLE_RAMP_SECONDS:
+                throttle = int(throttle) + 1
+                from app.jobs.queue import JobStopped, fence
+
+                try:
+                    current = fence(db, job_id, owner)
+                    kept = {k: v for k, v in current.checkpoint.items() if k not in {"throttle", "throttle_at"}}
+                    current.checkpoint = (
+                        kept if throttle >= width else {**kept, "throttle": throttle, "throttle_at": time.time()}
+                    )
+                    db.commit()
+                except JobStopped:
+                    pass  # the next write of the job says it stopped
+            width = min(width, max(1, int(throttle)))
+    limit = budget_width(job_id)
+    if limit is not None:
+        width = min(width, max(1, limit))
+    _last_width[job_id] = width
+    return width
+
+
+def job_share(job: Job, owner: str) -> Callable[[], Awaitable[int]]:
+    """`width` for `in_parallel`: read again before each start (books starting, outages, budget)."""
+    return functools.partial(blocking, job_parallelism, job.id, owner, job.provider_id)
+
+
+def throttled(job_id: str, checkpoint: dict) -> dict:
+    """What an outage adds to the checkpoint of a job running passages side by side: half its width."""
+    last = _last_width.pop(job_id, 0) or int(checkpoint.get("throttle") or 0)
+    if last <= 1:
+        return {}
+    return {"throttle": max(1, last // 2), "throttle_at": time.time()}
 
 
 async def in_parallel(

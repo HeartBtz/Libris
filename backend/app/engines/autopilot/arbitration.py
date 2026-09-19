@@ -19,7 +19,7 @@ from app.engines.context.series import enforced_glossary
 from app.engines.quality.checks import checks, locked_term_error, validate_translation
 from app.engines.translation.versions import save_version
 from app.jobs import segment_state as state
-from app.jobs.concurrency import blocking, book_share, in_parallel, job_lock
+from app.jobs.concurrency import blocking, in_parallel, job_lock, job_share
 from app.jobs.queue import checkpoint, emit, fence
 from app.models import Issue, Job, JobSegmentState, Project, Provider, Segment
 from app.providers.llm import InvalidResponseExhausted, llm
@@ -67,7 +67,7 @@ async def arbitrate(job: Job, owner: str, round_no: int) -> None:
         )
         return decide_passage(job, owner, sid, round_no)
 
-    await in_parallel(enumerate(ids), book_share(job.provider_id), launch)
+    await in_parallel(enumerate(ids), job_share(job, owner), launch)
 
 
 def _inputs(job: Job, sid: str):

@@ -8,112 +8,52 @@
   <img src="frontend/public/assets/libris-logo.png" alt="Libris" width="360">
 </p>
 
-**A self-hosted library for literary translation — series, volumes and chapters, from the first chapter to the final review.**
+**Self-hosted literary translation for whole books and long series.**
 
-Libris organises your translation work as a library of series. A series holds numbered volumes (EPUB books) or a continuous flow of webnovel chapters (TXT files, one per chapter), and automation clients can send volumes as JSON through a versioned API. Every volume goes through the same persistent pipeline — analysis, contextual translation, review, human validation, export — with a Book Bible per volume, a Series Bible, shared characters and a two-level glossary. Bring your own local or hosted language model. Your books and translation history stay on your server; selected content is sent to the providers you configure.
+Libris turns an EPUB, a folder of webnovel chapters or a JSON payload into a translated book, using the
+language model you choose. It reads the book first, builds a memory of its characters, places and terms, and
+keeps that memory across the volumes of a series, so that a name translated in volume 1 is still the same in
+volume 7. An autopilot takes each book from import to a downloadable result with no step for you to validate;
+you can still read, correct and lock anything you like, and your corrections always win.
 
-[Install](#quick-start) · [Docker guide](docs/docker.md) · [Deployment guide](docs/installation.md) · [Guide français](docs/user-guide.fr.md) · [Codex](docs/codex.md) · [Contributing](CONTRIBUTING.md)
+Your books and translations stay on your server. Only the passages being processed are sent to the model
+providers you configure.
 
-## A workspace for long-form translation
+![Libris library with a series and a standalone volume](docs/screenshots/library.png)
 
-![Libris library](docs/screenshots/library.png)
+## What it does
 
-The interface is a calm, dense editorial workspace: a collapsible sidebar, a warm
-paper light theme and a neutral graphite dark theme (following the system by
-default), a single indigo accent, Inter for the interface and a book serif for the
-text being translated. Formatting codes are shown as formatting, never as raw
-markers, and every screen works from phone to wide desktop.
+- **A library of series.** Series hold numbered volumes or a continuous flow of chapters. A guided import
+  inspects your files first, proposes the series and the volume or chapter numbers, and creates nothing until
+  you confirm.
+- **Many sources, faithful output.** EPUB 2 and 3, TXT chapters, Markdown, HTML and DOCX chapters, and JSON sent
+  through the automation API. EPUB layout, styles and resources are preserved and the result is checked with
+  EPUBCheck; text exports keep the chapter layout.
+- **Context that carries over.** A Book Bible per volume, a Series Bible, character identities and relations,
+  and a two-level glossary. A volume only learns from the volumes before it, never from later ones.
+- **An autopilot.** Analysis, translation, review, a final AI review and AI arbitration run on their own. If a
+  provider fails, Libris waits, retries and switches to fallback providers; a passage nobody could translate
+  keeps its original text, with the reason written in the report.
+- **You stay in control.** Compare source and translation side by side, edit with version history, accept or
+  refuse AI suggestions, lock terms, and see every decision the autopilot made.
+- **Your model, your costs.** OpenAI-compatible servers (local or hosted), the OpenAI and Anthropic APIs, and an
+  optional Codex/ChatGPT connection. Each provider has its own concurrency limit and prices, and paid operations
+  show a token and cost estimate before they start.
+- **Built to run for days.** Persistent jobs with checkpoints survive restarts; pause, resume and retry never
+  lose finished work.
+- **Automation.** A versioned REST API with scoped tokens, idempotent requests and signed webhooks.
+- **French and English interface**, light and dark themes, usable from phone to wide screen.
 
-- **Series, volumes and chapters:** the library shows series first, then standalone volumes. A guided import (**Add content** · *Ajouter du contenu*) inspects the files before anything is created, proposes the series and the volume or chapter numbers from the whole batch (`Vol. 2`, `Tome IV`, `v03`, `#04`, `[05]`, `Chapter 012`…), lets you correct them, and refuses ambiguous or duplicate numbers.
-- **Three sources:** EPUB books (one volume each, or explicitly a standalone volume), TXT chapters of a webnovel (UTF-8, UTF-8/UTF-16 with BOM, flagged Windows-1252; layout kept; chapters added later without retranslating the others), and JSON content sent by the [automation API](docs/api.md) with API tokens, scopes, idempotency and asynchronous results.
-- **Series memory:** characters, aliases, places, relations and terms known from earlier volumes are reused by the next ones, never the other way round; ambiguous identities are proposed, merged or split only by you; a volume can deliberately override a series term, and the decision is audited.
-- **Consistent context:** book bible, character identities, relationships and a lockable glossary.
-- **Your provider:** OpenAI-compatible APIs, OpenAI Responses, the native Anthropic and OpenAI APIs, or optional Codex/ChatGPT authentication.
-- **Independent concurrency:** each provider has its own limit, shared by analysis, translation and review jobs.
-- **Resumable work:** persistent jobs, checkpoints, pause/resume and retries after temporary failures.
-- **Human decisions:** compare source and translation, accept or reject AI suggestions, edit and keep version history.
-- **Final AI review:** automatically revisit flagged translations, attempt one verified correction and leave only unresolved items for review. Optional SearXNG terminology lookup; see [final review](docs/final-review.md).
-- **Refusal recovery:** after two translation refusals, continue the book and retry refused passages later with a chosen provider.
-- **Failure isolation:** an invalid response is asked again with the reason for its rejection; after three of them, try checkpointed small-batch repair before skipping the passage; stop after ten consecutive failed passages. See [recovery](docs/recovery.md).
-- **Completion report:** see missing passages and remaining alerts, select failed passages and retry them with a chosen provider from **Bilan & récupération**.
-- **Series pages:** a dashboard per series with its ordered volumes, webnovel chapters, Series Bible, series glossary, characters and relations, external memory backlog, defaults and archives; missing or duplicate volume numbers are shown, and every volume still opens in the translation workspace.
-- **Interface locale:** French and English catalogs, persistent language choice, and locale-aware date, number, sorting, and status formatting. New interface text is added through `frontend/src/i18n.tsx`.
-- **Reversible archives:** hide inactive projects without deleting their EPUB, translations, memory or history; restore them from the Archives view.
-- **EPUB preservation:** preserve resources and inline structure, with EPUBCheck validation on export.
-- **Optional external memory:** use internal SQL memory alone, or connect your own OpenViking instance, organised per series and rebuildable from PostgreSQL at any time ([OpenViking guide](docs/openviking.md)).
-- **Exports per format:** EPUB for EPUB volumes (EPUBCheck-validated), one UTF-8 file per chapter in a ZIP with a checksum manifest, a consolidated text with chapter headings, Markdown, the Book Bible and a full project archive.
+| Autopilot report | Review log | Side-by-side editor |
+| --- | --- | --- |
+| ![Autopilot report and decision log](docs/screenshots/autopilot.png) | ![Review log with AI suggestions](docs/screenshots/validations.png) | ![Translation editor](docs/screenshots/editor.png) |
 
-### Autopilot from file to result
-
-![Autopilot report and decision log](docs/screenshots/autopilot.png)
-
-### Review with context
-
-![Review log with optional AI suggestions](docs/screenshots/validations.png)
-
-### Read and edit side by side
-
-![Translation editor](docs/screenshots/editor.png)
-
-### Follow every stage
-
-![Selectable progress for import, analysis, translation, review and export](docs/screenshots/progress-stages.png)
-
-<details>
-<summary>Mobile library</summary>
-
-<img src="docs/screenshots/mobile.png" alt="Mobile library" width="390">
-
-</details>
-
-<details>
-<summary>Series metadata and reversible archives</summary>
-
-![Series reading order and shared conventions](docs/screenshots/series.png)
-
-![Archived projects can be restored or permanently deleted](docs/screenshots/archives.png)
-
-</details>
-
-_Screenshots are generated by `frontend/e2e/showcase.spec.ts` from fictional data; they
-do not represent translation quality benchmarks or expose a user's books or credentials._
-
-### Navigating Libris
-
-The library lists series, then standalone volumes, with search, activity filters and sorting;
-**Add content** opens the guided import; actions on several volumes sit in a floating bar.
-Inside a book, one highlighted button always shows the next step (configure, analyze,
-recover, translate, review, export), a thin stepper follows the five stages, and tabs
-lead to translation, validations, recovery, quality, Book Bible, characters, glossary,
-settings and observability. Paid operations show the server's token and cost estimate
-before they start, and edited passages are protected: leaving a tab or the page with
-an unsaved translation asks first.
-
-In the editor, `Ctrl`/`⌘`+`S` saves the focused passage and `Ctrl`/`⌘`+`Enter` validates
-it. Keyboard users can skip directly to the main content, see a visible focus ring
-everywhere, and keep focus when dialogs open and close; the character graph's links are
-also listed as buttons. Phone controls provide at least 40 px touch targets, and
-non-essential motion follows the reduced-motion preference.
-
-<details>
-<summary>Light theme and mobile review</summary>
-
-![Light review workspace](docs/screenshots/validations-light.png)
-
-<img src="docs/screenshots/validations-mobile.png" alt="Mobile review workspace" width="390">
-
-</details>
+_Screenshots are generated from fictional books by `frontend/e2e/showcase.spec.ts`._
 
 ## Quick start
 
-### Requirements
-
-- Linux AMD64 server or workstation with Docker Engine and Docker Compose v2.
-- Git to obtain the Compose file and maintenance scripts.
-- An accessible language-model provider. **No GPU is required on the Libris server** when inference runs elsewhere.
-- Internet access to pull the published application, PostgreSQL and optional setup image.
-
-Clone the public mirror and run the idempotent Docker installer:
+You need a Linux (amd64) machine with Docker Engine and Docker Compose v2, Git, and access to a language model.
+No GPU is needed on the Libris server when the model runs elsewhere.
 
 ```bash
 git clone https://github.com/HeartBtz/Libris.git
@@ -121,124 +61,37 @@ cd Libris
 ./scripts/install-docker.sh
 ```
 
-It creates a secret `.env` when needed, pulls the pinned `heartbtz/libris:0.6.0`
-image and waits for the complete stack. It does not overwrite existing configuration or
-delete persistent volumes. Python is optional; when absent, setup runs in a temporary
-official Python container.
+The installer creates a `.env` with generated secrets, pulls `heartbtz/libris:0.6.0` and starts the stack. It
+never overwrites an existing configuration or deletes data.
 
-For routine application updates, avoid interrupting long inference jobs:
+Open **http://localhost:8088** on the same machine and sign in as `admin` with the `BOOTSTRAP_PASSWORD` written
+in `.env`. On a remote server, open an SSH tunnel first (`ssh -L 8088:127.0.0.1:8088 you@your-server`); for LAN
+or HTTPS access, follow the [Docker guide](docs/docker.md).
 
-```bash
-# Frontend/API change only: keep the current worker process running.
-scripts/deploy.sh --api-only
+Then translate a first book:
 
-# Worker change: wait up to 10 minutes for a clean idle boundary.
-scripts/deploy.sh --worker-when-idle
-```
+1. **Settings → LLM providers** (*Paramètres → Providers LLM*): add your model's endpoint, model name and key.
+2. **Add content** in the library: pick an EPUB or chapter files, choose a series, check the proposed numbers.
+3. Choose the provider and languages, then **Import and run the whole pipeline**.
+4. Follow the progress on the book page and download the result when it is ready.
 
-`--force-worker` is reserved for resumable fixes that must be deployed immediately. Persistent checkpoints prevent completed segments from being repeated, but the requests interrupted in flight (several per book when its provider allows parallel calls) are audited and may be retried.
-
-Open **http://localhost:8088** on the Docker host. The initial username is `admin`; find the generated password in the local `.env` under `BOOTSTRAP_PASSWORD`.
-
-For a remote server, use an SSH tunnel first:
-
-```bash
-ssh -L 8088:127.0.0.1:8088 your-user@your-server
-```
-
-Then open http://localhost:8088 on your computer. For LAN, HTTPS, updates, backups and troubleshooting, follow the [Docker guide](docs/docker.md). The default binds only to loopback.
-
-### Translate your first book
-
-1. Open **Settings / Paramètres → Providers LLM** and add your endpoint, model and credentials.
-2. Click **Add content**, choose EPUB or TXT, then a series (existing or new) or, for an EPUB, **Standalone volume**. Only import content you have the rights to translate.
-3. Check the proposed titles and numbers, choose the provider, languages and quality mode (select **internal** memory to start without any external service), and import — with or without starting the analysis.
-4. Analyze, review the Book Bible, the Series Bible and the glossaries, then start translation.
-5. Use **Validations** to resolve flagged passages and **Traduction** to edit.
-6. Export EPUB, the chapters as TXT files, a consolidated text, Markdown, the Book Bible (JSON) or a project archive.
-
-The UI is available in French and English. Model quality, language coverage, latency and costs depend on your chosen provider. Structural validation is not a guarantee of literary fidelity.
-
-## Supported environments
-
-The officially supported deployment is **Docker Compose v2 on Linux/amd64**, tested with Python 3.13, Node.js 22 and PostgreSQL 17 through the supplied containers. Ubuntu and Debian hosts are expected to work when they run a supported Docker Engine, but host distributions are not tested independently. Windows, macOS, WSL and ARM64 are not currently verified.
-
-See the [compatibility matrix](docs/compatibility.md) for the distinction between verified, conditional, untested and unsupported environments.
-
-## Deployment and maintenance
-
-See the [Docker guide](docs/docker.md) for a beginner-oriented walkthrough and [installation and operations](docs/installation.md) for advanced configuration. PostgreSQL and the Codex bridge are internal services; only the web application has a published port.
-
-```bash
-docker compose ps
-curl --fail http://127.0.0.1:8088/health
-```
-
-Never delete persistent volumes during an update. Back up PostgreSQL, book storage and `.env` together; losing `SECRET_KEY` prevents decryption of saved provider credentials.
-
-## Architecture
-
-```text
-Browser ─────────────┐
-Automation (API v1) ─┴→ FastAPI → PostgreSQL (series, volumes, chapters, jobs, versions, memory)
-                          ├── source adapters (EPUB, TXT, JSON) → the same chapters and passages
-                          └── DATA_DIR (EPUB books, TXT/JSON sources, import staging)
-Worker → configured model providers
-       → optional OpenViking (one space per series, rebuilt from SQL)
-       → optional private Codex bridge
-```
-
-React + TypeScript · FastAPI · PostgreSQL · Python worker · Docker Compose · EbookLib/lxml · EPUBCheck
-
-| Directory       | Purpose                                                   |
-| --------------- | --------------------------------------------------------- |
-| `frontend/`     | Web interface, browser tests and screenshot fixtures      |
-| `backend/`      | API, worker, migrations and tests                         |
-| `prompts/`      | Versioned model instructions                              |
-| `codex_bridge/` | Optional isolated Codex transport                         |
-| `scripts/`      | Setup and integration-test utilities                      |
-| `docs/`         | Installation, architecture, quality and operations guides |
-
-## Development
-
-```bash
-python3 -m venv .venv
-.venv/bin/pip install -r backend/requirements.lock
-.venv/bin/pip install -e './backend[test]'
-(cd backend && ../.venv/bin/pytest -q && ../.venv/bin/ruff check app tests)
-npm --prefix frontend ci
-npm --prefix frontend run build
-```
-
-GitLab is the canonical CI/release pipeline; the public GitHub mirror repeats release verification and publishes GHCR images. Live integration tests must use a disposable installation; see [Contributing](CONTRIBUTING.md).
-
-Useful commands:
-
-```bash
-python3 scripts/check_version.py
-python3 scripts/check_installation.py  # disposable Compose installation
-docker compose logs --since=5m api worker
-```
+Only import books you have the right to translate. Output quality, languages, speed and cost depend on the
+model you use.
 
 ## Documentation
 
-- [Installation, configuration, updates, backup and removal](docs/installation.md)
-- [Docker deployment for beginners](docs/docker.md)
-- [GitLab CI/CD, Docker registries and GitHub mirror](docs/ci-cd.md)
-- [Architecture](docs/architecture.md) and [data model](docs/data-model.md)
-- [Automation API (JSON, tokens, curl examples)](docs/api.md)
-- [OpenViking external memory](docs/openviking.md)
-- [Compatibility matrix](docs/compatibility.md)
-- [Operations](docs/operations.md)
-- [Scheduled backup and restore](docs/backup.md)
-- [Recovery and resumable jobs](docs/recovery.md)
-- [Security audit](docs/security-audit.md)
-- [Release process](docs/release.md)
-- [French user guide](docs/user-guide.fr.md)
-- [Support](SUPPORT.md) and [contributing](CONTRIBUTING.md)
+Everything else is in the [documentation index](docs/README.md): installation and configuration, day-to-day
+operations and backups, how the autopilot works, the automation API, the architecture, and a complete
+[user guide in French](docs/user-guide.fr.md).
 
-## Project status and publication
+## Contributing and support
 
-Libris follows Semantic Versioning and is currently an early-stage `0.x` application. See [CHANGELOG.md](CHANGELOG.md), the [release process](docs/release.md), the [quality evaluation protocol](docs/quality-evaluation.md) and [architecture](docs/architecture.md) for limitations. Report security issues privately following [SECURITY.md](SECURITY.md).
+Contributions are welcome: read [CONTRIBUTING.md](CONTRIBUTING.md) and [development.md](docs/development.md).
+For help, see [SUPPORT.md](SUPPORT.md); report vulnerabilities privately as described in
+[SECURITY.md](SECURITY.md). Changes are listed in [CHANGELOG.md](CHANGELOG.md).
 
-Licensed under **GNU AGPL-3.0-only**. See [LICENSE](LICENSE). If you modify Libris and offer it over a network, provide those users access to the corresponding source code under the license's terms. Dependency licenses and the rights to imported books remain separate. See [third-party notices](THIRD_PARTY_NOTICES.md).
+## License
+
+Libris is licensed under the **GNU AGPL-3.0-only** ([LICENSE](LICENSE)). If you modify it and let people use it
+over a network, you must offer them the corresponding source. Third-party components keep their own licenses
+([THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)); the rights to the books you import are your responsibility.

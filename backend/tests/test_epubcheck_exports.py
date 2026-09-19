@@ -182,3 +182,33 @@ def test_translated_table_of_contents_still_points_to_the_chapters(book_bytes):
     nav_labels = [" ".join(a.itertext()).strip() for a in nav.iter("{http://www.w3.org/1999/xhtml}a")]
     ncx_labels = [t.text for t in ncx.iter("{http://www.daisy.org/z3986/2005/ncx/}text")]
     assert {"Chapitre One", "Chapitre Two"} <= set(nav_labels) & set(ncx_labels)
+
+
+def test_bilingual_epubs_are_valid_in_both_layouts_for_epub_and_text_volumes(book_bytes):
+    create_user()
+    with TestClient(app) as client:
+        login(client)
+        project_id = import_project(client, with_real_image(book_bytes))
+        translate_everything(client, project_id, lambda text: text.replace("Chapter", "Chapitre"))
+        session = client.post("/api/imports", json={"format": "txt"}).json()
+        text = "Chapter 1\n\n“Hello,” said Mira.\nShe waited.\n\n* * *\n\nThe end & <more>.\n"
+        client.post(f"/api/imports/{session['id']}/files", files={"file": ("Chapter 1.txt", text.encode())})
+        proposal = client.get(f"/api/imports/{session['id']}").json()["proposal"]
+        items = [
+            {"index": item["index"], "chapter_number": item["chapter_number"]} for item in proposal["items"]
+        ]
+        committed = client.post(
+            f"/api/imports/{session['id']}/commit",
+            json={"destination": {"mode": "series", "series_name": "Glass Road"}, "items": items},
+        )
+        text_id = committed.json()["projects"][0]["id"]
+        for layout in ("interleaved", "side-by-side"):
+            # The endpoint itself refuses a bilingual EPUB that EPUBCheck rejects.
+            response = client.get(f"/api/projects/{project_id}/export/epub-bilingual?layout={layout}")
+            assert response.status_code == 200, response.text
+            assert_valid(response.content)
+            partial = client.get(
+                f"/api/projects/{text_id}/export/epub-bilingual?layout={layout}&allow_source=true"
+            )
+            assert partial.status_code == 200, partial.text
+            assert_valid(partial.content)

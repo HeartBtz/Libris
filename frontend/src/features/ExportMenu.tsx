@@ -27,25 +27,37 @@ registerTranslations({
   "Un fichier avec tous les chapitres sous leur titre, à côté des fichiers par chapitre.":
     "One file with every chapter under its heading, next to the per-chapter files.",
   Annuler: "Cancel",
+  "EPUB bilingue (relecture)": "Bilingual EPUB (proofreading)",
+  Disposition: "Layout",
+  "Alternée : l’original, puis sa traduction": "Interleaved: the original, then its translation",
+  "Côte à côte : deux colonnes": "Side by side: two columns",
+  "Chaque paragraphe original à côté de sa traduction, pour relire sur liseuse. Sur un petit écran, les deux colonnes passent l’une sous l’autre.":
+    "Each original paragraph next to its translation, for proofreading on an e-reader. On a small screen, the two columns stack.",
+  "Les passages non traduits gardent leur texte source, avec une traduction vide marquée d’un tiret.":
+    "Untranslated passages keep their source text, with an empty translation marked by a dash.",
 });
 
-export type ExportFormat = "epub" | "txt" | "txt-zip" | "md" | "bible" | "project";
+export type ExportFormat = "epub" | "epub-bilingual" | "txt" | "txt-zip" | "md" | "bible" | "project";
+export type BilingualLayout = "interleaved" | "side-by-side";
 export interface ExportOptions {
   allowSource?: boolean;
   consolidated?: boolean;
+  layout?: BilingualLayout;
 }
 
-/** Formats offered for a volume: EPUB volumes rebuild their EPUB, TXT and JSON volumes export text files. */
+/** Formats offered for a volume: EPUB volumes rebuild their EPUB, TXT and JSON volumes export text files;
+ * every volume has a bilingual EPUB for proofreading. */
 export function exportFormats(project: Project): ExportFormat[] {
   return project.source_format && project.source_format !== "epub"
-    ? ["txt-zip", "txt", "md", "bible", "project"]
-    : ["epub", "txt", "md", "bible", "project"];
+    ? ["txt-zip", "txt", "md", "epub-bilingual", "bible", "project"]
+    : ["epub", "epub-bilingual", "txt", "md", "bible", "project"];
 }
 
 export function exportPath(id: string, format: ExportFormat, options: ExportOptions = {}) {
   const query = new URLSearchParams();
   if (options.allowSource && format !== "bible" && format !== "project") query.set("allow_source", "true");
   if (options.consolidated && format === "txt-zip") query.set("consolidated", "true");
+  if (options.layout === "side-by-side" && format === "epub-bilingual") query.set("layout", options.layout);
   const search = query.toString();
   return `/projects/${id}/export/${format}${search ? `?${search}` : ""}`;
 }
@@ -53,6 +65,7 @@ export function exportPath(id: string, format: ExportFormat, options: ExportOpti
 export function exportName(title: string, format: ExportFormat) {
   const suffix: Record<ExportFormat, string> = {
     epub: ".epub",
+    "epub-bilingual": " - bilingue.epub",
     txt: ".txt",
     "txt-zip": " - chapitres.zip",
     md: ".md",
@@ -77,8 +90,10 @@ export function ExportMenu({
   const [format, setFormat] = useState<ExportFormat>(formats[0]);
   const [allowSource, setAllowSource] = useState(false);
   const [consolidated, setConsolidated] = useState(false);
+  const [layout, setLayout] = useState<BilingualLayout>("interleaved");
   const labels: Record<ExportFormat, string> = {
     epub: t("EPUB traduit"),
+    "epub-bilingual": t("EPUB bilingue (relecture)"),
     txt: formats.includes("txt-zip") ? t("Texte consolidé (.txt)") : t("Texte"),
     "txt-zip": t("Chapitres (.zip, un fichier par chapitre)"),
     md: "Markdown",
@@ -132,7 +147,11 @@ export function ExportMenu({
               loading={running}
               onClick={() => {
                 setOpen(false);
-                onExport(format, { allowSource: partialAllowed && allowSource, consolidated });
+                onExport(format, {
+                  allowSource: partialAllowed && allowSource,
+                  consolidated,
+                  ...(format === "epub-bilingual" ? { layout } : {}),
+                });
               }}
             >
               {t("Exporter")}
@@ -150,6 +169,19 @@ export function ExportMenu({
               ))}
             </Select>
           </Field>
+          {format === "epub-bilingual" && (
+            <Field
+              label={t("Disposition")}
+              hint={t(
+                "Chaque paragraphe original à côté de sa traduction, pour relire sur liseuse. Sur un petit écran, les deux colonnes passent l’une sous l’autre.",
+              )}
+            >
+              <Select value={layout} onChange={(event) => setLayout(event.target.value as BilingualLayout)}>
+                <option value="interleaved">{t("Alternée : l’original, puis sa traduction")}</option>
+                <option value="side-by-side">{t("Côte à côte : deux colonnes")}</option>
+              </Select>
+            </Field>
+          )}
           <Checkbox
             label={t("Compléter avec le texte original")}
             description={
@@ -157,7 +189,9 @@ export function ExportMenu({
                 ? t(
                     "Les passages non traduits gardent leur texte source ; le manifeste du ZIP signale les chapitres incomplets.",
                   )
-                : t("Les passages non traduits gardent leur texte source.")
+                : format === "epub-bilingual"
+                  ? t("Les passages non traduits gardent leur texte source, avec une traduction vide marquée d’un tiret.")
+                  : t("Les passages non traduits gardent leur texte source.")
             }
             checked={partialAllowed && allowSource}
             disabled={!partialAllowed}

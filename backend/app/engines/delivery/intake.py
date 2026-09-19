@@ -43,7 +43,7 @@ class UploadOptions(StrictModel):
     context_backend: Literal["internal", "openviking", "hybrid"] | None = None
     start: bool = True
     final_review: bool = True
-    output_format: Literal["json", "txt", "txt-zip", "epub"] | None = None
+    output_format: Literal["json", "txt", "txt-zip", "epub", "epub-bilingual"] | None = None
     callback_url: str | None = Field(default=None, max_length=2000)
     replace_changed_chapters: bool = False
     discard_human: bool = False

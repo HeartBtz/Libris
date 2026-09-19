@@ -378,6 +378,7 @@ loop, never by the API.
 | Format | Sources | Content |
 | --- | --- | --- |
 | `epub` | EPUB only (`409` for other sources) | The EPUB rebuilt from the original, validated by EPUBCheck. |
+| `epub-bilingual` | All | A new EPUB 3 for proofreading: per chapter, each source paragraph with its translation, `layout=interleaved` (default) or `side-by-side`; validated by EPUBCheck. |
 | `txt` | All | One file: the volume title, then each chapter under its title, chapters separated by two blank lines. |
 | `txt-zip` | All | `chapters/NNN - Title.txt` (UTF-8, reading order, zero-padded, cleaned unique names) and `manifest.json` (SHA-256 of each file, incomplete chapters); `consolidated=true` adds the single file. |
 | `md` | All | `# Volume`, then `## Chapter` above each chapter. |
@@ -389,6 +390,15 @@ without it, an incomplete export answers `409`. `POST /api/exports/text` exports
 series) as one ZIP with a `NN - Title/` folder per volume, and `POST /api/exports/epub` several
 translated EPUB files. Text rendering follows the stored layout for text sources and gives one
 paragraph per unit for an EPUB; no internal `⟦…⟧` marker is ever written.
+
+The bilingual EPUB (`engines/exports/bilingual.py`) is written from the passages, not from the original
+file, so it exists for every source format. Source and translation are paired per original unit (the
+fragments of a long paragraph joined again); text chapters follow their stored layout (scene breaks
+written once, headings, list markers and quotations kept), EPUB chapters give one pair per unit, the
+chapter title becoming the page heading with its source below it. Images, links and inline styles are
+left out. Each text carries its `lang`/`xml:lang` and, for right-to-left languages, `dir="rtl"`; the
+stylesheet uses table display for the two columns and stacks them under 30 em. The same builder serves
+`GET /api/projects/{id}/export/epub-bilingual` and the `epub-bilingual` result format of `/api/v1`.
 
 ### Project archive (schema version 3)
 

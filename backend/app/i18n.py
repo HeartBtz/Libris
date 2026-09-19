@@ -325,6 +325,7 @@ MESSAGES = {
     "Requête annulée.": "Request cancelled.",
     "Impossible de reconstruire l’EPUB traduit.": "The translated EPUB cannot be rebuilt.",
     "EPUBCheck refuse l’EPUB traduit, même après réparation automatique.": "EPUBCheck rejects the translated EPUB, even after automatic repair.",
+    "EPUBCheck refuse l’EPUB bilingue de ce volume.": "EPUBCheck rejects the bilingual EPUB of this volume.",
     "Le fichier EPUB d’origine de ce volume est introuvable sur le serveur.": "The original EPUB file of this volume cannot be found on the server.",
     # Problems recorded on passages (GET /api/projects/{id}/issues)
     "Traduction refusée deux fois ; passage ignoré.": "Translation refused twice; passage skipped.",
@@ -414,6 +415,7 @@ TEMPLATES = {
     "L’hôte « {host} » n’est pas dans la liste des webhooks autorisés.": "The host “{host}” is not in the list of allowed webhooks.",
     "L’hôte « {host} » désigne une adresse privée ou réservée : webhook refusé.": "The host “{host}” points to a private or reserved address: webhook refused.",
     "OpenViking n’a pas pu lister ses documents ({reason}). Rien n’a été supprimé.": "OpenViking could not list its documents ({reason}). Nothing was deleted.",
+    "Disposition bilingue inconnue : {layout}.": "Unknown bilingual layout: {layout}.",
 }  # fmt: skip
 
 

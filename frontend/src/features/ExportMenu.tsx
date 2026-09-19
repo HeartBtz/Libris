@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { registerTranslations, useI18n } from "../i18n";
 import type { Project } from "../types";
-import { Button, Checkbox, Dialog, Field, Menu, Select } from "../ui";
+import { Button, Checkbox, Dialog, Field, FormGrid, Input, Menu, Select } from "../ui";
 import type { MenuEntry } from "../ui";
 
 registerTranslations({
@@ -27,12 +27,26 @@ registerTranslations({
   "Un fichier avec tous les chapitres sous leur titre, à côté des fichiers par chapitre.":
     "One file with every chapter under its heading, next to the per-chapter files.",
   Annuler: "Cancel",
+  "Du chapitre": "From chapter",
+  "Au chapitre": "To chapter",
+  "Facultatif : seulement les chapitres dont le numéro est dans cet intervalle, par exemple les nouveaux chapitres d’un suivi.":
+    "Optional: only the chapters whose number is in this range, for example the new chapters of a follow-up.",
 });
 
 export type ExportFormat = "epub" | "txt" | "txt-zip" | "md" | "bible" | "project";
 export interface ExportOptions {
   allowSource?: boolean;
   consolidated?: boolean;
+  /** Text formats of text volumes: chapter numbers from/to (both included). */
+  fromChapter?: number;
+  toChapter?: number;
+}
+
+const RANGED: ExportFormat[] = ["txt", "txt-zip", "md"];
+
+function chapterNumber(value: string): number | undefined {
+  const parsed = Number(value.replace(",", "."));
+  return value.trim() !== "" && Number.isFinite(parsed) && parsed >= 0 ? parsed : undefined;
 }
 
 /** Formats offered for a volume: EPUB volumes rebuild their EPUB, TXT and JSON volumes export text files. */
@@ -46,11 +60,13 @@ export function exportPath(id: string, format: ExportFormat, options: ExportOpti
   const query = new URLSearchParams();
   if (options.allowSource && format !== "bible" && format !== "project") query.set("allow_source", "true");
   if (options.consolidated && format === "txt-zip") query.set("consolidated", "true");
+  if (RANGED.includes(format) && options.fromChapter !== undefined) query.set("from_chapter", String(options.fromChapter));
+  if (RANGED.includes(format) && options.toChapter !== undefined) query.set("to_chapter", String(options.toChapter));
   const search = query.toString();
   return `/projects/${id}/export/${format}${search ? `?${search}` : ""}`;
 }
 
-export function exportName(title: string, format: ExportFormat) {
+export function exportName(title: string, format: ExportFormat, options: ExportOptions = {}) {
   const suffix: Record<ExportFormat, string> = {
     epub: ".epub",
     txt: ".txt",
@@ -59,7 +75,10 @@ export function exportName(title: string, format: ExportFormat) {
     bible: ".json",
     project: ".zip",
   };
-  return `${title}${suffix[format]}`;
+  const from = RANGED.includes(format) ? options.fromChapter : undefined;
+  const to = RANGED.includes(format) ? options.toChapter : undefined;
+  const range = from !== undefined || to !== undefined ? ` - ${from ?? ""}-${to ?? ""}` : "";
+  return `${title}${range}${suffix[format]}`;
 }
 
 export function ExportMenu({
@@ -77,6 +96,9 @@ export function ExportMenu({
   const [format, setFormat] = useState<ExportFormat>(formats[0]);
   const [allowSource, setAllowSource] = useState(false);
   const [consolidated, setConsolidated] = useState(false);
+  const [fromChapter, setFromChapter] = useState("");
+  const [toChapter, setToChapter] = useState("");
+  const ranged = project.source_format !== "epub" && !!project.source_format && RANGED.includes(format);
   const labels: Record<ExportFormat, string> = {
     epub: t("EPUB traduit"),
     txt: formats.includes("txt-zip") ? t("Texte consolidé (.txt)") : t("Texte"),
@@ -132,7 +154,11 @@ export function ExportMenu({
               loading={running}
               onClick={() => {
                 setOpen(false);
-                onExport(format, { allowSource: partialAllowed && allowSource, consolidated });
+                onExport(format, {
+                  allowSource: partialAllowed && allowSource,
+                  consolidated,
+                  ...(ranged ? { fromChapter: chapterNumber(fromChapter), toChapter: chapterNumber(toChapter) } : {}),
+                });
               }}
             >
               {t("Exporter")}
@@ -163,6 +189,37 @@ export function ExportMenu({
             disabled={!partialAllowed}
             onChange={(event) => setAllowSource(event.target.checked)}
           />
+          {ranged && (
+            <div className="stack-sm">
+              <FormGrid>
+                <Field label={t("Du chapitre")}>
+                  <Input
+                    type="number"
+                    min="0"
+                    step="any"
+                    inputMode="decimal"
+                    value={fromChapter}
+                    onChange={(event) => setFromChapter(event.target.value)}
+                  />
+                </Field>
+                <Field label={t("Au chapitre")}>
+                  <Input
+                    type="number"
+                    min="0"
+                    step="any"
+                    inputMode="decimal"
+                    value={toChapter}
+                    onChange={(event) => setToChapter(event.target.value)}
+                  />
+                </Field>
+              </FormGrid>
+              <p className="field-hint">
+                {t(
+                  "Facultatif : seulement les chapitres dont le numéro est dans cet intervalle, par exemple les nouveaux chapitres d’un suivi.",
+                )}
+              </p>
+            </div>
+          )}
           {format === "txt-zip" && (
             <Checkbox
               label={t("Ajouter le texte consolidé au ZIP")}

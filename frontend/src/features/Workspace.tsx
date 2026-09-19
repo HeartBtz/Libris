@@ -319,7 +319,7 @@ export function Workspace({ id, user, run }: { id: string; user: User; run: Run 
     if (exportState === "running") return;
     setExportState("running");
     try {
-      await downloadGet(exportPath(id, format, options), exportName(project!.title, format));
+      await downloadGet(exportPath(id, format, options), exportName(project!.title, format, options));
       setExportState("done");
     } catch (error) {
       setExportState("error");

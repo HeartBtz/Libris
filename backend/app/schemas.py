@@ -307,6 +307,8 @@ class JobInput(StrictModel):
     continue_pipeline: bool = False
     # Whole-book analysis or translation without any human step; None: the project's default.
     autopilot: bool | None = None
+    # Place in the fair queue (app.jobs.fairness); None: normal. "high" is for administrators.
+    priority: Literal["low", "normal", "high"] | None = None
 
 
 class AskInput(StrictModel):

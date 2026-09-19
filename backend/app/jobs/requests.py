@@ -126,6 +126,7 @@ def advance(db: Session, request: TranslationRequest, files: Files, payload: Tra
     job, reason = launch(
         db, project, "pipeline",
         {"final_review": bool(request.options.get("final_review", True)), "translation_request": request.id},
+        priority=int(request.options.get("priority", 1)), token_id=request.token_id,
     )  # fmt: skip
     if job is None:
         fail(db, request, reason)

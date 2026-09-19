@@ -3,8 +3,9 @@ import time
 from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.orm import Session
 
+from app.automation_settings import queue_config
 from app.db import SessionLocal
-from app.jobs import clock
+from app.jobs import clock, fairness
 from app.jobs.concurrency import job_lock
 from app.jobs.segment_state import FINISHED, mark
 from app.models import Event, Job, Project, Provider, RequestLog
@@ -35,14 +36,24 @@ def emit(db: Session, project_id: str, **payload) -> None:
     db.add(Event(project_id=project_id, created_at=time.time(), payload=payload))
 
 
-def enqueue(db: Session, project: Project, operation: str, options: dict) -> Job:
+def enqueue(
+    db: Session, project: Project, operation: str, options: dict, *, priority: int = 1, token_id: str | None = None
+) -> Job:
     # Project lock prevents two concurrent submissions from creating duplicate active pipelines.
     db.scalar(select(Project).where(Project.id == project.id).with_for_update())
     active = db.scalar(select(Job).where(Job.project_id == project.id, Job.status.in_(HELD)))
     if active:
         raise ValueError("Un travail existe déjà. Reprenez-le ou annulez-le avant d’en lancer un autre.")
     provider_id = None if operation == "sync_memory" else options.get("provider_id") or project.provider_id
-    job = Job(project_id=project.id, provider_id=provider_id, operation=operation, options=options)
+    job = Job(
+        project_id=project.id,
+        provider_id=provider_id,
+        operation=operation,
+        options=options,
+        priority=priority,
+        token_id=token_id,
+        queued_at=time.time(),
+    )
     db.add(job)
     db.flush()
     project.status = "pending"
@@ -59,13 +70,17 @@ def claim(operations: tuple[str, ...] | None = None) -> tuple[str, str] | None:
             and_(Job.status == "waiting", Job.next_attempt <= now),
             and_(Job.status.in_(RUNNING), Job.lease_until < now),
         )
-        query = select(Job.id, Job.provider_id, Job.operation).where(condition)
+        query = fairness.candidate_query().where(condition)
         if operations:
             query = query.where(Job.operation.in_(operations))
-        candidates = db.execute(query.order_by(Job.created_at)).all()
+        # Fair order across accounts and tokens, by priority (app.jobs.fairness), not oldest first.
+        candidates = fairness.order(db, db.execute(query).all(), now)
+        quotas = queue_config(db)
         job = None
         saturated: set[str] = set()
-        for job_id, provider_id, operation in candidates:
+        full: set[str] = set()
+        for candidate in candidates:
+            job_id, provider_id, operation = candidate.id, candidate.provider_id, candidate.operation
             if provider_id:
                 if provider_id in saturated:
                     continue
@@ -105,6 +120,8 @@ def claim(operations: tuple[str, ...] | None = None) -> tuple[str, str] | None:
                     emit(db, orphan.project_id, job_id=orphan.id, status="blocked", reason="provider_missing")
                     db.commit()
                 continue
+            if not fairness.within_quota(db, candidate, now, quotas, full):
+                continue
             job = db.scalar(
                 select(Job)
                 .where(Job.id == job_id, condition)
@@ -136,6 +153,7 @@ def claim(operations: tuple[str, ...] | None = None) -> tuple[str, str] | None:
                 next_attempt=0,
                 stop_reason="",
                 error="",
+                claimed_at=now,
             )
         )
         if result.rowcount != 1:

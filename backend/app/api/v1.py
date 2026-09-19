@@ -56,6 +56,9 @@ from app.engines.ingestion.store import (
     store_asset,
 )
 from app.i18n import english, preferred_language
+from app.jobs import clock
+from app.jobs.fairness import QueueRefused, admit, requested_priority, snapshot
+from app.jobs.fairness import label as priority_label
 from app.jobs.queue import HELD
 from app.jobs.requests import advance, busy, check_conflicts, public_status, volume_lock
 from app.models import (
@@ -238,6 +241,31 @@ def check_start(db, caller: Caller, start: bool, provider_id: str | None) -> Non
         raise HTTPException(422, {"code": "unknown_provider", "message": "Provider inconnu."})
 
 
+def queue_admission(db, caller: Caller, requested: str | None, start: bool) -> int:
+    """The request's priority (403 above the token's ceiling); 429 when its queue is full."""
+    try:
+        priority = requested_priority(db, caller.user, requested, caller.token)
+        if start:
+            admit(db, caller.user.id, caller.token)
+    except QueueRefused as exc:
+        raise HTTPException(exc.status, exc.detail) from None
+    return priority
+
+
+def queue_view(db, request: TranslationRequest, job: Job | None) -> dict | None:
+    """Where a request that has not started yet stands in the fair queue (app.jobs.fairness)."""
+    if request.status in ENDED:
+        return None
+    if job is None:
+        return {"position": None, "reason": "volume_busy" if request.options.get("start") else None}
+    if job.status not in ("pending", "waiting"):
+        return None
+    for entry in snapshot(db, clock.now(db), {job.project_id})["waiting"]:
+        if entry["job_id"] == job.id:
+            return {key: entry[key] for key in ("position", "reason", "effective_priority", "next_attempt")}
+    return None
+
+
 def check_callback(caller: Caller, url: str | None) -> None:
     """Refused at once, before anything is stored: the client learns why its webhook cannot work."""
     if not url:
@@ -271,6 +299,7 @@ def create_request(
     if found:
         return replayed(found, digest), True
     check_start(db, caller, payload.pipeline.start, payload.pipeline.provider_id)
+    priority = queue_admission(db, caller, payload.pipeline.priority, payload.pipeline.start)
     check_callback(caller, payload.callback_url)
     files = Files()
     try:
@@ -299,6 +328,7 @@ def create_request(
                 "asset_id": asset.id,
                 "start": payload.pipeline.start,
                 "final_review": payload.pipeline.final_review,
+                "priority": priority,
                 "output_format": payload.output.format,
                 "ingested": False,
                 "decisions": decisions or [],
@@ -407,6 +437,7 @@ def create_epub_request(
     if found:
         return replayed(found, digest), True
     check_start(db, caller, options.start, options.provider_id)
+    priority = queue_admission(db, caller, options.priority, options.start)
     check_callback(caller, options.callback_url)
     files = Files()
     try:
@@ -444,6 +475,7 @@ def create_epub_request(
                 "asset_id": asset.id if asset else None,
                 "start": options.start,
                 "final_review": options.final_review,
+                "priority": priority,
                 "output_format": options.output_format or "epub",
                 "ingested": True,
                 "chapters": {"created": len(chapters), "unchanged": 0, "replaced": 0},
@@ -702,6 +734,8 @@ def detail_view(db, request: TranslationRequest, language: str) -> dict:
         "options": {
             key: request.options.get(key) for key in ("start", "final_review", "output_format")
         },
+        "priority": priority_label(job.priority if job else request.options.get("priority", 1)),
+        "queue": queue_view(db, request, job),
         "result": artifact_view(request),
         "report": request.report,
         "webhook": {
@@ -778,6 +812,8 @@ def control_request(
         finalize(found, "cancelled", "Requête annulée.")
     else:
         project = db.get(Project, job.project_id)
+        if action == "resume" and job.status not in ("pending", "waiting"):
+            queue_admission(db, caller, None, True)
         control_job(db, project, job, action)
         if found.status not in ENDED:
             found.status = "running"

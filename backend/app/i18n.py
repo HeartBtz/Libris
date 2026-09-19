@@ -330,6 +330,10 @@ MESSAGES = {
 }  # fmt: skip
 
 TEMPLATES = {
+    # Fair queue (app.jobs.fairness)
+    "Priorité « {requested} » refusée : « {ceiling} » au plus pour ce compte ou ce jeton.": "Priority “{requested}” refused: “{ceiling}” at most for this account or token.",
+    "File d’attente pleine pour ce compte : {limit} travaux en attente au plus. Réessayez quand l’un d’eux aura démarré.": "Queue full for this account: {limit} waiting jobs at most. Try again once one of them has started.",
+    "File d’attente pleine pour ce jeton : {limit} travaux en attente au plus. Réessayez quand l’un d’eux aura démarré.": "Queue full for this token: {limit} waiting jobs at most. Try again once one of them has started.",
     "Réponses invalides (jusqu’à {count} essais) ; passage ignoré, à reprendre ultérieurement.": "Invalid answers (up to {count} attempts); passage skipped, to be retried later.",
     "Hôte de webhook invalide : {value}": "Invalid webhook host: {value}",
     "Réseau privé invalide (notation CIDR attendue) : {value}": "Invalid private network (CIDR notation expected): {value}",

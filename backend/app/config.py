@@ -116,6 +116,12 @@ class Settings(BaseSettings):
     retention_bible_revisions: int = Field(default=20, ge=0)
     retention_job_state_days: int = Field(default=30, ge=0)
     retention_results_days: int = Field(default=30, ge=0)
+    # Fair queue (app.jobs.fairness): jobs of one account running at once and waiting their turn
+    # (0: no limit), and minutes of waiting that raise a job's priority by one level (0: never).
+    # An administrator may override them, and set per-account quotas, from Settings › Queue.
+    queue_max_running_per_account: int = Field(default=0, ge=0, le=1000)
+    queue_max_queued_per_account: int = Field(default=0, ge=0, le=100_000)
+    queue_priority_aging_minutes: int = Field(default=60, ge=0, le=7 * 24 * 60)
     # Empty: GET /metrics does not exist. Set: Prometheus must send it as a Bearer token.
     metrics_token: str = ""
 

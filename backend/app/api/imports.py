@@ -47,6 +47,7 @@ from app.engines.ingestion.store import (
 )
 from app.engines.series.bible import refresh_series
 from app.i18n import localize, preferred_language
+from app.jobs.fairness import QueueRefused, admit
 from app.jobs.launch import launch
 from app.jobs.queue import emit
 from app.models import Chapter, ImportSession, Project, Provider, Series, SourceAsset
@@ -665,6 +666,11 @@ def confirm(db, session: ImportSession, body: CommitInput, user) -> dict:
         if body.start != "none":
             for entry in result["projects"]:
                 project = db.get(Project, entry["id"])
+                try:
+                    admit(db, project.owner_id)  # the import is kept; its work waits for a free place
+                except QueueRefused as exc:
+                    warnings.append(str(exc))
+                    continue
                 job, reason = launch(db, project, body.start)
                 if job:
                     jobs.append({"project_id": project.id, "job_id": job.id})

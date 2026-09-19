@@ -153,8 +153,9 @@ Un compte rendu indique ensuite, livre par livre, ce qui a été fait.
 
 **Archiver** retire un livre de la bibliothèque active sans rien effacer : EPUB, traductions, mémoire et
 historique sont conservés. Le filtre **Archives** les retrouve, et **Restaurer** les remet en place. Seul un
-livre archivé peut être supprimé depuis la bibliothèque ; la suppression est définitive et ne touche pas une
-éventuelle mémoire OpenViking distante. Seul le propriétaire d’un livre peut l’archiver ou le supprimer.
+livre archivé peut être supprimé depuis la bibliothèque ; la suppression est définitive. Une éventuelle
+mémoire OpenViking distante n’est effacée que si un administrateur a activé son nettoyage (voir
+[Mémoire · OpenViking](#mémoire--openviking)). Seul le propriétaire d’un livre peut l’archiver ou le supprimer.
 
 ## Ajouter du contenu
 
@@ -717,6 +718,20 @@ Libris fonctionne très bien avec sa seule mémoire interne. Pour brancher une i
 requêtes et leur coût), **Budget retrieval**, **Score minimal**, **Timeout** et les deux recherches
 (**Recherche sémantique (find)**, **Recherche approfondie (search)**). Un bouton teste la connexion. Détails dans
 [openviking.md](openviking.md).
+
+La carte **Nettoyage d’OpenViking** règle ce que devient la mémoire distante d’un livre supprimé :
+
+- **Effacer les documents OpenViking à la suppression** (désactivé par défaut, ou selon
+  `OPENVIKING_CLEANUP_ON_DELETE`) : supprimer un volume ou une série efface aussi ses documents dans OpenViking.
+  La suppression reste immédiate ; le worker efface les documents ensuite, réessaie si OpenViking ne répond pas,
+  et ne touche jamais que le dossier de l’élément supprimé. **Revenir à la valeur de l’environnement** oublie le
+  réglage enregistré ;
+- **Chercher les orphelins (essai à blanc)** liste, sans rien effacer, les dossiers de volumes et de séries
+  supprimés ou déplacés avant l’activation du nettoyage, avec leur raison. **Effacer ces dossiers** les fait
+  effacer après confirmation ; chacun est revérifié dans la base avant d’être effacé ;
+- **Journal des nettoyages** : chaque nettoyage, son état (en attente, en cours, terminé), ses tentatives, la
+  dernière erreur et, dans **Détail des dossiers**, les documents effacés. **Réessayer maintenant** relance un
+  nettoyage en attente sans attendre son délai.
 
 ### SearXNG
 

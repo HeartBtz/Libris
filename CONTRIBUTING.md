@@ -1,40 +1,55 @@
-# Contributing
+# Contributing to Libris
 
-Read the README and architecture guide first. Keep changes focused and preserve the sequential processing and human-edit protections of each book.
+Thank you for helping. This page explains what a good change looks like and how to get it merged. The technical
+details (setup, tests, CI, releases) are in [docs/development.md](docs/development.md).
 
-## Local checks
+## Before you start
 
-Use Python 3.13 and Node.js 22, matching the container and CI toolchains. Install dependencies and run the checks in the README. Backend tests use a disposable temporary SQLite database and mocked providers; production uses PostgreSQL, so concurrency/migration changes also require PostgreSQL verification.
+- Read [docs/architecture.md](docs/architecture.md) to see how the pipeline, the worker and the memory fit
+  together.
+- For a large refactor, a new dependency or a license question, open an issue and discuss it with the
+  maintainer first.
+- Usage questions belong in the channels described in [SUPPORT.md](SUPPORT.md). Security problems must be
+  reported privately, as described in [SECURITY.md](SECURITY.md).
 
-Run `python3 scripts/check_version.py` when changing release metadata. Keep Python imports and errors compatible with Ruff, and ensure `npm run build` passes TypeScript strict checks. Do not introduce a dependency without documenting why it is needed and updating the relevant lockfile.
+## Rules the code must keep
 
-## Browser screenshots
+- **Human work is never overwritten.** A human correction, validation or locked term always wins over a model
+  result, including one that arrives while the model is still running.
+- **Jobs are resumable.** Anything a job does must survive a restart, a pause or a crash without redoing
+  finished work or applying a stale result.
+- **Context never leaks forward.** A volume only uses the memory of earlier volumes, and a book never sees
+  another owner's data.
+- **The code is the reference.** When you change a setting, an endpoint or a visible label, update the page that
+  documents it in the same merge request.
 
-`frontend/e2e/showcase.spec.ts` renders the real interface with synthetic API fixtures for fast visual checks. It uses no login credentials, book data or inference and writes only under `/tmp/libris/showcase` unless an explicit output directory is provided. Run against Vite preview on a disposable local port:
+## Checks to run
+
+Use Python 3.13 and Node.js 22. At least:
 
 ```bash
+(cd backend && ../.venv/bin/ruff check app tests && ../.venv/bin/pytest -q)
 npm --prefix frontend run build
-npm --prefix frontend exec playwright install chromium
-# Terminal 1
-npm --prefix frontend exec vite preview -- --host 127.0.0.1 --port 4173
-# Terminal 2
-SHOWCASE_URL=http://127.0.0.1:4173 npm --prefix frontend run test:e2e -- showcase.spec.ts
+python3 scripts/check_version.py
 ```
 
-The screenshots under `docs/screenshots/` come from `frontend/e2e/showcase.spec.ts`, which runs against mocked API answers with fictional books (`npx vite build && CI=1 SHOWCASE_SCREENSHOT_DIR=../docs/screenshots npx playwright test e2e/showcase.spec.ts`). `e2e/documentation.spec.ts` can capture the same views from a disposable API-backed installation containing only fictional EPUBs. Inspect them before committing. Never use a production library or credentials.
+Changes to queries, locking, concurrency or migrations must also pass on PostgreSQL; interface changes should
+pass the mocked Playwright specs. [docs/development.md](docs/development.md#tests) shows how to run both.
 
-Other E2E/smoke scripts operate on a running installation and may create/delete test projects. Run them only in an isolated test deployment, following the French user guide. Do not point them at production.
+Tests that need a running installation (`@journey`, `@integration`, `scripts/smoke.py` and the other smoke
+scripts) create and delete data. Run them only against a disposable installation, never against a real
+library.
 
-Set a loopback `LIBRIS_E2E_URL`, `LIBRIS_E2E_USERNAME`, `LIBRIS_E2E_PASSWORD` and
-`LIBRIS_E2E_CONFIRM_DISPOSABLE=1` to target that disposable installation. The
-tests intentionally never fall back to the repository `.env`. Workspace tests
-additionally require either `LIBRIS_E2E_PROJECT_ID` or `LIBRIS_E2E_STATE` pointing
-to the state produced by the smoke fixture.
+## Merge requests
 
-`python3 scripts/check_installation.py` tests a fresh Compose installation on local port 4188, with a generated configuration and random project name. It checks bootstrap login, health and migrations, then removes only that temporary stack and its volumes. It requires Docker and a free port 4188.
+Describe the problem, the change, how you verified it and any migration or configuration impact. Add
+screenshots for visible changes. Keep each merge request focused on one topic and write commit messages in
+English, in the Conventional Commits style (`fix: …`, `feat: …`, `docs: …`).
 
-## Pull requests
+Never commit build outputs, datasets, keys, `.env` files, logs, cookies or books, even fictional ones that are
+not part of the test fixtures.
 
-Describe the problem, change, verification and any migration impact. Include UI screenshots when useful. Do not commit generated build outputs, datasets, keys, logs, cookies or personal books. Discuss large refactors and license changes with the maintainer first.
+GitLab is the canonical repository; GitHub is a mirror, so pull requests opened there are applied on GitLab by
+the maintainer.
 
-By participating, you agree to follow [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md). Usage questions belong in the support channel described in [SUPPORT.md](SUPPORT.md); security reports must remain private.
+By participating, you agree to follow the [code of conduct](CODE_OF_CONDUCT.md).

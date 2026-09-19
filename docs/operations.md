@@ -1,188 +1,119 @@
-# Bibliothèque, reprise et couverture
+# Operations
 
-## Plusieurs livres
+This page is for administrators who keep Libris running: updating it without losing work, sizing its capacity,
+monitoring it, keeping its database small, controlling model costs and solving common problems. Installation is
+covered in the [Docker guide](docker.md), every setting in the [configuration reference](configuration.md), and
+backups in [backup and restore](backup.md).
 
-La bibliothèque accepte plusieurs EPUB en un import (deux fichiers traités simultanément à l’import). Les cases de sélection permettent de configurer, analyser, traduire, mettre en pause, reprendre, annuler les analyses, annuler les traductions et supprimer les projets sélectionnés.
+All commands run from the Libris directory unless stated otherwise.
 
-La suppression est confirmée une seule fois pour la sélection. Elle arrête les travaux concernés et supprime le projet local. Les documents déjà présents dans OpenViking restent distincts.
+## Update Libris
 
-Le worker ordonnance les livres selon `max_concurrency` de leur provider. Cette limite réunit analyses, traductions, relectures et contrôles de cohérence : un provider réglé à 3 exécute au plus trois livres à la fois, quelle que soit la combinaison des opérations. Les capacités des providers sont indépendantes ; Codex à 3 et Qwen à 1 autorisent donc jusqu’à quatre livres actifs. Au sein d’un livre, la traduction, la revue finale et les contrôles de cohérence traitent plusieurs passages à la fois, jusqu’à la capacité du provider, partagée entre les livres qui l’utilisent au même moment ; l’analyse des passages et la synthèse de la Book Bible restent séquentielles. `WORKER_BOOK_PARALLELISM` plafonne ce nombre par livre (`0`, par défaut : la capacité du provider ; `1` : un passage à la fois, comme avant la 0.5). Le limiteur des requêtes LLM applique la capacité comme seconde protection, dans l’ordre d’arrivée des demandes. Le compromis sur le contexte des passages voisins est décrit dans l’[architecture](architecture.md#plusieurs-passages-dun-même-livre).
+The simple way is the one in the [Docker guide](docker.md#update): back up, `git pull`, then run the installer with
+the new image. It restarts the worker at once; running books resume from their last checkpoint, so no finished
+work is lost, but the passages being translated at that moment are sent again.
 
-Le provider est figé pendant une exécution afin de préserver les limites et le fencing des résultats. Pour changer de modèle en cours de livre, mettre le job en pause, modifier le provider du projet puis reprendre : le job est alors réaffecté au nouveau provider à partir du prochain passage. Les jobs de reprise ciblée conservent leur provider explicitement choisi.
+`scripts/deploy.sh` gives finer control over when the worker restarts:
 
-## Les deux progressions
+```bash
+LIBRIS_DEPLOY_SOURCE=pull ./scripts/deploy.sh --worker-when-idle
+```
 
-- **Analyse & mémoire** : proportion des passages analysés et sections synthétisées dans la Book Bible parmi ces unités de travail. La synthèse compte dans la progression ; 100 % exige que les deux étapes soient terminées. Ce pourcentage représente la couverture, pas une estimation du temps restant.
-- **Traduction** : passages disposant d’une traduction, hors passages explicitement conservés en langue source.
+| Mode | What it does |
+| --- | --- |
+| `--api-only` (default) | Gets the image, runs the database migrations and restarts the web application only. The worker keeps running the previous version until you restart it. |
+| `--worker-when-idle` | Same, then waits up to 10 minutes for the job queue to be empty, stops the web application so that no new job starts, checks again and restarts both. If jobs stay active it leaves the worker alone and exits with status 3 (4 if a job started at the last moment). |
+| `--force-worker` | Restarts the worker at once. Running jobs resume from their checkpoints. |
 
-Les détails sont disponibles au survol. Chaque livre possède aussi un bouton **Actualiser les données du livre** (icône à côté d’**Exporter**), qui recharge statistiques, jobs et panneaux sans remplacer un brouillon de traduction en cours.
+| Variable | Meaning |
+| --- | --- |
+| `LIBRIS_DEPLOY_SOURCE` | `build` (default) builds the image from the source tree; `pull` downloads `LIBRIS_IMAGE`; `loaded` uses an image already present locally (`LIBRIS_IMAGE` required). |
+| `LIBRIS_COMPOSE_ENV_FILE` | Configuration file to pass to Compose instead of `.env`. |
 
-Cliquer **Analyser** sur un livre entièrement analysé est une opération sans recalcul. Une réanalyse complète est une action distincte, confirmée ; les analyses humaines sont conservées.
+If the new version fails to start, the script puts the previous image back (tagged `epub-translator:rollback`)
+and restarts it. It cannot undo a migration: for that, see
+[roll back a failed update](backup.md#roll-back-a-failed-update).
 
-## Arrêts et erreurs
+Use `--api-only` for a quick fix of the web side, then finish with `--worker-when-idle` when books are done: the
+worker should not keep running an older version than the database schema for long.
 
-| Situation                     | État / suite                                                                                                     |
-| ----------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| Pause volontaire              | `paused`, reprise explicite uniquement                                                                           |
-| Annulation                    | `cancelled`, résultats conservés ; reprise explicite possible                                                    |
-| Arrêt propre du worker        | requête interrompue, travail remis en attente au checkpoint                                                      |
-| Arrêt brutal                  | récupération après expiration du bail de 60 s                                                                    |
-| Réseau, timeout, HTTP 429/5xx | `waiting`, nouvelle tentative planifiée, délai progressif de 60 s à 1 h (`PROVIDER_RECOVERY_BASE_SECONDS`, `PROVIDER_RECOVERY_MAX_SECONDS`) ; `Retry-After` respecté jusqu’à 24 h |
-| Authentification invalide     | `blocked`, reconnexion et reprise nécessaires ; pilote automatique : fournisseur de secours suivant, ou `failed` |
-| Refus pendant l’analyse       | `blocked` / `content_refusal`, intervention humaine nécessaire ; pilote automatique : passage sauté, décision journalisée |
-| Panne prolongée (pilote automatique) | après `AUTOPILOT_OUTAGE_MAX_RETRIES` attentes ou `AUTOPILOT_OUTAGE_MAX_WAIT_SECONDS`, fournisseur de secours suivant ; plus aucun : `failed` (`providers_exhausted`) avec la raison |
-| Refus pendant la traduction   | deuxième essai, puis passage marqué `refused` et poursuite du livre                                              |
-| JSON ou structure invalide    | retries bornés, puis erreur localisée                                                                            |
+### Production deployment script
 
-Un contrôle de bail toutes les deux secondes détecte les pauses et annulations ; il interrompt alors tous les appels en vol du livre. Les écritures sont protégées par la révision du passage et le détenteur du bail. Un résultat tardif ne remplace pas une correction humaine ou un état annulé. Les étapes initiale, critique, révision et synthèse ont leurs checkpoints ; l’état de chaque passage est enregistré dans `job_segment_state`, le checkpoint du job ne gardant qu’un curseur et des compteurs de taille fixe.
+`deploy/libris-production-deploy` is the script the project's own CI uses to deploy tagged releases onto a
+dedicated host. It is only useful if you run a similar pipeline; the release process is described in
+[development](development.md). Install it as `/usr/local/sbin/libris-production-deploy`.
 
-Le travail SQL et les calculs proportionnels à la taille du livre s’exécutent hors de la boucle asyncio du worker : un gros livre ne retarde plus les heartbeats des autres livres. Sur un livre synthétique de 1 500 passages traduit en même temps qu’un second de même taille (SQLite, provider sans latence), le retard maximal de la boucle est passé de 450 ms à environ 100 ms et l’intervalle entre deux renouvellements de bail n’a pas dépassé 2,2 s pour un heartbeat de 2 s.
+```bash
+libris-production-deploy COMMIT VERSION APP_IMAGE_ID CODEX_IMAGE_ID   # deploy images already loaded
+libris-production-deploy --rollback                                  # back to the images it replaced
+libris-production-deploy --check-compose                             # is the installed Compose file the deployed version's?
+libris-production-deploy --prune-images [--dry-run]                  # remove old Libris images
+```
 
-## Refus et absence de trous silencieux
+A deployment checks the images' version and revision labels, refuses to go back to an older version (use
+`--rollback`), dumps the database into `$LIBRIS_PRODUCTION_BASE/backups/` (last five kept), stops the application,
+installs the Compose file shipped inside the new image, runs the migrations, starts the API and the Codex bridge,
+checks `/health`, and only then starts the worker. If anything fails before the schema changed, it restarts the
+previous images; after a schema change it leaves the services stopped and names the dump to restore.
 
-Sous le [pilote automatique](autopilot.md) (par défaut), rien de ce qui suit n’attend une personne : les passages refusés ou invalides passent par l’échelle de récupération (fournisseurs de secours compris), puis gardent leur original avec la raison ; les propositions IA sont arbitrées par le modèle ; chaque décision est visible dans `GET /api/projects/{id}/autopilot`. Les actions décrites ci-dessous restent disponibles pour corriger à la main.
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `LIBRIS_PRODUCTION_BASE` | `/opt/libris-production` | Working directory: Compose file, recorded version, pre-deployment dumps. |
+| `LIBRIS_PRODUCTION_COMPOSE_FILE` | `$LIBRIS_PRODUCTION_BASE/docker-compose.yml` | Installed Compose file. |
+| `LIBRIS_PRODUCTION_COMPOSE_OVERRIDE` | empty | Optional extra Compose file for local additions. |
+| `LIBRIS_PRODUCTION_SECRET_ENV` | `/opt/epub-translator/.env` | The installation's `.env`. |
+| `LIBRIS_PRODUCTION_PROJECT` | `epub-translator` | Compose project name. |
+| `LIBRIS_PRODUCTION_HEALTH_URL` | the maintainers' own address | Health URL checked after deployment. Always set it. |
+| `LIBRIS_PRODUCTION_REGISTRY_REPOSITORY` | the maintainers' own registry | Registry repository whose old pulls `--prune-images` removes. Always set it. |
 
-Les refus explicites du provider, les filtres de contenu et les réponses contenant un refus à la place d’un résultat sont distingués des pannes. Le texte original est toujours conservé dans le projet. Pour une traduction, Libris effectue exactement deux tentatives, marque ensuite le passage comme refusé et continue avec le passage suivant. Un refus n’est pas comptabilisé comme une traduction réussie.
+The Compose options for manual commands on such a host are:
 
-L’onglet **Validations** regroupe les passages refusés. Une reprise ciblée permet de choisir un autre provider, notamment un modèle non censuré, et de retraduire uniquement ces passages. Le provider principal du livre n’est pas modifié. Chaque nouvelle reprise dispose à nouveau de deux tentatives par passage et laisse les autres traductions intactes.
+```bash
+docker compose --project-name epub-translator --env-file /opt/epub-translator/.env \
+  --file /opt/libris-production/docker-compose.yml --profile codex <command>
+```
 
-La file de validation reste stable pendant le traitement en arrière-plan afin de préserver les brouillons. Chaque avis IA expose son doute et sa correction proposée. **Accepter cette proposition** remplace uniquement l’unité concernée et préserve les marqueurs EPUB. **Refuser cette proposition** conserve le texte courant. Les deux décisions créent une correction humaine protégée ; lorsque la dernière proposition est arbitrée et qu’aucun autre motif ne subsiste, le passage disparaît de la file. La validation éditoriale finale reste une action distincte.
+## Capacity and concurrency
 
-Résolutions dans le workspace :
+Two limits decide how much work runs at once:
 
-1. saisir une traduction humaine ;
-2. ouvrir l’inspecteur, onglet **Analyse humaine**, et fournir un résumé utile à la continuité ;
-3. choisir explicitement **Conserver l’original pour l’export**.
+- **Concurrent books**, set on each provider in **Settings › LLM providers**: how many books may use that provider
+  at the same time, all operations included (analysis, translation, review). Providers are independent: one set to
+  3 and another set to 1 allow four active books.
+- **`WORKER_BOOK_PARALLELISM`**: how many passages of one book are processed at once. The default, `0`, uses the
+  provider's capacity, shared between the books using it. `1` processes one passage at a time. Passage analysis
+  and the Book Bible synthesis always run in order.
 
-Conserver l’original ne remplace pas une analyse manquante. Pour un refus de synthèse globale, une Book Bible humaine avec un résumé non vide peut être validée. Le travail peut ensuite être repris.
+A book stays **queued** while its provider has no free slot. To change a book's provider mid-way, pause it, choose
+the new provider in its configuration and resume: the rest of the book uses the new one.
 
-L’export EPUB normal demande une traduction complète. **EPUB partiel · originaux conservés** inclut le texte source aux endroits non traduits et porte un nom de fichier distinct. Le **rapport de couverture** liste les passages sans analyse, sans traduction et ceux conservés en original. L’original retenu n’est pas présenté comme une traduction validée.
+One worker is enough for most installations. It renews a 60-second lease on each job; if the worker stops
+abruptly, another start picks the job up after the lease expires.
 
-## Personnages et OpenViking
+## Monitoring
 
-L’onglet **Personnages** propose recherche, déplacement, zoom, fusion d’identités, alias et liens dirigés. Chaque lien est aussi listé sous le graphe, ce qui permet de le sélectionner au clavier. Les liens IA ou tirés d’anciennes fiches sont en pointillés ; les validations humaines sont identifiées. Les fusions conservent leurs fiches historiques et leurs snapshots.
+### Health
 
-Les alias confirmés humainement restent prioritaires. Pronoms et descriptions relationnelles ne deviennent pas automatiquement des alias globaux. Les variantes incertaines sont stockées comme propositions.
+`GET /health` answers `{"status":"ok","version":"<version>"}` when the API and its database connection work. It
+does not test model providers or OpenViking; test those in **Settings**.
 
-En mode Hybrid/OpenViking, un catalogue nommé est publié et actualisé :
+```bash
+curl --fail http://127.0.0.1:8088/health
+```
 
-- `book.md` : titre, auteur, progression et liens ;
-- `book-bible.json` : synthèse éditoriale ;
-- `characters.json` et pages associées : identités et alias ;
-- `relationships.json` et pages associées : liens, provenance et validation.
+### Prometheus metrics
 
-Dans **Book Bible → Mémoire OpenViking**, les liens ouvrent les fichiers réellement lus sur l’instance distante à travers le backend. **Synchroniser le livre et le graphe** fonctionne même pendant une analyse. **Vérifier dans OpenViking** distingue lecture et présence dans l’index.
+`GET /metrics` exposes the state of the installation in Prometheus text format. It is disabled until you set
+`METRICS_TOKEN`:
 
-Depuis la 0.6, un volume de série publie dans l’espace de sa série (`…/series/<série>/volumes/<volume>`) et un volume unique dans `…/standalone/<volume>` ; la page de série montre le backlog et propose resynchronisation, reconstruction depuis SQL et réindexation. Détails : [guide OpenViking](openviking.md).
+```bash
+sed -i "s|^METRICS_TOKEN=.*|METRICS_TOKEN=$(openssl rand -hex 32)|" .env   # the line exists in a generated .env
+grep '^METRICS_TOKEN=' .env                                                  # the value to give Prometheus
+docker compose up -d --no-build --wait
+```
 
-Les documents globaux sont séparés du retrieval narratif, limité aux événements admissibles sous `/events`. Les fichiers de catalogue sont des projections contextuelles compactes ; SQL conserve les données complètes et exactes.
-
-## Archive de projet
-
-**Exporter → Projet complet (.zip)** produit `translation-project.zip` : les fichiers sources du volume (EPUB, chapitres TXT ou payload JSON, sous `sources/`) et `project.json` (format `schema_version: 3`, voir [architecture](architecture.md#archive-de-projet-version-3)). Elle sert de sauvegarde d’un volume ou à le déplacer vers une autre instance ; **Restaurer** (import d’archive) recrée un nouveau projet, rattaché à la série du même nom de la personne qui restaure (créée au besoin).
-
-L’archive conserve tout ce qui fait le travail sur le livre : configuration (titre, série et tome, langues, qualité, source mémoire, instructions globales), consignes par chapitre et par passage, traductions avec leur statut (validé, à vérifier, refusé, original conservé), étape, critiques et incertitudes, historique complet des versions (sans doublon), glossaire, Book Bible et ses révisions, personnages, fusions et liens, mémoires, problèmes qualité, travaux avec leurs checkpoints (dont les résultats de la revue finale) et les chiffres des requêtes LLM (opération, modèle, tokens, durée, coût, statut).
-
-Ne sont **pas** restaurés, par sécurité : le propriétaire (la personne qui restaure devient propriétaire), les membres et leurs droits (à repartager), le provider (à choisir parmi ceux du serveur ; les travaux qui en épinglaient un reprennent sur celui du livre), les prompts et réponses complets des requêtes, les événements de progression et la file d’envoi OpenViking. Un travail qui était en cours revient **en pause** : rien ne repart ni n’est facturé sans action. Un livre archivé revient actif.
-
-L’archive est validée avant toute écriture : une archive incomplète ou altérée est refusée (422) en nommant les champs fautifs, et une archive dont le texte source ne correspond pas à son EPUB ou à ses fichiers texte est refusée sans laisser de livre partiel. Les archives des anciens formats (`schema_version: 1` et `2`) restent lisibles. L’export refuse une archive que l’import ne pourrait pas relire (`MAX_UPLOAD_MB`, `MAX_UNPACKED_MB`) ; le message indique le réglage à augmenter sur les deux serveurs.
-
-## Limites de charge
-
-| Variable | Défaut | Effet |
-|---|---|---|
-| `EVENT_STREAMS_PER_USER` | `4` | suivis en direct (un par onglet ouvert sur un livre) simultanés par compte ; au-delà, 429 et message invitant à fermer des onglets. |
-| `EVENT_STREAMS_TOTAL` | `100` | suivis en direct simultanés pour tout le processus API. |
-| `MAX_COMPRESSION_RATIO` | `100` | ratio de compression global maximal d’un EPUB de plus de 8 Mio décompressé ; la taille totale déclarée est contrôlée avant toute décompression. |
-| `PREVIEW_CACHE_MB` | `64` | mémoire gardée pour les livres décompressés des derniers aperçus ; une modification de passage invalide l’entrée. |
-
-La liste des projets, rafraîchie toutes les 5 secondes par l’interface, est calculée en un nombre constant de requêtes SQL quel que soit le nombre de livres, et n’inclut plus la Book Bible (la page du livre la charge).
-
-## Réglages d’administration du pilote et des webhooks
-
-Les variables `AUTOPILOT_*` et `API_WEBHOOK_*` fixent les valeurs par défaut ; un administrateur peut les
-remplacer sans redémarrer, depuis *Paramètres › Pilote automatique* et *Paramètres › API d’automatisation*,
-ou par l’API (session administrateur) :
-
-| Route | Effet |
-|---|---|
-| `GET /api/settings/autopilot` | `values` en vigueur, `defaults` (environnement), `saved` (une valeur enregistrée s’applique), `fallback_provider_ids` (fournisseurs existants de la chaîne) |
-| `PUT /api/settings/autopilot` | enregistre `enabled`, `max_rounds` (1–10), `fallback_providers` (identifiants ou noms, enregistrés en identifiants ; un inconnu est refusé), `outage_max_retries` (1–100), `outage_max_wait_seconds` (0–604800), `glossary_min_confidence`, `identity_min_confidence`, `bible_min_coverage`, `stale_min_coverage` (0–1) |
-| `DELETE /api/settings/autopilot` | oublie les valeurs enregistrées : l’environnement s’applique de nouveau |
-| `GET /api/settings/webhooks` | `values` (`hosts`, `private_networks`, `max_attempts`, `timeout_seconds`), `defaults`, `saved`, `secret.configured` et `secret.source` (`saved`, `environment` ou `none`) — jamais le secret |
-| `PUT /api/settings/webhooks` | enregistre les hôtes (nom, `*.domaine` ou adresse IP), les réseaux privés (CIDR), 1–20 tentatives, 1–60 s ; `secret` (32 caractères au moins, chiffré avec `SECRET_KEY`) remplace le secret global, absent il est conservé, `clear_secret: true` l’oublie |
-| `DELETE /api/settings/webhooks` | oublie les valeurs et le secret enregistrés |
-
-Les valeurs sont lues à chaque décision (lancement, chaîne de secours, pannes, tours, seuils, contrôle d’un
-`callback_url`, envoi d’un webhook) : un changement s’applique au prochain passage du worker. Le choix d’un
-livre (`config.autopilot`, `config.fallback_provider_ids`) passe toujours avant. Les erreurs de validation
-sont rendues en français ou en anglais selon `Accept-Language`.
-
-## Langue des messages d’erreur
-
-Les messages d’erreur de l’API sont en français par défaut. Quand l’interface est en anglais, elle envoie `Accept-Language: en` et reçoit les messages en anglais (`detail`). Le catalogue est `backend/app/i18n.py` ; un test échoue si un message levé dans le code n’y a pas de traduction.
-
-## Rétention des données de diagnostic
-
-Le worker borne lui-même la croissance de la base : une passe au démarrage, puis une par heure, par petits lots et hors de la boucle des jobs.
-
-| Variable | Défaut | Effet |
-|---|---|---|
-| `RETENTION_REQUEST_BODIES_DAYS` | `30` | vide le prompt, la réponse brute et la trace de contexte des requêtes LLM terminées plus anciennes. La ligne reste : tokens, coût, durée, statut, erreur et réponse validée (utilisée par le cache) sont conservés. |
-| `RETENTION_EVENTS_DAYS` | `7` | supprime les événements de progression plus anciens, en gardant toujours les 500 derniers de chaque livre. |
-| `RETENTION_OUTBOX_SENT_DAYS` | `7` | supprime les envois OpenViking déjà transmis. La recherche OpenViking et la reconstruction s’appuient sur les mémoires SQL, pas sur ces lignes. |
-| `RETENTION_BIBLE_REVISIONS` | `20` | garde les 20 dernières révisions automatiques de la Book Bible par livre ; les révisions humaines sont toutes conservées. |
-| `RETENTION_JOB_STATE_DAYS` | `30` | pour les jobs terminés, échoués ou annulés depuis plus longtemps, supprime l'état par passage qui ne sert qu'à la reprise (`job_segment_state` : passages finis, cibles, groupes réparés, lots de synthèse et de cohérence). Les issues de la revue finale (`reviewed`) sont gardées : elles alimentent l'historique de relecture du livre. Les jobs en pause ou en attente ne sont jamais touchés ; si un job échoué ou annulé est repris après ce délai, ses passages déjà terminés ne sont pas retraduits, sauf retraduction forcée, qui les refait. |
-| `RETENTION_RESULTS_DAYS` | `30` | supprime le fichier de résultat (`DATA_DIR/results`) des requêtes d'API terminées depuis plus longtemps. La requête et son rapport restent ; redemander le résultat le reconstruit depuis la base. |
-
-La même passe supprime les fichiers des imports expirés (`DATA_DIR/staging`, `IMPORT_SESSION_HOURS`) ; la réponse d’un import confirmé est gardée une semaine de plus pour qu’une confirmation répétée reste idempotente.
-
-Les jobs terminés avant la 0.5 comptent à partir de leur création. `0` désactive une règle. Pour mesurer avant d'appliquer : `docker compose exec api python -m app.maintenance.retention --dry-run`. Conséquence visible : l'inspecteur de requêtes n'affiche plus le prompt des requêtes de plus de 30 jours.
-
-PostgreSQL réutilise l'espace libéré mais ne le rend au système qu'après `VACUUM (FULL, ANALYZE) llm_requests;`, qui verrouille la table : arrêtez le worker avant, et prévoyez autant d'espace disque libre que la taille utile de la table.
-
-### Agrégats d'usage (`usage_daily`, 0.6)
-
-Les statistiques (`/api/projects/{id}/metrics`, `/api/statistics/models`, `/metrics`, coût dépensé de la progression d'un livre) ne parcourent plus toutes les requêtes. La même passe horaire du worker, en premier, replie les requêtes de plus de deux heures (leur issue, leurs tokens et leur durée sont alors définitifs) dans `usage_daily` : une ligne par jour (UTC), livre, fournisseur, opération, modèle, issue et indicateur de cache, avec le coût au prix enregistré avec chaque requête. Un filigrane (`app_settings["usage_rollup"]`) indique jusqu'où ; les statistiques additionnent les agrégats et les quelques heures de requêtes créées depuis (index `ix_llm_requests_created_at`). Les chiffres sont les mêmes qu'avant, à ceci près que le coût dépensé affiché dans la progression d'un livre utilise désormais, comme `/metrics`, le prix enregistré avec chaque requête plutôt que le prix actuel du fournisseur (les livres restaurés d'une archive gardent donc leur coût passé).
-
-| Variable | Défaut | Effet |
-|---|---|---|
-| `RETENTION_REQUEST_ROWS_DAYS` | `0` (désactivé) | supprime les lignes entières des requêtes plus anciennes, une fois comptées dans `usage_daily`. Les statistiques restent justes ; le cache de réponses et l'inspecteur de requêtes perdent ces lignes. `180` est une valeur raisonnable. |
-
-Premier passage après la mise à jour : tout l'historique est replié, un jour par transaction (quelques secondes pour des dizaines de milliers de requêtes). Pour le faire à la main ou mesurer : `docker compose exec api python -m app.maintenance.usage [--dry-run]`. Une archive de projet restaurée ajoute directement ses requêtes datées aux agrégats. Supprimer un livre supprime ses agrégats.
-
-## Coût par passage
-
-Chaque appel au modèle (traduction, relecture, révision, polissage, revue finale) porte le même contexte fixe — consignes, glossaire, Book Bible, fiches, voisins — quelle que soit la longueur du passage. Trois réglages le réduisent :
-
-- **Taille des passages** : `PASSAGE_MAX_CHARS` (défaut 3 500 caractères, de 500 à 20 000) pour ce qui est importé ensuite ; un volume peut fixer la sienne (`passage_max_chars` dans `PUT /api/projects/{id}`, appliquée aux chapitres ajoutés ensuite) et un import la sienne (`settings.passage_max_chars` de la confirmation). Des passages plus longs partagent le contexte fixe entre plus de texte ; au-delà de 8 000 à 10 000 caractères, la réponse attendue approche la sortie maximale de bien des fournisseurs (`max_output_tokens`) et une réponse tronquée coûte plus qu'elle n'économise. Les livres déjà importés gardent leur découpe.
-- **Relecture fusionnée** : `REVIEW_MODE=fused` (ou `review_mode` d'un volume) fait relire et corriger un passage en un appel à qualité haute ou maximale (voir l'architecture). Défaut `separate` : le comportement antérieur.
-- **Préfixe stable** : automatique ; les sections du prompt vont du plus stable au plus variable pour que les fournisseurs à cache de préfixe servent la partie commune.
-
-Mesure sur un livre synthétique et un fournisseur fictif (aucun appel réel) : `python scripts/measure_prompt_cost.py [--quality high] [--passage-chars 3500] [--review-mode fused] [--review-issues 0.5] [--json]` rapporte appels et tokens par passage, la part réutilisable par un cache de préfixe et, pour chaque opération, la section où les requêtes successives commencent à différer. Les chiffres comparent des réglages du même code ; ils ne prédisent pas la facture d'un vrai livre.
-
-## Comparer des fournisseurs
-
-`docker compose exec api python -m app.maintenance.compare_providers --project <id> --providers <id>,<id> [--sample 5] [--output rapport.json]` fait traduire le même échantillon de passages du livre (répartis sur ses chapitres narratifs) par chaque fournisseur, avec le prompt et le contexte que le pipeline construirait pour lui, sans cache. Rien n'est écrit dans le livre. Le tableau affiché donne par fournisseur les passages traduits et en échec, les secondes par passage, les tokens, le coût au prix enregistré et les constats des contrôles automatiques (glossaire verrouillé, marqueurs, texte non traduit…) ; le JSON ajoute les raisons des échecs, le rapport de longueur et les traductions côte à côte. Les appels sont réels et facturés ; ils sont enregistrés sous l'opération `provider_comparison` (visibles dans les statistiques, hors des étapes de traduction du livre).
-
-## Supervision (Prometheus)
-
-`GET /metrics` expose l'état de l'instance au format texte Prometheus 0.0.4. L'adresse est désactivée par défaut (réponse 404) ; elle s'active en définissant `METRICS_TOKEN` (24 caractères au moins, par exemple `openssl rand -hex 32`) dans `.env`, puis `docker compose up -d`. Chaque collecte doit présenter ce jeton en `Authorization: Bearer …` ; une session de navigateur ne suffit pas (401). Le jeton est comparé en temps constant.
-
-| Métrique | Type | Contenu |
-|---|---|---|
-| `libris_jobs{operation,status}` | gauge | travaux par opération et état, terminés compris |
-| `libris_jobs_oldest_queued_age_seconds` | gauge | attente du plus ancien travail prêt à partir (`pending`, ou `waiting` dont le délai de reprise est échu) ; un travail repris compte depuis sa reprise |
-| `libris_jobs_expired_leases` | gauge | travaux en cours dont le bail de 60 s a expiré (worker arrêté ou bloqué) |
-| `libris_llm_requests_total{operation,status}` | counter | requêtes LLM terminées par opération et issue (`success`, `error`, `refused`, `interrupted`, `abandoned`) ; les réponses servies par le cache comptent en `success` |
-| `libris_llm_input_tokens_total{operation}`, `libris_llm_output_tokens_total{operation}` | counter | tokens rapportés par les fournisseurs |
-| `libris_llm_wasted_input_tokens_total{operation}` | counter | tokens d'entrée des requêtes en erreur, refusées ou interrompues |
-| `libris_llm_cache_hits_total{operation}`, `libris_llm_cache_hit_ratio` | counter, gauge | réponses servies par le cache, et leur part de toutes les requêtes terminées |
-| `libris_llm_requests_in_flight{provider}` | gauge | requêtes en cours par fournisseur (son nom, jamais son adresse) |
-| `libris_segments{status}` | gauge | passages de tous les livres par état |
-| `libris_memory_outbox_pending` | gauge | mises à jour OpenViking pas encore transmises |
-
-Les compteurs sont lus dans la base (agrégats journaliers `usage_daily` et requêtes récentes, voir ci-dessus) : ils sont cumulés depuis l'installation, identiques pour tous les processus et insensibles aux redémarrages, y compris quand `RETENTION_REQUEST_ROWS_DAYS` supprime les anciennes requêtes ; supprimer un livre supprime ses requêtes, ce que Prometheus traite comme une remise à zéro du compteur. Utilisez `rate()`/`increase()` pour une fenêtre (« tokens par heure »). Aucune étiquette ne contient de titre, de texte, d'identifiant de livre ni d'URL. Le résultat est gardé 10 secondes : un intervalle de collecte de 30 s à 1 min suffit.
+Each scrape must send the token as `Authorization: Bearer <token>`; a browser session is not enough. Without the
+variable the endpoint answers 404, with a wrong token 401.
 
 ```yaml
 scrape_configs:
@@ -197,6 +128,160 @@ scrape_configs:
       - targets: ["books.example.com"]
 ```
 
-Exemples d'alertes : `libris_jobs_expired_leases > 0` pendant 5 min (worker arrêté), `libris_jobs_oldest_queued_age_seconds > 900` (aucun worker ne prend les travaux ou fournisseur saturé), `sum(rate(libris_llm_wasted_input_tokens_total[1h])) / sum(rate(libris_llm_input_tokens_total[1h])) > 0.2` (plus d'un token sur cinq dépensé pour rien).
+| Metric | Type | Content |
+| --- | --- | --- |
+| `libris_jobs{operation,status}` | gauge | Jobs by operation and state, finished ones included |
+| `libris_jobs_oldest_queued_age_seconds` | gauge | How long the oldest job ready to run has been waiting (a resumed job counts from its resumption) |
+| `libris_jobs_expired_leases` | gauge | Running jobs whose 60-second lease expired: their worker stopped or hangs |
+| `libris_llm_requests_total{operation,status}` | counter | Finished model requests by operation and outcome (`success`, `error`, `refused`, `interrupted`, `abandoned`); cached answers count as `success` |
+| `libris_llm_input_tokens_total{operation}`, `libris_llm_output_tokens_total{operation}` | counter | Tokens reported by the providers |
+| `libris_llm_wasted_input_tokens_total{operation}` | counter | Input tokens of requests that failed, were refused or interrupted |
+| `libris_llm_cache_hits_total{operation}` | counter | Requests answered from the response cache |
+| `libris_llm_cache_hit_ratio` | gauge | Share of all finished requests answered from the cache |
+| `libris_llm_requests_in_flight{provider}` | gauge | Requests in progress, by provider name |
+| `libris_segments{status}` | gauge | Passages of all books, by state |
+| `libris_memory_outbox_pending` | gauge | OpenViking updates not delivered yet |
 
-Derrière un proxy inverse, exposez `/metrics` seulement au réseau de Prometheus si possible.
+Counters are computed from the database: they count everything since installation, are the same in every process
+and survive restarts. Deleting a book deletes its requests, which Prometheus sees as a counter reset. Use
+`rate()` or `increase()` for a time window. No label contains a book title, text, id or provider address. The
+output is cached for 10 seconds, so scraping every 30 to 60 seconds is enough.
+
+Useful alerts:
+
+| Condition | Meaning |
+| --- | --- |
+| `libris_jobs_expired_leases > 0` for 5 minutes | The worker is stopped or stuck. |
+| `libris_jobs_oldest_queued_age_seconds > 900` | No worker takes jobs, or a provider is saturated. |
+| `sum(rate(libris_llm_wasted_input_tokens_total[1h])) / sum(rate(libris_llm_input_tokens_total[1h])) > 0.2` | More than one input token in five is spent on requests that produced nothing. |
+
+Behind a reverse proxy, expose `/metrics` only to your Prometheus network if you can.
+
+### Statistics in the interface
+
+**Statistics** shows token usage by model, and each book shows what it has spent. Costs use the price recorded
+with each request, so a later price change on a provider does not rewrite past costs.
+
+### Logs
+
+```bash
+docker compose logs --since=30m api worker
+docker compose logs -f worker
+```
+
+Each container keeps at most three log files of 10 MB. Review logs before sharing them: remove account names,
+addresses and anything that looks like a key.
+
+## Data retention
+
+Every model call leaves a row with its prompt and answer, which the request inspector shows. Without limits, this
+history grows quickly. The worker cleans it up once at start-up and then every hour, in small batches, following
+the `RETENTION_*` settings ([configuration](configuration.md#data-retention)):
+
+- prompts, raw answers and context traces of requests older than 30 days are emptied (the inspector no longer
+  shows them), while tokens, cost, duration, status and the cached answer are kept;
+- progress events older than 7 days are deleted, always keeping the last 500 of each book;
+- OpenViking updates already delivered are deleted after 7 days;
+- only the 20 most recent automatic Book Bible revisions of each book are kept (human revisions are all kept);
+- the per-passage resume state of jobs that ended more than 30 days ago is deleted. If such a job is resumed
+  later, its finished passages are still not translated again (unless you force a new translation);
+- result files of automation requests are deleted after 30 days; asking for the result again rebuilds it;
+- files of expired imports are deleted from `DATA_DIR/staging`.
+
+Before deleting anything, the same pass adds requests older than two hours to daily usage totals, which the
+statistics and `/metrics` read. With `RETENTION_REQUEST_ROWS_DAYS` set (for example `180`), whole request rows
+older than that are then deleted; statistics stay correct, but the response cache and the inspector lose them.
+
+See what a pass would remove, or run one now:
+
+```bash
+docker compose exec api python -m app.maintenance.retention --dry-run
+docker compose exec api python -m app.maintenance.retention
+```
+
+PostgreSQL reuses the freed space, but gives it back to the system only after a full vacuum. It locks the table,
+so stop the worker first and make sure the disk has as much free space as the table's useful size:
+
+```bash
+docker compose stop worker
+docker compose exec database sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "VACUUM (FULL, ANALYZE) llm_requests;"'
+docker compose start worker
+```
+
+## Maintenance commands
+
+| Command | What it does |
+| --- | --- |
+| `docker compose exec api python -m app.maintenance.retention [--dry-run]` | Runs the retention pass described above. |
+| `docker compose exec api python -m app.maintenance.usage [--dry-run]` | Adds finished requests to the daily usage totals now. The worker does it every hour. |
+| `docker compose exec api python -m app.maintenance.compact_request_logs [--dry-run]` | Rewrites old request rows in the compact form new rows use. Safe to interrupt and run again. |
+| `docker compose exec api python -m app.maintenance.compare_providers --project <book id> --providers <id>,<id> [--sample 5] [--output report.json]` | Compares providers on the same passages. See below. |
+| `python scripts/measure_prompt_cost.py [options]` | Measures the tokens a configuration sends per passage, without any real model. See below. |
+| `docker compose exec api alembic check` | Confirms that the database schema matches the application. |
+
+## Cost control
+
+Each model call (translation, review, revision, polishing, final review) carries the same fixed context
+(instructions, glossary, Book Bible, character notes, neighbouring passages), whatever the length of the passage.
+Three things reduce what you pay:
+
+- **Longer passages.** `PASSAGE_MAX_CHARS` (3500 characters by default, 500 to 20000) sets the passage size of
+  books imported afterwards. A volume can have its own (`passage_max_chars` in its configuration, applied to
+  chapters added later), and so can an import. Longer passages share the fixed context between more text. Beyond
+  8000 to 10000 characters, the expected answer approaches many providers' maximum output and a truncated answer
+  costs more than it saves. Books already imported keep their cut.
+- **Fused review.** `REVIEW_MODE=fused`, or a volume's review mode, reviews and corrects a passage in one call at
+  high and maximum quality, instead of a review call followed by a revision call.
+- **Prompt caching.** Automatic: prompt sections go from the most stable to the most variable, so that providers
+  with prefix caching can reuse the common start of successive calls.
+
+Other levers: a lower quality level on books that do not need it, `FINAL_REVIEW_ENABLED=false`, and the per-book
+estimate shown before each launch.
+
+### Measure a configuration
+
+`scripts/measure_prompt_cost.py` runs the translation pipeline on a synthetic book against a simulated provider (no
+network, nothing billed) and reports calls and tokens per passage, the share a prefix cache could reuse, and for
+each operation where successive prompts start to differ. Run it from the repository with the backend's
+development environment ([development](development.md)):
+
+```bash
+python scripts/measure_prompt_cost.py --quality high --passage-chars 3500 --review-issues 0.5
+python scripts/measure_prompt_cost.py --review-mode fused --json
+```
+
+The figures compare settings of the same code; they do not predict the bill of a real book.
+
+### Compare providers
+
+`app.maintenance.compare_providers` has several providers translate the same sample of a book's passages (spread
+over its narrative chapters), with the prompt and context the pipeline would build, and without the response
+cache. Nothing is written to the book.
+
+```bash
+docker compose exec api python -m app.maintenance.compare_providers \
+  --project <book id> --providers <provider id>,<provider id> --sample 5 --output /data/tmp/comparison.json
+```
+
+The table lists, per provider, passages translated and failed, seconds per passage, tokens, cost and the findings
+of the automatic checks (locked glossary, markers, untranslated text…). The JSON report adds failure reasons,
+length ratios and the translations side by side; copy it out with
+`docker compose cp api:/data/tmp/comparison.json .`. These calls are real and billed; they appear in the
+statistics under the operation `provider_comparison`.
+
+## Troubleshooting
+
+| Symptom | Cause and fix |
+| --- | --- |
+| A book stays **queued** | The worker is not running (`docker compose ps worker`), or its provider has no free **Concurrent books** slot. |
+| A book is **waiting** | The provider is unreachable, timed out or answered 429/5xx. Libris retries on its own: first after 60 seconds (or the **Automatic recovery** delay), then doubling up to an hour; a provider's `Retry-After` is respected up to 24 hours. Under the autopilot, after `AUTOPILOT_OUTAGE_MAX_RETRIES` waits it switches to the next fallback provider. |
+| A book is **blocked** | The provider rejected the credentials. Fix the key or sign in again, then resume. Under the autopilot, the next fallback provider takes over, or the job fails if none is left. |
+| A book **failed** with "providers exhausted" | Every provider in the autopilot chain was unavailable. Add a fallback provider in **Settings › Autopilot**, then resume. |
+| Passages are refused or kept in the source language | See [autopilot](autopilot.md) for the recovery ladder and how to retranslate them with another provider. |
+| `libris_jobs_expired_leases` is above 0 | The worker stopped abruptly or hangs: `docker compose logs worker`, then `docker compose restart worker`. Jobs resume from their checkpoints. |
+| The live progress stops updating | Too many tabs open (limit `EVENT_STREAMS_PER_USER`), or a proxy buffering server-sent events. |
+| An EPUB export is refused | Read the error message. Missing or refused passages must be resolved first, or use the partial export that keeps the source text. "Too many EPUB validations in progress" means `EPUBCHECK_CONCURRENCY` is reached: try again in a moment. |
+| The database grows fast | Check the retention settings and run the retention pass with `--dry-run`. |
+| Provider keys "must be entered again" | `SECRET_KEY` changed. Restore the original `.env`, or enter each key again. |
+
+For installation, network and sign-in problems, see the [Docker guide](docker.md#troubleshooting).

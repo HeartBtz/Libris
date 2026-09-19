@@ -1,166 +1,506 @@
-# Architecture et invariants
+# Architecture
 
-## Modules
+This page is for developers who want to understand how Libris works before changing it: the
+processes, the path a book takes, the rules the code never breaks, the data model, how jobs run, and
+the security design. For running Libris, see [Docker](docker.md) and [operations](operations.md); for
+contributing, see [development](development.md).
 
-- `engines/ingestion` : adaptateurs de sources (`SourceAdapter.inspect()` sans rien créer, `parse()` vers `ImportedVolume`/`ImportedChapter`) pour EPUB (parseur existant inchangé), TXT (décodage, mise en page, unités déterministes) et JSON ; inférence des séries, volumes et chapitres (`naming.py`) ; écriture en SQL et fichiers sous `DATA_DIR` (`store.py`), ajout, insertion et remplacement explicite de chapitres. Le reste du pipeline ignore le format source.
-- `engines/series` : mémoire de série (identités canoniques, liens proposés/confirmés, relations, glossaire de série, Series Bible) recalculée depuis les volumes (`refresh_series`), et journal d’audit.
-- `engines/epub` : préflight ZIP, lecture EbookLib, DOM lxml, unités avec codes inline, segmentation et réinjection dans une copie de l’archive.
-- `providers/llm.py` : OpenAI-compatible, formats structurés, validation, retries, cache, budget et traces.
-- `providers/openviking.py` : contrat HTTP OpenViking, authentification API key/trusted, URI, écriture idempotente et retrieval borné.
-- `engines/context` : requête narrative, mémoire locale/externe/hybride, sélection, temporalité, budget et inspecteur ; `series.py` : conventions héritées des tomes antérieurs d’une série.
-- `engines/memory` : décisions humaines, personnages, glossaire et outbox.
-- `engines/translation` : analyse hiérarchique, versions, orchestration, contrôle global, traduction par parties (`repair.py`) et mémoire de traduction (`memory.py`).
-- `engines/autopilot` : pilote automatique (voir [autopilot.md](autopilot.md)) — boucle de convergence (`loop.py`), échelle de récupération des passages en échec (`recovery.py`), arbitrage IA des points ouverts (`arbitration.py`), décisions sur la mémoire (`memory.py`), fournisseurs de secours et pannes bornées (`providers.py`), dégradation des étapes facultatives (`degrade.py`) et journal `autopilot_decisions` (`decisions.record`).
-- `engines/quality` : identifiants d’unités, codes DOM, sorties vides, longueur, répétition, texte inchangé et terminologie.
-- `jobs` : prise en charge transactionnelle, bail, fencing, événements persistants, reprise, état par passage (`segment_state`) et exécution hors de la boucle asyncio (`concurrency`).
-- `api` : authentification, autorisations, projets, édition, paramètres, exports et SSE ; `api/v1.py` + `api/tokens.py` : API d’automatisation par jetons (voir [api.md](api.md)), dont les requêtes attendent en SQL que leur volume soit libre (`jobs/requests.py`, répartiteur du worker). `engines/delivery` fait aboutir chaque requête : entrées EPUB et TXT (`intake`), fin toujours terminale et bornée (`lifecycle`), rapport de fin (`report`), résultat stocké sous `DATA_DIR/results` (`results`), EPUB traduit réparé automatiquement quand EPUBCheck le refuse (`epub`), webhooks signés envoyés par le worker (`webhooks`).
+## Components
 
-## Modèle SQL
-
-Entités normalisées (détail : [modèle de données](data-model.md)) : users, login_sessions, memberships, series, projects (volumes, flux continus de webnovel), source_assets, import_sessions, chapters, segments, translation_versions, entities, glossary, memories, bible_revisions, memory_outbox, prompts, jobs, job_segment_state, events, llm_requests, usage_daily, quality_issues, app_settings, series_entities, series_entity_links, series_relations, series_glossary, audit_entries, api_tokens, translation_requests, autopilot_decisions (journal des décisions du pilote automatique ; `jobs.result` porte le rapport final).
-
-Les documents XHTML/NCX sont des sections de travail ; les subdivisions sémantiques sont conservées dans les unités et `Segment.section`. Le `spine` original est stocké explicitement et ne dépend jamais d’un ordre de noms de fichiers. Les ancres sont déterministes : ressource + XPath + type de champ. Les paragraphes longs peuvent être fragmentés à des frontières linguistiques, puis réassemblés avant réinjection.
-
-`Chapter.kind` distingue le récit (`narrative`), les documents hors lecture linéaire (`auxiliary`, `linear="no"`, placés après le récit), la navigation (`navigation` : document nav, NCX) et les métadonnées (`metadata` : `dc:description` et `dc:subject` court de l’OPF, traduits comme des passages). `stats.chapters` et `stats.synthesized_chapters` ne comptent que les deux premiers.
-
-Unités : un bloc feuille (`p`, `li`, `td`…) forme une unité ; dans un parent qui mêle texte et blocs, chaque suite de texte et d’éléments en ligne entre deux blocs forme une unité `run` (ancre : parent + indice du bloc qui la précède). Les lectures ruby (`rt`, `rp`), le code, les formules et le texte préformaté sont des marqueurs immuables ; le texte SVG `<text>` et `aria-label` sont traduits ; `pre`, MathML et les titres SVG conservés sont listés dans `book_info.untranslated`. Les paragraphes CJK se coupent sur 。！？… (guillemets fermants compris), puis sur les propositions, puis à la limite.
-
-À l’export, les documents traduits reçoivent la langue et la direction de la cible (`dir="rtl"` pour l’arabe, l’hébreu, le persan, l’ourdou…, `page-progression-direction` du spine en EPUB 3) ; les éléments déclarant la langue source passent à la langue cible, ceux dans une troisième langue gardent langue et direction.
-
-La découpe est versionnée (`book_info.segmentation`, 2 depuis la v0.5). Les livres importés avant gardent leurs unités ; une archive de projet sans ce champ est réimportée avec la découpe 1 (`extract_units_v1`), faute de quoi ses passages ne correspondraient plus.
-
-`Segment.source_key` (SHA-256 des unités normalisées NFKC, espaces réduits, marqueurs compris) indexe la mémoire de traduction.
-
-Taille des passages (0.6) : un passage (groupe d’unités) est l’unité de chaque appel au modèle. Sa longueur maximale se choisit à l’import — `PASSAGE_MAX_CHARS` (3 500 par défaut, la valeur de toutes les versions précédentes), `config.passage_max_chars` d’un volume pour ses chapitres ajoutés ensuite, ou `settings.passage_max_chars` d’un import — et elle est enregistrée avec la source (`book_info.passage_max_chars` d’un EPUB, `import_meta.passage_max_chars` d’un chapitre texte) : une archive de projet est redécoupée avec la taille de son import, jamais avec le réglage courant (une archive antérieure reprend 3 500). Changer le réglage ne redécoupe aucun livre existant.
-
-### Colonnes `JSON` plutôt que `JSONB` (étude I-13, 0.6)
-
-Les colonnes de documents (`projects.bible`, `jobs.checkpoint`, `llm_requests.messages`, `segments.units`…) sont du type SQLAlchemy `JSON`, soit `json` sous PostgreSQL. Décision : ne pas les convertir en `jsonb` pour l’instant.
-
-- Aucune requête de l’application ne filtre ni n’indexe l’intérieur d’un document : tout est lu par ligne puis exploité en Python. Les atouts de `jsonb` (opérateurs `?`, `@>`, index GIN) ne serviraient à rien aujourd’hui. L’erreur `operator does not exist: json ? unknown` rencontrée en production venait d’une requête d’audit écrite à la main : dans ce cas, écrire `colonne::jsonb ? 'clé'`.
-- `jsonb` réordonne les clés des objets. Des objets relus de la base (Book Bible, résumés de chapitre, états narratifs) sont resérialisés dans les prompts : l’ordre changerait les octets du prompt, donc l’empreinte du cache de réponses et le préfixe réutilisable par les fournisseurs, et toutes les requêtes des livres en cours seraient repayées une fois.
-- La conversion (`ALTER TABLE … TYPE jsonb USING …::jsonb`) réécrit chaque table sous verrou exclusif, `llm_requests` comprise (plusieurs Go avant compaction) : une interruption de service longue pour un gain nul.
-
-À reconsidérer colonne par colonne le jour où une fonctionnalité doit interroger l’intérieur d’un document (par exemple filtrer les travaux par option) : type `JSON().with_variant(JSONB(), "postgresql")` sur cette seule colonne, migration dédiée et index GIN, SQLite inchangé.
-
-## Transactions importantes
-
-1. **Enregistrer une traduction** : vérifier le bail du job, comparer la révision source, insérer une version, puis modifier la version active seulement si autorisé. Les événements mémoire associés entrent dans l’outbox dans la même transaction.
-2. **Correction humaine** : contrôle d’accès, révision attendue obligatoire, validation des unités et codes, nouvelle version, mémoire prioritaire si validée, commit.
-3. **Reprendre** : invalider l’ancien détenteur du bail. Les écritures d’un résultat tardif sont refusées même si le provider termine sa requête.
-4. **Synchroniser** : SQL reste canonique. Un échec externe ne retire jamais un résultat local. Un accusé d’écriture perdu peut être rejoué sur l’URI stable.
-
-Une réponse HTTP reçue juste avant un crash peut être recalculée si elle n’avait pas été commitée. L’application garantit la persistance des résultats commités, pas l’exécution exactly-once d’une inférence distante.
-
-## Exécution des jobs
-
-### Checkpoint et état par passage
-
-`jobs.checkpoint` ne contient qu’un curseur et des compteurs : `step`, `current`, `total`, `segment_id`, `consecutive_failures`, les indicateurs de la récupération automatique, `review_targets` (nombre de passages visés par la revue finale), les compteurs de lots. Sa taille ne dépend pas de celle du livre (quelques centaines d’octets, toujours moins de 4 Ko) ; il est réécrit à chaque passage et renvoyé par `GET /api/projects/{id}/jobs`.
-
-Ce qu’un job a réglé passage par passage vit dans `job_segment_state` (clé primaire `job_id, step, segment_id, key`, écriture idempotente) :
-
-| `step` | Signification |
+| Component | Role |
 | --- | --- |
-| `finished` | plus rien à faire pour ce passage dans ce job (y compris une correction humaine ou un original conservé pendant le job) |
-| `started` | une retraduction forcée a déjà appliqué sa nouvelle version |
-| `review_target` / `reviewed` | périmètre figé de la revue finale ; issue (`resolved`, `needs_human`, `protected`, `failed`) et `data.revised` |
-| `recovery_target` | passages repris par la récupération automatique |
-| `repair` | groupe de quatre unités déjà validé d’un passage en réparation (`key` = révision:opération:début) |
-| `bible`, `consistency` | lots de synthèse de la Book Bible et échantillons de cohérence déjà traités (`segment_id` vide) |
-| `analysis_skipped` | pilote automatique : analyse du passage abandonnée après un refus ou des réponses invalides |
-| `autopilot_ladder`, `autopilot_arbitrated` | pilote automatique : passage passé par l’échelle de récupération, ou points ouverts arbitrés, pendant le tour `key` (`r1`, `r2`…) ; issue (`recovered`, `source_retained`, `applied`, `decided`, `failed`, `protected`) |
+| **API** (`backend/app/main.py`, FastAPI) | Serves the React interface and its API (`/api/*`, session cookie), the [automation API](api.md) (`/api/v1`, tokens) and live event streams (SSE). It never runs a translation itself. |
+| **Worker** (`python -m app.jobs.worker`) | A persistent process that claims jobs from the database and runs them: analysis, translation, reviews, the [autopilot](autopilot.md). It also starts queued automation requests, sends their webhooks, writes the external memory queue and applies data retention every hour. |
+| **Database** | PostgreSQL in production (SQLite for development and tests). The single source of truth. |
+| **Migrations** (`alembic upgrade head`) | A one-shot service that runs before the API and the worker. |
+| **Data directory** (`DATA_DIR`, `/data`) | Source files, stored results, import staging and large temporary files, all at paths Libris chooses. |
+| **Model providers** | OpenAI-compatible endpoints configured by an administrator (`providers/llm.py`), or the optional [Codex bridge](codex.md). |
+| **OpenViking** (optional) | A semantic index of the book memory ([OpenViking](openviking.md)). |
+| **SearXNG** (optional) | Web search for the final review ([autopilot](autopilot.md#optional-web-search-searxng)). |
+| **EPUBCheck** (optional, bundled in the image) | Validates imported and exported EPUB files. |
 
-La progression (`project.progress`, `stats`) lit ces lignes. Une fois un job fini depuis `RETENTION_JOB_STATE_DAYS`, seules ses lignes `reviewed` sont gardées (voir le guide d’exploitation). L’archive de projet emporte ces lignes avec les jobs, et une archive exportée avant la 0.5 est convertie à la restauration. La migration `b856c2e068f8` a converti les anciens checkpoints (listes `finished_ids`, `final_review_*`, `repair`…) : un job en pause au moment de la mise à jour reprend sans retraduire ; le retour arrière reconstruit les listes.
+### Code map
 
-### Baux sur l’horloge de la base (R-13, 0.6)
+| Module | Responsibility |
+| --- | --- |
+| `engines/ingestion` | Source adapters: `inspect()` reads a file without creating anything, `parse()` turns it into volumes and chapters. EPUB, TXT, Markdown, HTML, DOCX and JSON. Series, volume and chapter inference (`naming.py`), storage in SQL and under `DATA_DIR` (`store.py`), adding, inserting and replacing chapters. The rest of the pipeline ignores the source format. |
+| `engines/epub` | ZIP preflight, EbookLib reading, lxml DOM, units with inline codes, segmentation, rebuilding a translated copy of the archive, EPUBCheck. |
+| `engines/series` | Series memory (canonical identities, links, relations, series glossary, Series Bible), rebuilt from the volumes (`refresh_series`), and the audit log. |
+| `engines/context` | Context selection for each model call: narrative query, local, external or hybrid memory, budget, inspector; series conventions inherited from earlier volumes (`series.py`); section order (`prefix.py`). |
+| `engines/memory` | Human decisions, characters, glossary, OpenViking events and catalogs, the send queue. |
+| `engines/translation` | Analysis, translation, review, revision and polishing, global consistency, final review, repair in groups (`repair.py`), translation memory (`memory.py`), versions. |
+| `engines/autopilot` | The convergence loop (`loop.py`), recovery ladder (`recovery.py`), AI arbitration (`arbitration.py`), memory decisions (`memory.py`), provider fallback (`providers.py`), skipping optional steps (`degrade.py`) and the decision log (`decisions.py`). |
+| `engines/quality` | Deterministic checks: unit ids, markup codes, empty output, length, repetition, unchanged text, terminology. |
+| `engines/delivery` | Automation requests: upload intake (`intake.py`), always-terminal lifecycle (`lifecycle.py`), completion report (`report.py`), stored results (`results.py`), EPUB delivery with automatic repair (`epub.py`), signed webhooks (`webhooks.py`). |
+| `engines/exports` | Text and Markdown renderings of a volume. |
+| `jobs` | Queue, leases and fencing (`queue.py`, `clock.py`), per-passage job state (`segment_state.py`), running work off the event loop (`concurrency.py`), automation request dispatch (`requests.py`), the worker (`worker.py`). |
+| `providers` | Model calls (`llm.py`: structured output, validation, retries, cache, budget, traces), OpenViking client, SearXNG, Codex bridge. |
+| `api` | Interface routes, [automation API](api.md) (`v1.py`, `tokens.py`), administration settings. |
+| `maintenance` | Retention, usage aggregation, request log compaction, provider comparison. |
 
-Le bail d’un job (`jobs.lease_until`, 60 s) est écrit et comparé avec l’horloge du serveur de base de données, lue dans la même requête (`app/jobs/clock.py` : `clock_timestamp()` sous PostgreSQL, l’horloge de l’hôte sous SQLite) : `claim`, `checkpoint` et `fence` ne dépendent plus de `time.time()` de chaque processus. Un worker dont l’horloge saute (pas NTP, reprise de VM) ou dérive ne vole plus un job vivant et ne se croit plus évincé du sien. Les durées mesurées dans un processus (délai de grâce du heartbeat, délais d’appel) restent sur `time.monotonic()`.
+## The path of a book
 
-### Boucle du worker
+1. **Import.** Files are uploaded to an import session (`/api/imports`), inspected, then committed:
+   each becomes a volume (EPUB) or a chapter (text formats) of a series. The automation API writes the
+   same rows directly.
+2. **Analysis.** Passage by passage, in order: chapter summaries, characters, relations and narrative
+   state, then the Book Bible. Stored as memories in SQL.
+3. **Translation.** Each passage is translated with a context built from the book's memory, then
+   reviewed, revised or polished depending on the quality level.
+4. **Whole-book steps.** Global consistency, final review, and under the autopilot the convergence
+   rounds (recovery ladder, final review, AI arbitration). See [autopilot](autopilot.md).
+5. **Output.** Exports from the interface, or the stored result of an automation request.
 
-Tous les jobs d’un worker partagent une boucle asyncio ; une requête SQL synchrone ou une boucle CPU longue y retarde les heartbeats des autres jobs, qui perdent leur bail. Les sessions SQL et les calculs proportionnels au livre (préparation du contexte, score de la mémoire, échantillonnage de cohérence, admission et journal des appels au modèle, écritures des résultats) s’exécutent donc dans des threads, une session par appel : huit threads pour ce travail, deux réservés au renouvellement des baux pour qu’un heartbeat n’attende jamais derrière. Le nombre de threads reste sous la taille du pool de connexions. Un verrou par job sérialise, dans le worker, la lecture-modification-écriture du checkpoint (PostgreSQL le fait déjà avec `FOR UPDATE` ; SQLite lit avant de prendre son verrou d’écriture).
+Every step writes to SQL first. External systems (OpenViking, providers, webhooks) receive copies and
+never hold anything that cannot be rebuilt.
 
-### Plusieurs passages d’un même livre
+## Invariants
 
-La traduction, la revue finale et les contrôles de cohérence traitent plusieurs passages d’un livre à la fois, dans une fenêtre glissante : les passages démarrent dans l’ordre du livre, et au plus N sont en vol. N vaut la capacité (`max_concurrency`) du provider, partagée à parts égales (arrondi supérieur) entre les livres qui l’utilisent au même moment, et relue avant chaque démarrage ; `WORKER_BOOK_PARALLELISM` la plafonne (`1` rétablit le traitement strictement séquentiel). Dans chaque processus, les appels à un provider passent par une file d’attente dimensionnée à sa capacité, servie dans l’ordre d’arrivée, avant l’admission en base qui reste la limite commune à tous les processus.
+These rules hold everywhere in the code; changes must keep them.
 
-Compromis de contexte : le contexte d’un passage ne dépend que de ce qui est déjà enregistré. Un voisin précédent encore en cours de traduction apparaît dans `PREVIOUS_CONTEXT` avec sa source seule (traduction vide) et son état narratif manque à `CHAPTER_STATE` ; avec N passages en vol, au plus les N − 1 précédents sont concernés. Les voisins suivants ne présentent toujours que leur source. Avec `WORKER_BOOK_PARALLELISM=1`, chaque passage voit la traduction de tous ceux qui le précèdent, comme auparavant.
+- **SQL is the source of truth.** Files under `DATA_DIR` are referenced by SQL rows at paths Libris
+  chooses; nothing is located by a name taken from an upload. External memory is a rebuildable copy,
+  and an external failure never removes a local result.
+- **Human work wins.** A passage corrected or validated by a person is never overwritten by a job, the
+  autopilot, or a chapter replacement (unless the person or the API client explicitly discards it). A validated human correction is the top priority in the context of later passages.
+- **Writes are fenced.** A job writes only while it holds its lease; every write checks the lease and
+  the passage revision. A late answer from a job that lost its lease is refused, even if the provider
+  finished the call.
+- **Versions, not overwrites.** Every translation of a passage is a new version with its origin; the
+  active version changes only when allowed.
+- **Nothing waits forever.** Under the autopilot every job ends completed or failed; every automation
+  request ends with a final status.
+- **Model output is data.** Generated HTML is never accepted as DOM structure; book text in prompts
+  cannot close a prompt section; web results are untrusted hints.
 
-L’analyse des passages reste séquentielle : chaque analyse lit le résumé du chapitre, les personnages et les relations laissés par les passages précédents et réécrit le résumé « jusqu’à la position » ; en parallèle, la mémoire chronologique serait construite dans le désordre. La synthèse de la Book Bible, qui enrichit la bible lot après lot, reste séquentielle pour la même raison.
+### Important transactions
 
-Reprise et sûreté :
+1. **Saving a translation:** check the job's lease, compare the passage revision, insert a version,
+   switch the active version only if allowed. Memory events for the send queue are written in the same
+   transaction.
+2. **Human correction:** access check, expected revision required, unit and code validation, new
+   version, memory updated with priority when validated, commit.
+3. **Resuming:** the previous lease holder is invalidated; its late writes are refused.
+4. **Synchronizing:** SQL stays canonical; a lost write acknowledgement is replayed on the same stable
+   URI.
 
-- Un passage n’est marqué `finished` qu’une fois toutes ses étapes enregistrées. Chaque écriture vérifie le bail (`fence`) et la révision du passage ; une version déjà appliquée n’est pas réappliquée.
-- Une pause, une annulation, la perte du bail ou l’arrêt du worker annulent tous les appels en vol (leur requête passe à `interrupted`) ; la première erreur d’un passage (panne du provider, authentification) arrête aussi les autres. Les passages interrompus ne sont pas marqués : la reprise les recommence à partir de ce qu’ils avaient enregistré, sans refaire ceux qui étaient terminés ni émettre d’événement pour eux.
-- Le compteur des dix passages consécutifs en échec suit l’ordre d’achèvement des passages ; il n’arrête jamais un job du pilote automatique, dont les passages en échec passent par l’échelle de récupération.
-- Ordre des verrous : le worker verrouille la ligne de son job (`fence`) avant toute ligne de passage. Les actions de l’API qui touchent un passage et les jobs actifs du livre (correction humaine, original conservé, mise en file d’une proposition IA) verrouillent d’abord ces jobs (`lock_live_jobs`, par identifiant croissant), puis le passage ; l’interblocage passage/job avec le worker est donc impossible sous PostgreSQL. L’action attend au plus la fin de la courte transaction d’écriture du worker.
+An HTTP answer received just before a crash may be computed again if it was not committed: Libris
+guarantees that committed results persist, not that a remote inference runs exactly once.
 
-## Sélection contextuelle
+## From source to passages
 
-Priorité : instructions > décisions humaines validées > glossaire verrouillé > termes verrouillés de la série > données structurées validées > retrieval externe > synthèses automatiques > voisinage > inférences.
+A **unit** is one translatable piece of text; a **passage** (a `segments` row) is a group of units and
+the unit of every model call.
 
-Budget : fenêtre du fournisseur − sortie réservée − schéma de réponse de l’opération − marge contrôlée par `llm.complete`. Les tailles sont mesurées sur les sections sérialisées (échappements et balises compris) ; `input_estimate` est exactement la valeur que `llm.complete` compare à la fenêtre. Si le passage et ses règles obligatoires ne tiennent pas, l’erreur donne les chiffres (fenêtre, sortie, schéma, prompt système, passage, règles) et la fenêtre suffisante. Une première traduction est alors découpée aux frontières de phrase en parties dimensionnées pour la fenêtre (la moitié de ce qui reste après les règles ; l’autre moitié pour le voisinage), traduites avec leur contexte, puis réassemblées ; une révision ne découpe que par unités entières.
+- **EPUB.** XHTML and NCX documents are working sections; semantic subdivisions are kept in the units
+  and in `Segment.section`. The original spine order is stored explicitly. Anchors are deterministic:
+  resource, XPath and field type. A leaf block (`p`, `li`, `td`…) forms a unit; inside a parent that
+  mixes text and blocks, each run of text and inline elements between two blocks forms a `run` unit.
+  Ruby readings (`rt`, `rp`), code, formulas and preformatted text are immutable markers; SVG `<text>`
+  and `aria-label` are translated; `pre`, MathML and kept SVG titles are listed in
+  `book_info.untranslated`.
+- **Chapter kinds.** `Chapter.kind` separates the story (`narrative`), documents outside the linear
+  reading (`auxiliary`, `linear="no"`, placed after the story), navigation (`navigation`: nav document,
+  NCX) and metadata (`metadata`: `dc:description` and short `dc:subject` of the OPF, translated like
+  passages).
+- **Text formats.** A TXT, Markdown, HTML or DOCX file is one chapter, read as blocks (headings,
+  paragraphs, list items, quotes); code, Markdown tables, `<pre>`, rules and scene separators are kept
+  as they are. The layout (blank lines, indentation, separators, block markup such as `## `, `- `,
+  `> `) is stored in `Chapter.import_meta["layout"]`, never in the translated text. Markdown inline
+  formatting stays in the text; HTML and DOCX inline formatting is flattened. HTML is parsed without
+  network access (comments, scripts, styles, `<nav>` and forms ignored, entity declarations refused).
+  DOCX goes through the same archive and XML checks as EPUB; headings come from paragraph styles, and
+  tables and text boxes are included. JSON chapters from the automation API go through the same text
+  path.
+- **Identifiers.** Units of text chapters derive from a virtual resource (`txt/<hash>`, `json/<hash>`…,
+  from the volume and the chapter number or external id) and the line index: importing the same chapter
+  again gives the same identifiers, and a replaced chapter keeps the identifiers of unchanged lines.
+- **Long paragraphs** can be split at language boundaries and reassembled before rebuilding. CJK
+  paragraphs are cut on 。！？… (closing quotes included), then on clauses, then at the limit.
+- **Passage size** is chosen at import time: `PASSAGE_MAX_CHARS` (3500 by default), a volume's
+  `config.passage_max_chars` for chapters added later, or an import's own setting. It is recorded with
+  the source (`book_info.passage_max_chars` for an EPUB, `import_meta.passage_max_chars` for a text
+  chapter), so a project archive is always cut again with the size of its import. Changing the setting
+  never re-cuts an existing book.
+- **Segmentation version.** `book_info.segmentation` records the EPUB segmentation algorithm (currently
+  2). Books imported with version 1 keep their units, and a project archive without the field is
+  restored with version 1.
+- **Translation memory key.** `Segment.source_key` is the SHA-256 of the units normalized with NFKC,
+  collapsed spaces and markers included.
 
-Séries (`series.py`) : seuls les volumes antérieurs de la même série (`series_id`, même propriétaire, numéro de volume inférieur) et de même paire de langues comparées sur la sous-étiquette primaire (`en-US` ≈ `en`). Un flux continu de webnovel ou un volume sans numéro n’a pas de volume antérieur : il s’appuie sur ses propres chapitres, lus dans l’ordre. `SERIES_CONVENTIONS` porte aussi `known_identities` : les personnages déjà rencontrés dans les volumes antérieurs, sous les seuls noms employés par ces volumes. Priorité terminologique : instruction explicite > décision humaine validée > terme verrouillé du volume (ou dérogation `series_override`, auditée) > terme verrouillé de la série (décision humaine de série ou volume antérieur) > terme accepté de la série > proposition automatique. Pour un même terme, un choix verrouillé l’emporte sur tout choix non verrouillé, puis le tome le plus récent. Les termes verrouillés de série sont contrôlés en sortie comme le glossaire verrouillé du livre, sauf si ce livre verrouille autrement le même terme. Une correction humaine validée d’une traduction automatique enregistre ses remplacements courts (avant/après) et les noms du passage ; un tome ultérieur qui mentionne ces noms reçoit ces choix dans `SERIES_CONVENTIONS.human_decisions`.
+On export, translated documents receive the target language and direction (`dir="rtl"` for Arabic,
+Hebrew, Persian, Urdu…, and the spine's `page-progression-direction` in EPUB 3). Elements that declared
+the source language switch to the target language; elements in a third language keep theirs.
 
-Mémoire de traduction (`memory.py`) : avant l’appel du modèle pour une première traduction, un passage terminé de même `source_key` chez le même propriétaire, même langue source (primaire) et même langue cible, est réutilisé ; une version validée par un humain passe d’abord. Dans une série, seuls le même livre et les tomes antérieurs sont admis. Les unités ne sont recopiées que si la structure des marqueurs est valide et que le glossaire verrouillé du livre (série comprise) est respecté. La version porte l’origine `translation_memory` ; relecture, révision et revue finale s’appliquent ensuite normalement. Un relancement forcé interroge toujours le modèle. Avec plusieurs passages d’un livre en vol, les passages de même `source_key` d’un job s’exécutent l’un après l’autre (verrou asyncio par job et clé) : le second attend que le premier soit terminé et le réutilise, au lieu de le devancer auprès du modèle avec une traduction différente. La consultation est une requête SQL exécutée hors de la boucle asyncio ; une réutilisation marque le passage commencé puis fini dans `job_segment_state` comme une traduction normale.
+## Data model
 
-Prompts : le contenu des sections échappe `<` et `>` (échappements JSON), si bien qu’un texte du livre ne peut pas fermer une section. `load_prompt` ajoute à chaque prompt, surcharges en base comprises, une clause « données non fiables » et, pour les opérations qui écrivent ou relisent, une règle de registre (tu/vous…) et la typographie de la langue cible ; les langues sont nommées (« French (fr) »). Version : `file-v3` (connaissances de série depuis 0.6) ou `db-vN`, suffixée de `+rules-v1`. Le schéma JSON voyage une seule fois : dans `response_format` en mode structuré, sinon dans un message système.
+SQL tables, grouped by purpose. Column types for documents are SQLAlchemy `JSON` (see
+[JSON rather than JSONB](#json-rather-than-jsonb)).
 
-Ordre des sections (0.6, `context/prefix.py`) : les fournisseurs à cache de préfixe (OpenAI et serveurs compatibles automatiquement à partir de 1 024 tokens, par blocs de 128 ; vLLM, llama.cpp, DeepSeek) ne refacturent ou ne recalculent que ce qui suit le premier octet différent d’une requête antérieure. Le message utilisateur est donc écrit du plus stable au plus variable : contexte du livre (`EDITORIAL_BOOK_CONTEXT`, registre des personnages), puis ce qui vaut pour le chapitre ou le job (`USER_RULES`, contexte du chapitre), puis ce que sélectionnent les noms cités (glossaires, identités, fiches, relations, conventions de série), puis la mémoire retrouvée et l’état du chapitre, les voisins, le matériau de l’opération (`CURRENT_TRANSLATION`, `REVIEW`…) et enfin `TARGET_TEXT`, toujours en dernier. Les sections et leur contenu sont inchangés ; seul leur ordre l’est (le prompt nomme chaque section). Mesure sur le fournisseur fictif (`scripts/measure_prompt_cost.py`) : aucun préfixe réutilisable avant (le voisinage suivait directement le prompt système), environ 2 400 tokens par appel ensuite, soit −24 % d’entrée non mise en cache par passage à qualité haute. Les réponses mises en cache par Libris lui-même (empreinte exacte de la requête) ne sont concernées qu’une fois : l’ordre change les octets du prompt, donc les requêtes des livres en cours sont refaites à la première reprise après la mise à jour.
+### Library
 
-Relecture et révision (0.6, `translation/fused_review.py`) : une révision ne suit une relecture que si celle-ci signale un problème (déjà le cas avant). Avec `REVIEW_MODE=fused` (ou `config.review_mode` d’un volume), à qualité haute ou maximale, un seul appel `review_revision` rend les problèmes et, s’il y en a, les unités corrigées : un contexte complet au lieu de deux pour un passage signalé. Seulement pour la première relecture d’une traduction automatique (jamais sur un texte humain ni dans un job de relecture seule) ; une fenêtre trop petite ou des réponses invalides répétées reviennent aux deux appels séparés, avec la raison journalisée. Le passage finit `check` avec sa critique, comme après une révision séparée.
+| User vocabulary | Table | Notes |
+| --- | --- | --- |
+| **Series**, the literary project shown first in the library | `series` | One owner; the name is unique per owner once case and spacing are folded (`normalized_name`). `kind` is `books` or `webnovel`. Default languages, provider, quality, context backend and instructions for new volumes; `bible` is the Series Bible (`bible_validated` once a person edited it). |
+| **Volume**, the unit the pipeline processes | `projects`, `project_kind = volume` | `series_id` (null for a standalone volume), `volume_number`, `source_format` (`epub`, `txt`, `json`…), `external_id`, `import_meta`, `book_info`, `config` (autopilot, fallback providers, passage size, review mode), `bible`. `series_name` mirrors the series for older clients. |
+| **Continuous chapter flow** of a webnovel | `projects`, `project_kind = serial` | At most one per series. Text chapters imported without a volume go here. |
+| **Chapter** | `chapters` | `position` (order in the volume), `chapter_number` (the author's, may be `12.5`), `external_id`, `source_checksum` (SHA-256 of the normalized text), `import_meta.layout`, `context_stale` (an earlier chapter's source was replaced), `kind`, `source_asset_id`. |
+| **Passage** | `segments` | Units, active translation, status and stage, `human`, `validated`, `retained_source`, `revision`, critique, uncertainties, narrative state, last error. |
+| Passage history | `translation_versions` | Every version with its origin (`translation`, `revision`, `human`, `final_review`, `arbitration`, `recovery`, `translation_memory`, `source_retained`…) and base revision. |
+| Source files | `source_assets` | One row per imported file: format, original name (display only), media type, `storage_path` relative to `DATA_DIR` (`books/<project>.epub`, `sources/<project>/<asset>.<ext>`), size, SHA-256, metadata such as the detected encoding. |
+| Import sessions | `import_sessions` | Files uploaded for inspection (`DATA_DIR/staging/<session>`) and, once committed, the answer of the commit, so that repeating a commit returns what the first one did. They expire after `IMPORT_SESSION_HOURS` (24). |
 
-Le voisinage est servi en premier afin qu’un passage ne devienne pas isolé, mais il ne reçoit au plus que 60 % du budget de contexte optionnel (dont deux tiers pour ce qui précède) dès que d’autres éléments — fiches de personnages, glossaire, état du chapitre, mémoire — sont candidats ; un voisin trop long est réduit à un extrait (fin du passage précédent, début du suivant) plutôt que retiré. Les instructions et le glossaire obligatoire ne sont jamais retirés pour masquer un dépassement de budget. Les éléments supprimés et la raison de leur exclusion sont enregistrés.
+### Book memory
 
-Pour OpenViking (voir [le guide](openviking.md)) : un volume d’une série vit dans `<racine>/<propriétaire>/series/<série>/volumes/<volume>`, un volume unique dans `<racine>/<propriétaire>/standalone/<volume>`. `target_uri` borne la recherche (répertoire de la série) ; une seconde barrière compare les URI retournées à la liste exacte des événements admis par SQL, calculée depuis la table `memories` : passages antérieurs du volume et volumes antérieurs de la série. Les résultats inattendus, les synthèses globales de répertoire, les catalogues, les chapitres et volumes futurs ne sont pas injectés. Le contenu L2 est comparé à l’événement canonique, recalculé depuis SQL. La mémoire interne lit les volumes antérieurs de la même façon.
+| Table | Content |
+| --- | --- |
+| `memories` | Analyses, narrative states and validated human decisions, by passage position. |
+| `entities`, `character_relations`, `entity_merges` | Characters of a volume, their relations and merges. |
+| `glossary` | Terms of a volume; `locked` terms are enforced; `series_override` marks a deliberate departure from the series term (audited). |
+| `bible_revisions` | Previous Book Bible versions (bounded by retention). |
+| `memory_outbox` | The OpenViking send queue; `uri` records where an entry was last written. |
 
-L’état narratif n’est pas assimilé à la connaissance éditoriale du roman. Les fiches et la Book Bible issues d’une lecture globale sont marquées éditoriales ; elles ne doivent pas conduire à dévoiler une ambiguïté dans le texte traduit.
+### Series memory
 
-## Exports et archives multiformat
+| Table | Content |
+| --- | --- |
+| `series_entities` | Canonical identities of the series: characters, and places, organizations and objects named by the volumes' bibles. First appearance, aliases, profile, `merged_into_id` after a person's merge. |
+| `series_entity_links` | A volume's character attached to a series identity: `linked`, `proposed` (ambiguous: never merged automatically) or `rejected`; `human` when a person decided. |
+| `series_relations` | Relations between series identities, with evidence and first appearance. |
+| `series_glossary` | Series terms: `origin` is `volume` when aggregated from accepted volume terms, `human` for a person's decision (never rewritten by the aggregation). |
+| `audit_entries` | Merges, splits, link decisions, Series Bible edits, series terms, glossary overrides, API token creation and revocation. Never a secret. |
 
-Un volume vient d’un EPUB, de fichiers TXT, Markdown, HTML ou DOCX (un par chapitre) ou d’un payload JSON ; ses fichiers sources sont des lignes `SourceAsset` (`storage_path` relatif à `DATA_DIR` : `books/<projet>.epub`, `sources/<projet>/<asset>.<ext>`). `Project.original_path`/`original_hash` ne restent renseignés que pour les EPUB, et l’EPUB d’origine est lu par sa ligne `SourceAsset` puis, pour les livres antérieurs à 0.6, par ces anciens champs et `DATA_DIR/books/<id>.epub`.
+### Jobs and runs
 
-`GET /api/projects/{pid}/export/{format}` :
+| Table | Content |
+| --- | --- |
+| `jobs` | One job per launched operation: provider, options, status, lease (`lease_owner`, `lease_until`), `checkpoint`, `result` (the autopilot report), error and stop reason. |
+| `job_segment_state` | What a job settled passage by passage (see [below](#checkpoint-and-per-passage-state)). |
+| `events` | Progress events streamed to the interface (bounded by retention). |
+| `llm_requests` | Every model call: messages, answer, tokens, cost, status, context inspector. |
+| `usage_daily` | One row per UTC day, book, provider, operation, model, outcome and cache flag. Filled by the worker's hourly rollup of requests older than two hours (`app_settings["usage_rollup"]` is the watermark); statistics read the aggregates plus the requests since the watermark. A deleted provider keeps its history; rows follow their book. |
+| `quality_issues` | Findings of the checks and reviews, open until resolved. |
+| `autopilot_decisions` | The [decision log](autopilot.md#the-decision-log-and-the-report). |
 
-| Format | Source | Contenu |
-|---|---|---|
-| `epub` | EPUB seulement (409 explicite pour TXT/JSON) | EPUB reconstruit depuis l’original, validé par EPUBCheck |
-| `txt` | toutes | un fichier : titre du volume, puis chaque chapitre sous son titre, chapitres séparés par deux lignes vides |
-| `txt-zip` | toutes | `chapters/NNN - Titre.txt` (UTF-8, ordre de lecture, numéros complétés de zéros, noms nettoyés et uniques) + `manifest.json` (SHA-256 de chaque fichier, chapitres incomplets) ; `consolidated=true` ajoute le fichier unique |
-| `md` | toutes | `# Volume`, puis `## Chapitre` au-dessus de chaque chapitre |
-| `bible`, `project` | toutes | Book Bible JSON ; archive de projet (ci-dessous) |
+### Accounts, automation and settings
 
-`allow_source=true` exporte une traduction inachevée (originaux conservés) en EPUB comme en texte ; sans lui, un export texte incomplet répond 409. `POST /api/exports/text {project_ids, allow_source, consolidated}` exporte plusieurs volumes (une série) : un dossier `NN - Titre/` par volume avec ses chapitres et son manifeste. Le rendu texte (`engines/exports/text.py`) suit `Chapter.import_meta["layout"]` pour TXT/JSON (lignes, lignes vides, indentation, séparateurs de scène) et donne un paragraphe par unité pour un EPUB, sans `<title>` ni attributs ; le titre d’un chapitre EPUB est la traduction de l’unité d’où il a été lu. Aucun marqueur `⟦…⟧` n’est écrit. L’aperçu d’un chapitre TXT/JSON est un HTML simple construit depuis le layout, texte échappé, même CSP que l’aperçu EPUB, sans lire d’EPUB.
+| Table | Content |
+| --- | --- |
+| `users`, `login_sessions`, `memberships` | Accounts, sessions, and per-book sharing roles. |
+| `providers` | Model providers; API keys encrypted with `SECRET_KEY`. |
+| `prompts` | Prompt overrides saved from the interface. |
+| `api_tokens` | Owner, name, SHA-256 of the secret, displayable prefix, scopes, expiry, revocation, last use, optional webhook signing secret (encrypted). |
+| `translation_requests` | Automation requests: owner, token, `external_id`, `Idempotency-Key`, payload hash, series, volume, job, status, options (input kind, intake decisions), chapters, error, report, stored `artifact` (path, format, size, SHA-256) and webhook state. |
+| `app_settings` | Settings saved from the interface (autopilot, webhooks, OpenViking, SearXNG, provider recovery), watermarks and markers. |
 
-Markdown, HTML et DOCX (0.6, `engines/ingestion/{markdown,html,docx,document}.py`) : un fichier est un chapitre, lu en blocs (titres, paragraphes, éléments de liste, citations ; code, tableaux Markdown, `<pre>`, règles horizontales et séparateurs gardés tels quels, non traduits), puis transformé exactement comme un chapitre TXT (unités, passages, layout). Le balisage de bloc à restituer dans les exports texte (`## `, `- `, `> `) voyage dans l’`indent` du layout, jamais dans le texte traduit ; la mise en forme en ligne d’un fichier Markdown (`*italique*`, liens) reste dans le texte, celle du HTML et du DOCX est aplatie. HTML : analyseur lxml sans réseau, commentaires, scripts, styles, `<nav>` et formulaires ignorés, déclarations d’entités refusées. DOCX : ZIP et XML lus avec les contrôles de l’import EPUB (`unpack_archive` : tailles, ratios, chemins, entrées dupliquées ; `xml` : pas d’entités), titres d’après le style de paragraphe (`Title`, `heading N` ou niveau hiérarchique), paragraphes des tableaux et zones de texte compris, révisions supprimées et copies de repli (`mc:Fallback`) ignorées ; métadonnées de `docProps/core.xml`. Aucune dépendance ajoutée. L’API d’automatisation (`/api/v1`) accepte toujours du texte brut : les formats structurés passent par `/api/imports`.
+### JSON rather than JSONB
 
-### Archive de projet, version 3
+Document columns (`projects.bible`, `jobs.checkpoint`, `llm_requests.messages`, `segments.units`…) use
+SQLAlchemy `JSON`, which is `json` in PostgreSQL. This is deliberate:
 
-`translation-project.zip` contient `project.json` et les fichiers sources sous des noms fixés par Libris : `sources/<n>.epub|txt|json` (toutes les `SourceAsset` du volume) et, pour les chapitres JSON, `texts/<n>.txt`. `project.json` (`schema_version: 3`) ajoute aux données de la version 2 :
+- no query filters or indexes inside a document; everything is read by row and used in Python;
+- `jsonb` reorders object keys. Objects read back from the database are serialized into prompts, so a
+  new key order would change prompt bytes, invalidate the response cache and the providers' prefix
+  cache, and make every book in progress pay its calls again;
+- converting would rewrite every table under an exclusive lock for no benefit.
 
-- `series` : `{name, kind, authors}` ; le projet garde `series_name`, `volume_number`, `source_format`, `project_kind`, `external_id`, `import_meta` ;
-- `sources` : `{file, format, original_name, media_type, sha256, meta}` ;
-- par chapitre : `asset` (fichier source), `external_id`, `chapter_number`, `source_checksum`, `import_meta` (layout), `context_stale`, et pour TXT/JSON `text_source {file, title, first_line_title}` : le fichier à redécouper et les options d’import qui redonnent les mêmes unités (texte source reconstruit depuis les unités et le layout pour JSON, dont le payload n’est pas un texte de chapitre) ;
-- glossaire avec `series_override`.
+For a hand-written query that needs a JSON operator, cast: `column::jsonb ? 'key'`. If a feature one day
+needs to query inside a document, convert that one column with
+`JSON().with_variant(JSONB(), "postgresql")`, a dedicated migration and a GIN index.
 
-Restauration (`POST /api/projects/import`) : seuls `project.json`, `original.epub` (versions 1 et 2) et les noms `sources/…`, `texts/…` ci-dessus sont admis, aucun n’est utilisé comme chemin ; nombre d’entrées (`MAX_ENTRIES`), tailles déclarées (`MAX_UNPACKED_MB`), ratio de compression, lecture bornée par la taille déclarée, empreintes SHA-256 et cohérence sources/chapitres sont vérifiés avant toute écriture. Un EPUB est réimporté par `import_book` (découpe de l’archive) ; un volume TXT/JSON est recréé par `TxtAdapter`/`text_chapter` avec les `resource` enregistrées, donc les mêmes identifiants d’unités, puis chaque passage doit avoir le même texte source que dans l’archive, sinon refus. Tout est fait dans une transaction, fichiers retirés en cas d’échec. La personne qui restaure devient propriétaire, la série est retrouvée ou créée par nom normalisé parmi les siennes (`get_or_create_series`), un second conteneur de feuilleton ou un `external_id` de volume déjà pris dans la série sont refusés (409), aucun provider n’est restauré. `NOT_ARCHIVED` liste les colonnes volontairement absentes ; un test échoue si une nouvelle colonne n’est ni archivée ni listée.
+## Context and series rules
 
-## Sécurité
+**Priority.** Instructions > validated human decisions > locked glossary > locked series terms >
+validated structured data > external retrieval > automatic summaries > neighbouring passages >
+inferences.
 
-- Pas d’extraction ZIP sur des chemins choisis par le livre ; contrôle des chemins, doublons, symlinks, tailles et ratios.
-- Pas d’entités XML externes ni de chargements réseau du parseur.
-- Aucun HTML généré par le modèle n’est accepté comme structure DOM.
-- Preview assainie + iframe sans permissions + CSP restrictive.
-- Clés chiffrées en SQL, aucune clé dans les réponses API, traces ou exports.
-- Connexions réseau configurées par l’administrateur ; absence de redirections et de proxy d’environnement implicites.
-- Bibliothèques privées et contrôle d’accès par projet, y compris pour les logs, SSE, versions et exports.
-- Cookies HttpOnly/SameSite, contrôle d’origine, limitation des tentatives de connexion.
-- Paramètres Docker persistants, migrations séparées, processus non-root.
-- Conteneurs (0.6) : `no-new-privileges` et `cap_drop: [ALL]` partout (la base garde les cinq capacités dont son point d’entrée a besoin pour posséder ses données puis passer à l’utilisateur `postgres`), systèmes de fichiers racine en lecture seule, `/tmp` en mémoire et fichiers temporaires volumineux sur le volume de données (`TMPDIR=/data/tmp`).
-- Dépendances Python installées avec `--require-hashes` depuis des verrous hachés (`backend/requirements.lock`, `codex_bridge/requirements.lock`, `scripts/hash_lock.py`) : un fichier publié modifié ou substitué est refusé à la construction de l’image.
+**Budget.** The provider's window minus the reserved output, the operation's response schema and a
+safety margin checked by `llm.complete`. Sizes are measured on the serialized sections (escapes and
+tags included); `input_estimate` is exactly what `llm.complete` compares with the window. If the passage
+and its mandatory rules do not fit, the error gives the numbers (window, output, schema, system prompt,
+passage, rules) and the window that would suffice. A first translation is then cut at sentence
+boundaries into parts sized for the window (half of what remains after the rules; the other half goes
+to the neighbourhood), translated with their context and reassembled; a revision only cuts between
+whole units.
 
-## Évolutions prévues
+**Neighbourhood.** Neighbouring passages are served first so that a passage is never isolated, but
+they get at most 60% of the optional budget (two thirds of it for what precedes) as soon as other
+material is a candidate (character sheets, glossary, chapter state, memory). A neighbour that is too
+long is cut to an excerpt (end of the previous passage, start of the next one) rather than dropped.
+Instructions and the mandatory glossary are never dropped to hide an overflow. Dropped elements and
+the reason are recorded in the context inspector.
 
-La frontière `ContextProvider` permet d’ajouter d’autres moteurs sans dépendance dans le Translation Engine. Les modèles de génération sont configurables ; aucune hypothèse sur un modèle Qwen précis ou une fenêtre de 128k n’est encodée dans les prompts.
+**Narrative state versus editorial knowledge.** Character sheets and the Book Bible built from a whole
+reading are marked editorial: they must not lead the translation to reveal an ambiguity the text keeps.
+
+**Series.** A volume inherits from **earlier volumes only**: same series, same owner, lower volume
+number, and the same language pair compared on the primary subtag (`en-US` ≈ `en`). A continuous
+webnovel flow or an unnumbered volume has no earlier volume: it relies on its own chapters, read in
+order. `SERIES_CONVENTIONS` carries the terms, the human decisions, and `known_identities` (characters
+met in earlier volumes, under the names those volumes used). Term priority: explicit instruction >
+validated human decision > locked volume term (or an audited `series_override`) > locked series term > accepted
+series term > automatic proposal; for one term, a locked choice beats any unlocked one, then the most
+recent volume wins. Locked series terms are checked in the output like the book's locked glossary,
+unless the book locks the same term differently. A validated human correction of a machine
+translation records its short replacements and the names in the passage; a later volume that mentions
+those names receives them in `SERIES_CONVENTIONS.human_decisions`.
+
+**Translation memory.** Before calling the model for a first translation, Libris reuses a finished
+passage with the same `source_key`, same owner, same source language (primary subtag) and same target
+language; a version validated by a person comes first. In a series, only the same book and earlier
+volumes qualify. Units are copied only if the marker structure is valid and the locked glossary
+(series included) is respected. The version's origin is `translation_memory`; review, revision and
+final review then apply normally. A forced rerun always calls the model. With several passages in
+flight, passages with the same `source_key` in one job run one after the other, so the second reuses
+the first instead of racing it.
+
+**Prompts.** Section contents escape `<` and `>`, so book text cannot close a section. `load_prompt`
+adds to every prompt, overrides included, an "untrusted data" clause and, for operations that write or
+review, a register rule (formal or informal address) and the target language's typography; languages
+are named ("French (fr)"). The prompt version is `file-v3` or `db-vN`, suffixed with `+rules-v1`. The
+JSON schema is sent once: in `response_format` in structured mode, otherwise in a system message.
+
+**Section order** (`context/prefix.py`). Providers with a prefix cache (OpenAI and compatible servers,
+vLLM, llama.cpp, DeepSeek) only recompute or bill what follows the first byte that differs from an
+earlier request. The user message is therefore written from the most stable to the most variable:
+book context (`EDITORIAL_BOOK_CONTEXT`, character register), then what holds for the chapter or job
+(`USER_RULES`, chapter context), then what the names in the passage select (glossaries, identities,
+sheets, relations, series conventions), then retrieved memory and chapter state, the neighbours, the
+operation's material (`CURRENT_TRANSLATION`, `REVIEW`…) and finally `TARGET_TEXT`, always last.
+`scripts/measure_prompt_cost.py` measures the effect on a given configuration.
+
+## Jobs, leases and the worker
+
+### Claiming and leases
+
+A job is claimed in a transaction: `pending` jobs, `waiting` jobs whose retry time has come, and
+running jobs whose lease expired. A provider's `max_concurrency` bounds how many jobs use it at once.
+The lease lasts 60 seconds and is renewed by a heartbeat every `WORKER_HEARTBEAT_SECONDS` (2) on a
+dedicated thread pool. Leases are written and compared with the **database clock**, read in the same
+statement (`jobs/clock.py`: `clock_timestamp()` in PostgreSQL, the host clock with SQLite), so workers
+with drifting or jumping clocks never steal a live job or believe they lost theirs. Durations inside
+one process (heartbeat grace, call timeouts) use `time.monotonic()`.
+
+A job with no provider (deleted, or never chosen) is marked `blocked` with the reason instead of
+waiting forever.
+
+### Checkpoint and per-passage state
+
+`jobs.checkpoint` holds only a cursor and counters: `step`, `current`, `total`, `segment_id`,
+`consecutive_failures`, recovery flags, `review_targets`, the autopilot round and phase. Its size does
+not depend on the book (always under 4 KB); it is rewritten at each passage and returned by
+`GET /api/projects/{id}/jobs`.
+
+What a job settled passage by passage lives in `job_segment_state` (primary key `job_id, step,
+segment_id, key`; idempotent writes):
+
+| `step` | Meaning |
+| --- | --- |
+| `finished` | Nothing left to do for this passage in this job (including a human correction or a kept original during the job). |
+| `started` | A forced rerun already applied its new version. |
+| `review_target`, `reviewed` | The frozen scope of the final review, and its outcome (`resolved`, `needs_human`, `protected`, `failed`, with `data.revised`). |
+| `recovery_target` | Passages retried by the automatic recovery pass. |
+| `repair` | One validated four-unit group of a passage being repaired (`key` = revision:operation:start). |
+| `bible`, `consistency` | Book Bible batches and consistency samples already processed (empty `segment_id`). |
+| `analysis_skipped` | Autopilot: analysis given up for this passage. |
+| `autopilot_ladder`, `autopilot_arbitrated` | Autopilot: passage taken through the recovery ladder, or its open points arbitrated, during round `key` (`r1`, `r2`…), with the outcome. |
+
+Progress (`project.progress`, `stats`) reads these rows. Once a job has been finished for
+`RETENTION_JOB_STATE_DAYS`, only its `reviewed` rows are kept. Project archives carry these rows with
+their jobs.
+
+### The event loop and threads
+
+All jobs of a worker share one asyncio loop, so a synchronous query or a long CPU loop there would
+delay the other jobs' heartbeats and cost them their lease. SQL sessions and work proportional to the
+book (context preparation, memory scoring, consistency sampling, model call admission and logging,
+result writes) run in threads, one session per call: eight threads for this work and two reserved for
+lease renewals, below the connection pool size. A per-job lock serializes the checkpoint's
+read-modify-write inside a worker (PostgreSQL already does it with `FOR UPDATE`; SQLite reads before
+taking its write lock).
+
+### Several passages of one book at once
+
+Translation, final review and consistency checks process several passages of a book at once, in a
+sliding window: passages start in book order, and at most N are in flight. N is the provider's
+`max_concurrency`, shared equally (rounded up) among the books using it at that moment and read again
+before each start; `WORKER_BOOK_PARALLELISM` caps it (`1` makes processing strictly sequential). In
+each process, calls to a provider go through a queue sized to its capacity, served in arrival order,
+before the database-level admission that bounds all processes together.
+
+The trade-off: a passage's context only contains what is already saved. A previous neighbour still in
+flight shows its source only, and its narrative state is missing from `CHAPTER_STATE`; with N passages
+in flight, at most the N − 1 previous ones are affected. With `WORKER_BOOK_PARALLELISM=1`, each passage
+sees the translation of all the passages before it.
+
+Analysis stays sequential: each analysis reads the chapter summary, characters and relations left by
+the previous passages and rewrites the summary "up to this point"; in parallel, the chronological
+memory would be built out of order. Book Bible synthesis stays sequential for the same reason.
+
+Resumption and safety:
+
+- A passage is marked `finished` only once all its steps are saved. Every write checks the lease and
+  the passage revision; a version already applied is not applied again.
+- A pause, a cancellation, a lost lease or a worker shutdown cancels every call in flight (its request
+  becomes `interrupted`); the first error of one passage (provider outage, authentication) stops the
+  others too. Interrupted passages are not marked, so a resume restarts them from what they saved,
+  without redoing finished ones or emitting events for them.
+- The ten-consecutive-failures counter follows the order in which passages finish. It never stops an
+  autopilot job or a pipeline with automatic recovery.
+- **Lock order.** The worker locks its job row (`fence`) before any passage row. API actions that touch
+  a passage and the book's live jobs (human correction, kept original, queuing an accepted proposal)
+  first lock those jobs (`lock_live_jobs`, by increasing id), then the passage, so a passage/job
+  deadlock with the worker cannot happen in PostgreSQL.
+
+### Outages and failures
+
+A provider outage suspends the job as `waiting` with an exponential delay (the saved **Automatic
+recovery** delay, else `PROVIDER_RECOVERY_BASE_SECONDS`, capped by `PROVIDER_RECOVERY_MAX_SECONDS`);
+refused credentials make it `blocked`. Under the autopilot, the fallback chain takes over after a
+bounded wait ([autopilot](autopilot.md#fallback-providers-and-outages)). A database outage suspends the
+job as `waiting`; a worker shutdown puts it back to `pending`.
+
+### Automation requests
+
+A request of the [automation API](api.md) is saved (row, payload file, chapters when the volume is
+free) before the API answers. The worker's request dispatcher checks live requests every 2 seconds:
+it imports the chapters of queued requests once no job is active on the volume, starts their pipeline
+once no job holds it, and settles running requests from their job's state (building and storing the
+result, writing the report, failing stalled or overdue requests). The API also settles a request
+before answering, so a client never waits for the next pass. Webhooks are sent by a separate worker
+loop, never by the API.
+
+## Exports and project archives
+
+`GET /api/projects/{id}/export/{format}`:
+
+| Format | Sources | Content |
+| --- | --- | --- |
+| `epub` | EPUB only (`409` for other sources) | The EPUB rebuilt from the original, validated by EPUBCheck. |
+| `txt` | All | One file: the volume title, then each chapter under its title, chapters separated by two blank lines. |
+| `txt-zip` | All | `chapters/NNN - Title.txt` (UTF-8, reading order, zero-padded, cleaned unique names) and `manifest.json` (SHA-256 of each file, incomplete chapters); `consolidated=true` adds the single file. |
+| `md` | All | `# Volume`, then `## Chapter` above each chapter. |
+| `bible` | All | The Book Bible as JSON. |
+| `project` | All | The project archive, below. |
+
+`allow_source=true` exports an unfinished translation with the originals in place of missing passages;
+without it, an incomplete export answers `409`. `POST /api/exports/text` exports several volumes (a
+series) as one ZIP with a `NN - Title/` folder per volume, and `POST /api/exports/epub` several
+translated EPUB files. Text rendering follows the stored layout for text sources and gives one
+paragraph per unit for an EPUB; no internal `⟦…⟧` marker is ever written.
+
+### Project archive (schema version 3)
+
+`translation-project.zip` contains `project.json` and the source files under names Libris sets:
+`sources/<n>.epub|txt|json` (every source file of the volume) and, for JSON chapters, `texts/<n>.txt`.
+`project.json` holds the volume, its chapters, passages, versions, memory, glossary, jobs and job state,
+plus the series (`name`, `kind`, `authors`), the source files (`file`, `format`, `original_name`,
+`media_type`, `sha256`, `meta`), and for each text chapter the file to cut again and the options that
+give back the same units.
+
+The archive keeps everything that makes up the work on the book: settings (title, series and volume,
+languages, quality, memory backend, instructions), chapter and passage instructions, translations with
+their status, stage, critiques and uncertainties, the full version history, glossary, Book Bible and
+its revisions, characters, merges and links, memories, quality issues, jobs with their checkpoints and
+per-passage state, and the figures of the model calls (operation, model, tokens, duration, cost,
+status). It serves as a backup of one volume or to move it to another instance. Export refuses an
+archive that the import could not read back (`MAX_UPLOAD_MB`, `MAX_UNPACKED_MB`), and the message
+names the setting to raise on both servers.
+
+Restoring (`POST /api/projects/import`) validates everything before writing anything: only
+`project.json`, `original.epub` (archives of schema 1 and 2) and the `sources/…` and `texts/…` names are
+accepted, none is used as a path; entry count, declared sizes, compression ratio, reads bounded by the
+declared size, SHA-256 checksums and the consistency between sources and chapters are all checked. An
+EPUB is imported again from the archive; a text volume is recreated with its recorded resources, so the
+unit identifiers match, and every passage must have the same source text as in the archive. It all
+happens in one transaction, and files are removed on failure. The restoring user becomes the owner;
+the series is found or created by normalized name among theirs; a second continuous flow or an already
+used volume `external_id` in the series is refused (`409`). Owners, members, permissions and providers
+are never restored, nor are the full prompts and answers of model calls, progress events and the
+OpenViking send queue. Interrupted jobs come back paused, without provider, so nothing restarts or is
+billed without an action; an archived book comes back active. Archives of schema versions 1 and 2
+remain readable. `NOT_ARCHIVED` lists the
+columns deliberately left out; a test fails if a new column is neither archived nor listed.
+
+## Security design
+
+**Untrusted files**
+
+- ZIP archives (EPUB, DOCX, project archives) are never extracted to paths the file chooses. Paths,
+  duplicate entries, symbolic links, sizes, entry count and the whole-archive compression ratio are
+  checked before anything is unpacked (`MAX_UNPACKED_MB`, `MAX_ENTRIES`, `MAX_COMPRESSION_RATIO`).
+- XML parsers refuse entity declarations and never load DTDs or network resources; glossary TBX files
+  use the same reader.
+- Request bodies are bounded before they are buffered: 1 MiB without a session or Bearer token,
+  `MAX_UPLOAD_MB` or `API_MAX_PAYLOAD_MB` otherwise. EPUBCheck runs are bounded in number and memory.
+
+**Error messages**
+
+- Messages are written in French where they are raised; when a request prefers English
+  (`Accept-Language: en`, sent by the interface in English), the exception handlers translate the
+  `detail` from the catalog in `backend/app/i18n.py`. Translation only rewrites the message text and
+  never adds internal information. A test fails if a message raised in the code has no English entry.
+- Unexpected errors answer with a diagnostic reference that points to the server log, never with a
+  stack trace. Validation errors of the automation API never echo submitted values.
+
+**Model output and previews**
+
+- Model-generated HTML is never accepted as DOM structure; translations are text reinjected into the
+  original markup.
+- Chapter previews are sanitized and shown in a sandboxed iframe under a restrictive Content Security
+  Policy. The interface sends a strict CSP, `X-Frame-Options`, `nosniff` and a same-origin referrer
+  policy.
+
+**Secrets**
+
+- Provider keys, the OpenViking key, token webhook secrets and the saved webhook secret are encrypted
+  at rest with `SECRET_KEY` (at least 32 characters). They never appear in API answers, traces or
+  exports; the automation API names a provider and model only.
+- API tokens are stored as SHA-256 hashes and compared in constant time.
+
+**Access**
+
+- Libraries are private, with per-book access control, including logs, event streams, versions and
+  exports. Non-administrators see providers without their address. Changing the address or type of a
+  provider that holds a key requires entering the key again, so a stored key is never sent to a new
+  host.
+- A shared editor cannot attach a book to a series of the owner that contains books the editor cannot
+  read.
+- Session cookies are HTTP-only, `SameSite=Strict`, and `Secure` with `COOKIE_SECURE=true`. State-
+  changing requests are refused from origins outside `ALLOWED_ORIGINS` and from cross-site browser
+  contexts (`Sec-Fetch-Site`).
+- Failed sign-ins are throttled per client and account (20 failures in five minutes) and per client
+  (200). The throttle and the automation API rate limit live in each process's memory: they are not a
+  complete internet-facing abuse control.
+- `/openapi.json` requires a session and can be disabled with `OPENAPI_ENABLED=false`. `/metrics`
+  exists only when `METRICS_TOKEN` is set, and requires it.
+- Live event streams are bounded per account and per process.
+
+**Outbound connections**
+
+- Only services an administrator configured are called. Outbound clients ignore proxy environment
+  variables, do not follow redirects, and bound the size of answers (SearXNG: 2 MiB).
+- Webhooks go only to allowed hosts, to public addresses (unless an allowed private network), with the
+  address checked just before each call ([details](api.md#protections)).
+- Web search queries chosen by the model remain a possible exfiltration channel under prompt
+  injection: enable SearXNG only towards an instance you control.
+
+**Containers and supply chain**
+
+- Every container runs with `no-new-privileges` and `cap_drop: [ALL]`; the database keeps only the
+  five capabilities its entry point needs to own its data and switch to the `postgres` user. Root
+  file systems are read-only, `/tmp` is in memory, and large temporary files go to the data volume
+  (`TMPDIR=/data/tmp`). Application processes run as non-root users.
+- PostgreSQL and the Codex bridge are not published on host ports by the supplied Compose file.
+- Python dependencies are installed with `--require-hashes` from hashed lock files
+  (`backend/requirements.lock`, `codex_bridge/requirements.lock`, generated by
+  `scripts/hash_lock.py`): a modified or substituted package is refused at image build time.
+
+The operator's side (HTTPS, firewalling, backups, provider privacy terms, retention of model traces)
+is covered in [operations](operations.md) and in the repository's [security policy](../SECURITY.md).
+
+## Extending
+
+The `ContextProvider` boundary lets other memory engines be added without touching the translation
+engine. Generation models are configurable, and no assumption about a specific model family or context
+window is encoded in the prompts.

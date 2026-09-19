@@ -463,7 +463,7 @@ deploy-production:
 
 # Manual return to the version that the deployment of this tag replaced, when that version is still
 # retained on CT116 (`previous-*` images) and the database schema did not change since. Otherwise the
-# procedure stops before touching anything and points to the dump restoration (docs/release.md).
+# procedure stops before touching anything and points to the dump restoration (docs/development.md, Rollback).
 rollback-production:
   stage: deploy
   interruptible: false

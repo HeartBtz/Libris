@@ -19,6 +19,7 @@ from app.engines.memory.identities import normalized, plausible_name
 
 RECENT = 8  # characters last named, for pronouns and descriptions
 EARLIER = 6  # summaries of the passages just before
+ANCHORS = 3  # and of the passages, further back, where the recent characters were last named
 MAX_IDENTITIES = 40
 MAX_RELATIONS = 20
 SUMMARY_CHARS = 800
@@ -31,6 +32,9 @@ class Identity:
     names: list[str]
     first: int
     last: int
+    # Order of the last naming inside its passage (the analysis lists characters as they appear):
+    # of two characters named in the same passage, the later one is the more recent.
+    order: int = 0
     data: dict = field(default_factory=dict)
 
 
@@ -52,7 +56,7 @@ class Timeline:
 
     def apply(self, position: int, chapter_id: str, analysis: dict) -> None:
         """Adds what the analysis of the passage at `position` established."""
-        for character in analysis.get("characters") or []:
+        for order, character in enumerate(analysis.get("characters") or []):
             names = _names(character)
             if not names:
                 continue
@@ -72,7 +76,8 @@ class Timeline:
                 if normalized(name) not in {normalized(n) for n in target.names}:
                     target.names.append(name)
                 self.by_name[normalized(name)] = target.key
-            target.last = max(target.last, position)
+            if (position, order) >= (target.last, target.order):
+                target.last, target.order = position, order
             for key in ("gender", "pronouns", "role"):
                 if character.get(key) and not target.data.get(key):
                     target.data[key] = str(character[key])[:180]
@@ -104,7 +109,8 @@ class Timeline:
             if normalized(name) not in {normalized(n) for n in target.names}:
                 target.names.append(name)
             self.by_name[normalized(name)] = target.key
-        target.first, target.last = min(target.first, source.first), max(target.last, source.last)
+        target.first = min(target.first, source.first)
+        target.last, target.order = max((target.last, target.order), (source.last, source.order))
         for key, value in source.data.items():
             target.data.setdefault(key, value)
 
@@ -138,12 +144,24 @@ class Timeline:
             for r in analysis.get("relationships") or []
         )
 
+    def _earlier(self, recent: list[Identity]) -> list[dict]:
+        """The passages just before, preceded by the passages where the characters named most recently
+        were last named, when those are further back (a scene told in pronouns): they say who "she" or
+        "he" most likely is."""
+        window = self.passages[-EARLIER:]
+        inside = {p["position"] for p in window}
+        by_position = {p["position"]: p for p in self.passages}
+        anchors = sorted({i.last for i in recent if i.last not in inside and i.last in by_position})[
+            -ANCHORS:
+        ]
+        return [by_position[position] for position in anchors] + window
+
     def view(self, position: int, chapter_id: str, text: str, analysis: dict | None) -> list[ContextItem]:
         """Context sections for the passage at `position`: only what earlier passages established."""
         from app.engines.context.builder import mentioned
 
         own = {normalized(n) for c in (analysis or {}).get("characters") or [] for n in _names(c)}
-        ordered = sorted(self.identities.values(), key=lambda i: (-i.last, i.key))
+        ordered = sorted(self.identities.values(), key=lambda i: (-i.last, -i.order, i.key))
         recent = ordered[:RECENT]
         recent_keys = {identity.key for identity in recent}
         relevant = [
@@ -215,7 +233,7 @@ class Timeline:
                     "same_chapter": p["chapter_id"] == chapter_id,
                     "summary": p["summary"],
                 }
-                for p in self.passages[-EARLIER:]
+                for p in self._earlier(recent)
             ],
             1,
         )

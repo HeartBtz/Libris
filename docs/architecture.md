@@ -446,7 +446,8 @@ goal is speed without losing anything the strict, chronological analysis gives a
 3. **Reconciliation** (`chapter_reconciliation`, N passages at once). Each extraction is reviewed with
    the timeline **as it was before that passage**: `KNOWN_IDENTITIES` (with aliases), `RECENT_CHARACTERS`
    (the last characters named, for pronouns), `KNOWN_RELATIONSHIPS`, `KNOWN_TERMS`, `EARLIER_PASSAGES`
-   (the summaries of the six passages before), plus everything the strict analysis reads. The model
+   (the summaries of the six passages before, and first of the passages further back where the recent
+   characters were last named), plus everything the strict analysis reads. The model
    resolves aliases and references, merges entries that denote one person, keeps apart what the story
    has not tied yet, and writes the rolling chapter summary. Since the timeline is known for every
    position, these calls run in parallel. `ANALYSIS_RECONCILIATION=all` (default) reconciles every

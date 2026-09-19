@@ -26,8 +26,8 @@ open Libris to your network, tune limits or change a default.
 - **Invalid values stop the application.** Each numeric setting has an allowed range (shown below). A value out
   of range, a `SECRET_KEY` shorter than 32 characters, or a `METRICS_TOKEN` / `API_WEBHOOK_SECRET` that is set but
   too short prevents the API and the worker from starting; `docker compose logs api` names the setting.
-- **Some settings can be overridden in the interface.** Autopilot, webhooks, automatic recovery, OpenViking
-  memory and SearXNG search have a page under **Settings**. There, a saved value wins over the environment. See
+- **Some settings can be overridden in the interface.** Autopilot, webhooks, automatic recovery, the fair queue,
+  OpenViking memory and SearXNG search have a page under **Settings**. There, a saved value wins over the environment. See
   [Settings changed in the interface](#settings-changed-in-the-interface).
 
 ## Installation and network
@@ -136,6 +136,18 @@ Limits of the automation API (`/api/v1`), used by scripts and other applications
 | `API_REQUEST_MAX_HOURS` | `168` (1–8760) | A request still unfinished after this long fails. No request stays running forever. | Longer for very large books on slow providers. |
 | `DELIVERY_REPAIR_ATTEMPTS` | `3` (1–10) | Rounds of automatic repair when a delivered EPUB fails EPUBCheck, before the request fails. | Rarely. |
 
+## Fair queue
+
+Jobs are not started oldest first: the worker takes them by priority, then from the account with the fewest jobs
+running, in turn between accounts (see [architecture](architecture.md#fair-queue)). These variables are defaults
+that an administrator can override in **Settings › Queue**, where quotas can also be set per account.
+
+| Variable | Default | What it does | When to change it |
+| --- | --- | --- | --- |
+| `QUEUE_MAX_RUNNING_PER_ACCOUNT` | `0` (0–1000) | Jobs of one account (the books' owner) running at the same time. The next ones wait their turn. `0`: no limit other than the providers' capacity. | On a shared installation, so that one account cannot take every provider slot. |
+| `QUEUE_MAX_QUEUED_PER_ACCOUNT` | `0` (0–100000) | Jobs and automation requests of one account waiting to start. Beyond it, a new launch or request is refused with HTTP 429 (`queue_full`). `0`: no limit. | To stop one integration from filling the queue. |
+| `QUEUE_PRIORITY_AGING_MINUTES` | `60` (0–10080) | A waiting job rises by one priority level each time it has waited this long, so a low-priority job is never starved. `0`: priorities never change by themselves. | Lower it when low-priority work must not wait long behind a stream of high-priority jobs. |
+
 ## Webhooks
 
 Webhooks notify an integration when an API request finishes. They are **off** until at least one host is
@@ -204,6 +216,7 @@ makes.
 | **Autopilot** | `GET`, `PUT`, `DELETE /api/settings/autopilot` | All `AUTOPILOT_*` variables |
 | **Automation API** (webhooks part) | `GET`, `PUT`, `DELETE /api/settings/webhooks` | All `API_WEBHOOK_*` variables |
 | **Automatic recovery** | `GET`, `PUT`, `DELETE /api/settings/recovery` | `PROVIDER_RECOVERY_BASE_SECONDS` (5–3600 seconds). `PROVIDER_RECOVERY_MAX_SECONDS` still applies. |
+| **Queue** | `GET`, `PUT`, `DELETE /api/settings/queue` | All `QUEUE_*` variables, plus quotas and a priority ceiling per account that have no variable |
 | **Memory · OpenViking** | `GET`, `PUT /api/settings/memory`, `POST /api/settings/memory/test` | `OPENVIKING_URL`, `OPENVIKING_API_KEY`, `OPENVIKING_ROOT_URI`, plus search options, budgets, minimum score, timeout and authentication mode that have no variable |
 | **SearXNG** | `GET`, `PUT /api/settings/searxng`, `POST /api/settings/searxng/test` | `SEARXNG_URL`, with a separate on/off switch |
 
@@ -231,6 +244,11 @@ Details per page:
 - **Automatic recovery** shows the delay in force, the value of `PROVIDER_RECOVERY_BASE_SECONDS` and whether the
   delay was saved here (badge **Delay saved here** or **Environment delay**). **Go back to the environment delay**
   (`DELETE`) forgets the saved delay; the variable applies again to the next retries.
+- **Queue** shows the values in force next to the environment values. Per-account rows override the
+  installation's quotas for one account (empty: the installation's value; `0`: no limit for that account) and may
+  allow it to ask for **High** priority, which is otherwise reserved to administrators. An API token can have
+  lower limits of its own (see [API tokens](api.md#queue-priority-and-quotas)). **Go back to the environment
+  values** (`DELETE`) forgets the page, per-account rows included.
 - **Memory · OpenViking** overrides the environment field by field. A key saved there is encrypted with
   `SECRET_KEY`; if it can no longer be read, OpenViking search is turned off and translation continues with the
   internal memory.

@@ -33,7 +33,7 @@ contributing, see [development](development.md).
 | `engines/quality` | Deterministic checks: unit ids, markup codes, empty output, length, repetition, unchanged text, terminology. |
 | `engines/delivery` | Automation requests: upload intake (`intake.py`), always-terminal lifecycle (`lifecycle.py`), completion report (`report.py`), stored results (`results.py`), EPUB delivery with automatic repair (`epub.py`), signed webhooks (`webhooks.py`). |
 | `engines/exports` | Text and Markdown renderings of a volume. |
-| `jobs` | Queue, leases and fencing (`queue.py`, `clock.py`), per-passage job state (`segment_state.py`), running work off the event loop (`concurrency.py`), automation request dispatch (`requests.py`), the worker (`worker.py`). |
+| `jobs` | Queue, leases and fencing (`queue.py`, `clock.py`), fair order, priorities and quotas (`fairness.py`), per-passage job state (`segment_state.py`), running work off the event loop (`concurrency.py`), automation request dispatch (`requests.py`), the worker (`worker.py`). |
 | `providers` | Model calls (`llm.py`: structured output, validation, retries, cache, budget, traces), OpenViking client, SearXNG, Codex bridge. |
 | `api` | Interface routes, [automation API](api.md) (`v1.py`, `tokens.py`), administration settings. |
 | `maintenance` | Retention, usage aggregation, request log compaction, provider comparison. |
@@ -174,7 +174,7 @@ SQL tables, grouped by purpose. Column types for documents are SQLAlchemy `JSON`
 
 | Table | Content |
 | --- | --- |
-| `jobs` | One job per launched operation: provider, options, status, lease (`lease_owner`, `lease_until`), `checkpoint`, `result` (the autopilot report), error and stop reason. |
+| `jobs` | One job per launched operation: provider, options, status, lease (`lease_owner`, `lease_until`), `checkpoint`, `result` (the autopilot report), error and stop reason; for the [fair queue](#fair-queue), `priority` (0 low, 1 normal, 2 high), the API token that asked for it (`token_id`), when it last entered the queue (`queued_at`) and when a worker last took it (`claimed_at`). |
 | `job_segment_state` | What a job settled passage by passage (see [below](#checkpoint-and-per-passage-state)). |
 | `events` | Progress events streamed to the interface (bounded by retention). |
 | `llm_requests` | Every model call: messages, answer, tokens, cost, status, context inspector. |
@@ -189,9 +189,9 @@ SQL tables, grouped by purpose. Column types for documents are SQLAlchemy `JSON`
 | `users`, `login_sessions`, `memberships` | Accounts, sessions, and per-book sharing roles. |
 | `providers` | Model providers; API keys encrypted with `SECRET_KEY`. |
 | `prompts` | Prompt overrides saved from the interface. |
-| `api_tokens` | Owner, name, SHA-256 of the secret, displayable prefix, scopes, expiry, revocation, last use, optional webhook signing secret (encrypted). |
+| `api_tokens` | Owner, name, SHA-256 of the secret, displayable prefix, scopes, expiry, revocation, last use, optional webhook signing secret (encrypted), queue limits (`max_priority`, `max_running`, `max_queued`). |
 | `translation_requests` | Automation requests: owner, token, `external_id`, `Idempotency-Key`, payload hash, series, volume, job, status, options (input kind, intake decisions), chapters, error, report, stored `artifact` (path, format, size, SHA-256) and webhook state. |
-| `app_settings` | Settings saved from the interface (autopilot, webhooks, OpenViking, SearXNG, provider recovery), watermarks and markers. |
+| `app_settings` | Settings saved from the interface (autopilot, webhooks, OpenViking, SearXNG, provider recovery, queue quotas), watermarks and markers. |
 
 ### JSON rather than JSONB
 
@@ -283,6 +283,30 @@ one process (heartbeat grace, call timeouts) use `time.monotonic()`.
 
 A job with no provider (deleted, or never chosen) is marked `blocked` with the reason instead of
 waiting forever.
+
+### Fair queue
+
+`claim` does not take the oldest job. It reads every job it may start and sorts them (`jobs/fairness.py`):
+
+1. running jobs whose lease expired (their worker stopped), since they already held a slot;
+2. the highest **effective priority**: the job's priority, plus one level for every
+   `QUEUE_PRIORITY_AGING_MINUTES` waited since it was queued (launch or resume), up to high;
+3. the account (the book's owner) with the fewest jobs running now, then the API token with the fewest;
+4. the account whose last job was taken the longest ago (`max(claimed_at)`), so accounts of equal load
+   take turns;
+5. the time the job was queued, then its creation.
+
+It then walks that order with the existing checks: the provider's `max_concurrency` (provider row locked with
+`SKIP LOCKED`), then the account's running quota and the token's own one, each counted under a `SKIP LOCKED`
+lock of the `users` or `api_tokens` row so that two workers cannot both take the last place. A job over a quota
+is skipped and stays `pending`; nothing about leases, checkpoints or `book_parallelism` changes. The waiting
+quota is checked where work enters the queue (a launch, a resume, an automation request, an import that starts
+its volumes), not by the worker: an accepted request always starts.
+
+`GET /api/queue` runs the same order without locks to tell each waiting job its place in its provider's line and
+what holds it (`provider_busy`, `account_limit`, `token_limit`, `retry_scheduled`, `provider_missing`, or
+`starting`). Quotas and aging are runtime settings (`app_settings["queue"]`, see
+[configuration](configuration.md#fair-queue)).
 
 ### Checkpoint and per-passage state
 

@@ -23,10 +23,11 @@ française.
 9. [Réglages d’un livre](#réglages-dun-livre)
 10. [Exporter](#exporter)
 11. [Les séries](#les-séries)
-12. [Mon compte et les jetons d’API](#mon-compte-et-les-jetons-dapi)
-13. [Paramètres de l’installation (administrateurs)](#paramètres-de-linstallation-administrateurs)
-14. [Comprendre la traduction](#comprendre-la-traduction)
-15. [Questions fréquentes](#questions-fréquentes)
+12. [Glossaires partagés](#glossaires-partagés)
+13. [Mon compte et les jetons d’API](#mon-compte-et-les-jetons-dapi)
+14. [Paramètres de l’installation (administrateurs)](#paramètres-de-linstallation-administrateurs)
+15. [Comprendre la traduction](#comprendre-la-traduction)
+16. [Questions fréquentes](#questions-fréquentes)
 
 ## Premiers pas
 
@@ -520,10 +521,30 @@ Les termes proposés par l’analyse portent **À relire** et ne sont pas accept
 humain** crée un terme verrouillé. Quand vous changez ou supprimez un terme, les passages concernés sont marqués
 à réévaluer.
 
-**Importer un glossaire** accepte JSON, CSV (séparateur `;` ou `,`, en-têtes français ou anglais comme « Terme
-source ; Traduction ») et TBX, le format d’échange des outils de traduction. L’import reconnaît le format au
-contenu et ne remplace jamais un terme déjà présent. **Exporter le glossaire** produit ces trois formats ; en TBX,
-un terme verrouillé est *preferred*, un terme accepté *admitted* et une proposition non acceptée *deprecated*.
+**Importer un glossaire** accepte JSON, CSV (séparateur `;`, `,` ou tabulation, en-têtes français ou anglais
+comme « Terme source ; Traduction », fichier UTF-8 avec ou sans BOM, ou enregistré par Excel sous Windows) et TBX,
+le format d’échange des outils de traduction. L’import reconnaît le format au contenu, puis ouvre un **Aperçu de
+l’import** sans rien enregistrer :
+
+- le format, l’encodage et le séparateur détectés, et le nombre de termes lus ;
+- les **nouveaux** termes, les termes **identiques**, les **conflits** avec un terme déjà présent (même source, à
+  la casse près), les **doublons** du fichier (seule la première ligne compte) et les **lignes invalides**, qui
+  seront ignorées ;
+- pour un CSV, les **Colonnes** : choisissez quelle colonne contient l’expression source, la traduction, la
+  catégorie, la description et les cases Verrouillé / Accepté, le **Séparateur**, et si **La première ligne
+  contient les noms de colonnes** ; l’aperçu se met à jour ;
+- **En cas de conflit** : **Garder les termes en place** (par défaut), **Remplacer les termes non verrouillés** ou
+  **Tout remplacer, termes verrouillés compris**. Le tableau des conflits indique pour chacun **Remplacé** ou
+  **Conservé**.
+
+**Appliquer l’import** enregistre ces décisions ; les passages concernés sont marqués à réévaluer.
+**Exporter le glossaire** produit JSON, CSV, **CSV (tableur, point-virgule)** (avec BOM, s’ouvre directement dans
+Excel) et TBX ; en TBX, un terme verrouillé est *preferred*, un terme accepté *admitted* et une proposition non
+acceptée *deprecated*.
+
+Dans une série, la carte **Termes appliqués à ce livre** montre les termes que la traduction reçoit de la série
+ou d’un glossaire partagé, avec leur niveau (**Livre**, **Vol. n**, **Décision de série**, **Glossaire partagé**,
+**Dérogation**) et la traduction qu’ils remplacent.
 
 ## Réglages d’un livre
 
@@ -610,7 +631,7 @@ lecture seule et ne montre que les volumes partagés.
 | **Chapitres** | Webnovels et volumes texte : progression de chaque chapitre, **Filtrer par volume** |
 | **Importer** | L’assistant d’import, déjà positionné sur la série (propriétaire seulement) |
 | **Series Bible** | Univers, conventions, chronologie, personnages et relations de la série |
-| **Glossaire** | **Glossaire de série** et **Dérogations des volumes** |
+| **Glossaire** | **Glossaire partagé** suivi, **Glossaire de série** et **Dérogations des volumes** |
 | **Identités** | Personnages, lieux, organisations et objets reconnus d’un volume à l’autre |
 | **Relations** | Les liens entre identités |
 | **Mémoire** | État OpenViking de la série, volume par volume |
@@ -633,6 +654,14 @@ alors à jour identités et glossaire sans la remplacer) ; **Rendre aux volumes*
 volume. Un terme verrouillé dans un volume antérieur est contrôlé comme un terme verrouillé du livre, sauf si le
 livre verrouille lui-même une autre traduction. **Ajouter un terme de série**, le verrouiller, le modifier ou le
 supprimer ; la liste des **Dérogations des volumes** montre les volumes qui gardent leur propre traduction.
+**Importer un glossaire** et **Exporter** fonctionnent comme pour un livre (aperçu, colonnes, conflits) ; les
+termes importés comptent comme des décisions de la série.
+
+**Glossaire partagé.** La carte **Glossaire partagé** rattache la série à un glossaire partagé (voir
+[Glossaires partagés](#glossaires-partagés)) : choisissez-le dans **Glossaire partagé suivi**, puis
+**Enregistrer** ; **Aucun** le détache. Ordre de priorité : le livre, puis la série, puis le glossaire partagé. Un
+terme verrouillé d’un niveau plus large l’emporte sur un terme non verrouillé proposé automatiquement ; une
+dérogation du volume ou une décision de série l’emporte toujours.
 
 **Identités.** Libris propose de relier les personnages (et lieux, organisations, objets) d’un volume à l’autre,
 avec la première apparition et la confiance. Rien n’est fusionné sans vous : **Confirmer le lien**, **Rejeter le
@@ -650,6 +679,23 @@ les volumes existants gardent leurs réglages.
 **Gestion.** **Archiver la série** retire la série et ses volumes de la bibliothèque active sans rien supprimer ;
 **Restaurer la série** les ramène. **Supprimer la série** n’est possible que pour une série vide. Le **Journal de
 la série** liste les décisions qui l’engagent : fusions, séparations, glossaire, dérogations.
+
+## Glossaires partagés
+
+**Glossaires partagés** (barre latérale) réunit la terminologie commune à plusieurs séries d’un même univers
+(noms de lieux, titres, sorts…). Chaque compte a ses propres glossaires partagés.
+
+- **Nouveau glossaire** : un nom, une description et, facultativement, les langues source et cible. Avec des
+  langues, le glossaire ne s’applique qu’aux volumes de la même paire de langues, et une série d’une autre paire
+  ne peut pas le suivre.
+- Ouvrir un glossaire affiche les **Séries qui le suivent** et ses **Termes** : traduction, catégorie,
+  **Verrouillé**, **Accepté**, **Ajouter un terme**. Seuls les termes acceptés sont appliqués ; un terme
+  verrouillé est imposé et contrôlé dans chaque passage, comme un terme verrouillé du livre.
+- **Importer un glossaire** (même aperçu que pour un livre) et **Exporter** (JSON, CSV, CSV pour tableur, TBX).
+- **Supprimer le glossaire** supprime ses termes ; les séries qui le suivaient n’en reçoivent plus.
+
+Une série suit un glossaire partagé depuis son onglet **Glossaire**. Le pilote automatique respecte les termes
+verrouillés : une proposition de l’analyse qui les contredit est retirée.
 
 ## Mon compte et les jetons d’API
 

@@ -196,7 +196,7 @@ Without any model call, from evidence already in the database:
 
 | Proposal | Decision | Threshold (setting) |
 | --- | --- | --- |
-| Proposed glossary term | Confidence from its occurrences in the source text (none: 0; one: 0.6; two: 0.8; three or more: 1). Accepted at or above the threshold, otherwise removed. | `AUTOPILOT_GLOSSARY_MIN_CONFIDENCE` (0.75) |
+| Proposed glossary term | A proposal that contradicts a locked term the volume inherits (series or shared glossary) is removed. Otherwise, confidence from its occurrences in the source text (none: 0; one: 0.6; two: 0.8; three or more: 1). Accepted at or above the threshold, otherwise removed. | `AUTOPILOT_GLOSSARY_MIN_CONFIDENCE` (0.75) |
 | Ambiguous series identity link | Confidence = shared names / all names, adjusted by gender. The best candidate is linked if it reaches the threshold with a lead of at least 0.1; otherwise all candidates are rejected and the character stays specific to the volume. Two identities are never merged. | `AUTOPILOT_IDENTITY_MIN_CONFIDENCE` (0.8) |
 | Book Bible | Validated when the share of analysed passages reaches the threshold. | `AUTOPILOT_BIBLE_MIN_COVERAGE` (0.8) |
 | Chapter whose context is outdated (an earlier chapter's source changed) | The flag is cleared when the job translated or reviewed enough of its passages again. | `AUTOPILOT_STALE_MIN_COVERAGE` (0.5) |

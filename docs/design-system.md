@@ -51,7 +51,7 @@ the choice is kept in `localStorage`.
 `frontend/src/styles/index.css` imports, in order: `tokens.css`, `base.css` (reset,
 typography, focus ring, reduced motion), `components.css`, `shell.css` (sidebar, page
 header) and one file per screen under `styles/screens/` (login, library, workspace, editor,
-review, panels, series).
+review, panels, series, glossaries).
 
 ## Components
 

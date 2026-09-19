@@ -31,9 +31,9 @@ contributing, see [development](development.md).
 | `engines/translation` | Analysis, translation, review, revision and polishing, global consistency, final review, repair in groups (`repair.py`), translation memory (`memory.py`), versions. |
 | `engines/autopilot` | The convergence loop (`loop.py`), recovery ladder (`recovery.py`), AI arbitration (`arbitration.py`), memory decisions (`memory.py`), provider fallback (`providers.py`), skipping optional steps (`degrade.py`) and the decision log (`decisions.py`). |
 | `engines/quality` | Deterministic checks: unit ids, markup codes, empty output, length, repetition, unchanged text, terminology. |
-| `engines/delivery` | Automation requests: upload intake (`intake.py`), always-terminal lifecycle (`lifecycle.py`), completion report (`report.py`), stored results (`results.py`), EPUB delivery with automatic repair (`epub.py`), signed webhooks (`webhooks.py`). |
+| `engines/delivery` | Automation requests: upload intake (`intake.py`), always-terminal lifecycle (`lifecycle.py`), completion report (`report.py`), stored results (`results.py`), EPUB delivery with automatic repair (`epub.py`), signed webhooks (`webhooks.py`) and batches of translated chapters (`chapter_events.py`). |
 | `engines/exports` | Text and Markdown renderings of a volume. |
-| `jobs` | Queue, leases and fencing (`queue.py`, `clock.py`), per-passage job state (`segment_state.py`), running work off the event loop (`concurrency.py`), automation request dispatch (`requests.py`), the worker (`worker.py`). |
+| `jobs` | Queue, leases and fencing (`queue.py`, `clock.py`), per-passage job state (`segment_state.py`), running work off the event loop (`concurrency.py`), automation request dispatch (`requests.py`), the scope of a volume follow-up (`follow_up.py`), the worker (`worker.py`). |
 | `providers` | Model calls (`llm.py`: structured output, validation, retries, cache, budget, traces), OpenViking client, SearXNG, Codex bridge. |
 | `api` | Interface routes, [automation API](api.md) (`v1.py`, `tokens.py`), administration settings. |
 | `maintenance` | Retention, usage aggregation, request log compaction, provider comparison. |
@@ -191,6 +191,7 @@ SQL tables, grouped by purpose. Column types for documents are SQLAlchemy `JSON`
 | `prompts` | Prompt overrides saved from the interface. |
 | `api_tokens` | Owner, name, SHA-256 of the secret, displayable prefix, scopes, expiry, revocation, last use, optional webhook signing secret (encrypted). |
 | `translation_requests` | Automation requests: owner, token, `external_id`, `Idempotency-Key`, payload hash, series, volume, job, status, options (input kind, intake decisions), chapters, error, report, stored `artifact` (path, format, size, SHA-256) and webhook state. |
+| `webhook_events` | Progress webhooks of a request (`chapters.translated`): batch number, chapter ids, state, attempts, next attempt, last error. |
 | `app_settings` | Settings saved from the interface (autopilot, webhooks, OpenViking, SearXNG, provider recovery), watermarks and markers. |
 
 ### JSON rather than JSONB
@@ -369,6 +370,22 @@ once no job holds it, and settles running requests from their job's state (build
 result, writing the report, failing stalled or overdue requests). The API also settles a request
 before answering, so a client never waits for the next pass. Webhooks are sent by a separate worker
 loop, never by the API.
+
+Settling a running request whose client asked for `chapters.translated` first looks for the chapters
+of the request that now have every passage translated and records them as one batch in
+`webhook_events`; the webhook loop sends batches before final webhooks, with the same signature,
+allow-list and backoff.
+
+### Following up a volume
+
+New chapters sent to a volume that is already translated (an automation request, or an interface
+import into an existing volume or the continuous feed) are inserted by number, and the job started
+for them carries `follow_up_chapters`: the new or replaced chapters plus any chapter still missing a
+translation. Analysis and translation already skip finished passages; with this option the final
+review targets only passages of those chapters, and the consistency check samples only their
+occurrences, each against the first occurrence in the volume. Earlier chapters get no model call and
+keep their text; they only feed the context. When the scope would be the whole volume, the option is
+left out and the job behaves as a first translation.
 
 ## Exports and project archives
 

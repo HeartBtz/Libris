@@ -48,7 +48,7 @@ def done(output="", code=0):
 if args[0] == "compose":
     if "ps" in args:
         service = args[-1]
-        done(state["services"].get(service, ""))
+        done(state["services"].get(service, "migrate-container" if service == "migrate" else ""))
     if "exec" in args and "pg_dump" in args[-1]:
         done("dump")
     if "exec" in args:
@@ -59,7 +59,7 @@ if args[0] == "compose":
                 ids = {"api": os.environ["LIBRIS_IMAGE"], "worker": os.environ["LIBRIS_IMAGE"],
                        "codex": os.environ.get("LIBRIS_CODEX_IMAGE", "")}
                 state["containers"][state["services"][service]]["image"] = image(ids[service])["id"]
-            if service == "migrate":
+            if service == "migrate" and not state.get("migration_exit"):
                 state["database_revision"] = image(os.environ["LIBRIS_IMAGE"])["head"]
         done()
     done()
@@ -94,6 +94,8 @@ if args[0] == "inspect":
     if ".Image" in args[2]:
         done(container["image"])
     done("healthy" if "Health" in args[2] else "running")
+if args[0] == "wait":
+    done(str(state.get("migration_exit", 0)))
 if args[0] == "run":
     done(image(args[4])["head"])  # `alembic heads | sed` runs inside the image
 done("unexpected call", 1)
@@ -271,3 +273,41 @@ def test_a_newer_version_is_deployed_and_the_replaced_one_is_retained(tmp_path, 
     assert state["tags"]["libris-production:previous-api"] == "current"
     # 0.4.1 was the previous version before this deployment: it is no longer needed.
     assert set(state["removed"]) == {f"libris-production:{OLD}", f"libris-production:{PREVIOUS}", f"{REGISTRY}@sha256:d0"}
+
+
+def test_the_revision_is_checked_only_after_the_migration_has_exited(tmp_path, health):
+    answer, url = health
+    answer["version"] = "0.6.0"
+    new = "3" * 40
+    base, state_file, env = production(tmp_path)
+    state = json.loads(state_file.read_text())
+    state["images"]["new"] = image_state(new, "0.6.0")
+    state["images"]["new-codex"] = {**image_state(new, "0.6.0"), "id": "sha256:c333333333333"}
+    state["tags"].update({f"libris-production:{new}": "new", f"libris-codex-production:{new}": "new-codex"})
+    state_file.write_text(json.dumps(state))
+    arguments = (new, "0.6.0", "sha256:333333333333", "sha256:c333333333333")
+    assert run({**env, "LIBRIS_PRODUCTION_HEALTH_URL": url}, *arguments).returncode == 0
+    calls = json.loads(state_file.read_text())["calls"]
+    up = next(i for i, call in enumerate(calls) if call[:1] == ["compose"] and "up" in call and "migrate" in call)
+    assert "--wait" not in calls[up]  # returns while a one-shot container still runs
+    waited = next(i for i, call in enumerate(calls) if call == ["wait", "migrate-container"])
+    checked = next(i for i, call in enumerate(calls) if i > up and call[:1] == ["compose"] and "alembic_version" in call[-1])
+    assert up < waited < checked
+
+
+def test_a_failed_migration_stops_the_deployment_and_keeps_the_services_stopped(tmp_path, health):
+    answer, url = health
+    new = "3" * 40
+    base, state_file, env = production(tmp_path)
+    state = json.loads(state_file.read_text())
+    state["images"]["new"] = image_state(new, "0.6.0")
+    state["images"]["new-codex"] = {**image_state(new, "0.6.0"), "id": "sha256:c333333333333"}
+    state["tags"].update({f"libris-production:{new}": "new", f"libris-codex-production:{new}": "new-codex"})
+    state["migration_exit"] = 1
+    state_file.write_text(json.dumps(state))
+    result = run(
+        {**env, "LIBRIS_PRODUCTION_HEALTH_URL": url}, new, "0.6.0", "sha256:333333333333", "sha256:c333333333333"
+    )
+    assert result.returncode != 0
+    assert "Migration exited with status 1" in result.stderr
+    assert (base / "current-version").read_text() != "0.6.0\n"

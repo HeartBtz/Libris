@@ -155,12 +155,12 @@ what its calls have cost so far.
 | Input | How to send it | Default result |
 | --- | --- | --- |
 | **An EPUB** | `multipart/form-data` with one `.epub` file in the field `file`, options as form fields; or the raw file as `Content-Type: application/epub+zip`, options in the query string | The translated EPUB |
-| **TXT chapters** | `multipart/form-data` with one or more `.txt` files in `file` or `files`, options as form fields | JSON |
+| **TXT or DOCX chapters** | `multipart/form-data` with one or more `.txt` or `.docx` files in `file` or `files`, options as form fields; one file can be [split at its chapter headings](#one-file-holding-many-chapters) | JSON |
 | **A JSON document** | `Content-Type: application/json`; or one `.json` file in the multipart field `file` (with no other form field) | JSON (or `output.format`) |
 
-One request carries one kind of file: mixing `.epub`, `.txt` and `.json` files, or sending several
-EPUB or JSON files, is refused with `422`. Structured formats (Markdown, HTML, DOCX) are not accepted
-here: import them through the interface.
+One request carries one kind of file: mixing `.epub`, `.txt`, `.docx` and `.json` files, or sending
+several EPUB or JSON files, is refused with `422`. Markdown and HTML files are not accepted here: import
+them through the interface.
 
 Every accepted request answers `202 Accepted`, with a `Location` header pointing to its status:
 
@@ -178,7 +178,7 @@ Every accepted request answers `202 Accepted`, with a `Location` header pointing
 }
 ```
 
-`input` is `epub`, `txt` or `json`. `job_id` is `null` while the request waits for its volume
+`input` is `epub`, `txt`, `docx` or `json`. `job_id` is `null` while the request waits for its volume
 (`status: "queued"`).
 
 ### Choosing a provider
@@ -240,7 +240,7 @@ What Libris does with it:
 - If a job is already running on the volume, its settings are left alone and the request waits for it
   (the decision is recorded).
 
-### Send TXT chapters
+### Send TXT or DOCX chapters
 
 ```bash
 curl -sS -X POST "$LIBRIS_URL/api/v1/translation-requests" \
@@ -262,6 +262,37 @@ Each file becomes one chapter, and the request behaves exactly like the JSON doc
   next free number in upload order. These choices are never questions: each one is recorded with its
   reason in `report.decisions.intake`.
 - **Titles** are taken from the file names.
+- **DOCX files** are sent the same way (`.docx` instead of `.txt`, one kind per request): each one
+  becomes a text chapter made of its paragraphs, one per line; formatting is not kept.
+
+#### One file holding many chapters
+
+A webnovel often comes as one big file. Send it alone with `split=headings` and Libris cuts it at its
+chapter headings, without a preview:
+
+```bash
+curl -sS -X POST "$LIBRIS_URL/api/v1/translation-requests" \
+  -H "Authorization: Bearer $LIBRIS_TOKEN" \
+  -F "file=@The Glass Road.txt" -F split=headings \
+  -F series="Glass Road" -F volume=1 \
+  -F source_language=en -F target_language=fr
+```
+
+- **Headings.** DOCX heading styles (`Heading 1`, `Titre 1`…) first; otherwise lines such as
+  `Chapter 12`, `Chapitre 12 : Title`, `CHAPTER XII`, `第12章`, `Prologue`, `Epilogue`; otherwise numbered
+  lines (`1. Title`, `2. Title`…) only when they follow each other. A sentence that mentions a chapter
+  does not split, and a table of contents (headings with no text between them) is skipped.
+- **Chapters.** Each heading starts a chapter titled by it; its text follows the heading. Text before
+  the first heading becomes a front matter chapter (`Avant-propos`) when it has words. Numbers come
+  from the headings; a prologue, an interlude or an epilogue is numbered between its neighbours (`0.5`,
+  `5.5`, last + 1). A heading whose number goes back stays in the previous chapter.
+- **Report.** The split is a decision in `report.decisions.intake` (`split`: the number of chapters,
+  with the reason); missing numbers and skipped headings are listed there too. A file with fewer than
+  two headings stays one chapter, and that is recorded as well.
+- **Status.** `chapters.items` of the status document lists the chapters created, with their number
+  and title. Sending the same file again finds the same chapters (`unchanged`), as for any chapter.
+- `split=headings` takes exactly one file (`422 invalid_payload` otherwise) and is refused for an
+  EPUB. Without it (`split=none`, the default), each file stays one chapter.
 
 ### Send a JSON document
 
@@ -347,7 +378,8 @@ values count as "not given"; unknown options are refused.
 | `output_format` | `epub` (EPUB input only; the default for an EPUB), `json`, `txt`, `txt-zip` or `epub-bilingual`. |
 | `callback_url` | See [Webhooks](#webhooks). |
 | `callback_events` | Comma-separated extra events, for example `chapters.translated` (see `callback_events` above). |
-| `replace_changed_chapters`, `discard_human` | TXT only, as in the JSON document. |
+| `replace_changed_chapters`, `discard_human` | TXT and DOCX only, as in the JSON document. |
+| `split` | TXT and DOCX only: `headings` cuts one file at its chapter headings ([details](#one-file-holding-many-chapters)); `none` (default) keeps each file as one chapter. |
 | `filename` | Raw EPUB body only: the file name, used to guess the volume number. |
 
 ### Sending the same request twice

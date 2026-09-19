@@ -171,7 +171,7 @@ créé avant la dernière étape** : les fichiers attendent sur le serveur, et *
 | Choix | Pour quoi |
 | --- | --- |
 | **Livres EPUB** | Un ou plusieurs EPUB 2 ou 3 : les volumes d’une série ou des volumes uniques |
-| **Chapitres TXT (webnovel)** | Un fichier texte par chapitre, toujours rattaché à une série |
+| **Chapitres TXT (webnovel)** | Un fichier texte par chapitre, toujours rattaché à une série ; un fichier qui contient plusieurs chapitres peut être [découpé à ses titres](#un-fichier-qui-contient-plusieurs-chapitres) |
 | **Chapitres Markdown, HTML ou DOCX** | Un fichier par chapitre ; titres, paragraphes, listes et citations sont traduits, le code et les tableaux restent tels quels. Choisissez le **Format des chapitres** |
 | **Restaurer une archive Libris** | Un projet exporté depuis Libris (`.zip`), avec tout son travail |
 
@@ -227,6 +227,37 @@ numéros incertains.
 Certains problèmes bloquent la suite et sont comptés en rouge : numéros en double dans le lot, volume déjà présent
 dans la série sous ce numéro, série sans nom. Les numéros manquants sont seulement signalés. Les fichiers
 illisibles et les EPUB déjà présents dans votre bibliothèque sont écartés (**Fichiers écartés**).
+
+#### Un fichier qui contient plusieurs chapitres
+
+Un webnovel arrive souvent en un seul gros fichier TXT, Markdown ou DOCX. Quand Libris y trouve au moins deux
+titres de chapitre, la ligne du fichier propose **Découper en N chapitres** et montre la liste des chapitres
+trouvés (numéro, titre, taille et début du texte). Libris reconnaît :
+
+- les styles de titre d’un DOCX (**Titre 1**, **Heading 1**…) et les titres `#` d’un fichier Markdown ;
+- sinon les lignes de titre : `Chapter 12`, `Chapitre 12 : Titre`, `CHAPTER XII`, `第12章`, `Prologue`,
+  `Épilogue`, `Interlude`… ;
+- sinon des lignes numérotées (`1. Titre`, `2. Titre`…), seulement si elles se suivent.
+
+Une phrase qui cite « chapter 3 » au milieu du texte ne coupe rien, et une table des matières en tête du fichier
+(des titres à la suite, sans texte entre eux) est ignorée : elle reste dans le premier chapitre. Le texte placé
+avant le premier titre devient un chapitre **Avant-propos** s’il contient des mots. Les numéros viennent des
+titres ; un prologue ou un épilogue reçoit un numéro entre ses voisins (0,5 entre l’avant-propos et le
+chapitre 1, par exemple). Les numéros manquants et les titres hors d’ordre sont signalés.
+
+Le découpage est coché d’office quand les titres ne laissent pas de doute ; sinon il est proposé, à cocher
+vous-même. Dans la liste, vous pouvez :
+
+- changer le **Titre** ou le numéro d’un chapitre ;
+- **Fusionner avec le précédent** (le titre reste alors dans le texte du chapitre d’avant) et **Rétablir la
+  coupure** ;
+- décocher **Découper en N chapitres** pour garder le fichier en un seul chapitre.
+
+À l’import, chaque partie devient un chapitre, exactement comme si elle avait été envoyée seule dans un fichier
+portant son numéro : mêmes règles de numérotation, et un chapitre déjà présent et identique est ignoré. Un
+fichier trop long pour un seul chapitre (`TEXT_CHAPTER_MAX_CHARS`) reste importable s’il est découpé.
+
+#### Chapitres déjà présents
 
 Pour un chapitre déjà présent dans la série :
 

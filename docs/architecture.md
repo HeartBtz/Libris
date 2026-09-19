@@ -113,6 +113,16 @@ the unit of every model call.
   DOCX goes through the same archive and XML checks as EPUB; headings come from paragraph styles, and
   tables and text boxes are included. JSON chapters from the automation API go through the same text
   path.
+- **Split by headings.** `engines/ingestion/split.py` finds the chapters of one TXT, Markdown or DOCX
+  file: heading styles first (DOCX styles, Markdown `#`), then heading lines read by
+  `naming.chapter_heading` (`Chapter 12`, `CHAPTER XII`, `第12章`, `Prologue`…), then numbered lines
+  that follow each other. A run of headings with no text between them (a table of contents) is
+  skipped, headings whose number goes back stay in the previous chapter, and the text before the first
+  heading becomes a front matter chapter. Each part is then stored and read as the file it would be if
+  uploaded alone (a line range of the TXT or Markdown file, a minimal DOCX of its paragraphs), so
+  numbering, deduplication, exports and project archives treat it like any other chapter file. The
+  import assistant receives the proposal with the inspection and sends the chosen boundaries back;
+  the server only accepts starts of lines (or paragraphs) of the stored file.
 - **Identifiers.** Units of text chapters derive from a virtual resource (`txt/<hash>`, `json/<hash>`…,
   from the volume and the chapter number or external id) and the line index: importing the same chapter
   again gives the same identifiers, and a replaced chapter keeps the identifiers of unchanged lines.

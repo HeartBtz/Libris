@@ -703,7 +703,6 @@ def simulated_provider(analyst: Analyst, latency: float = 0.0, jitter: float = 0
 
 async def analyse(project_ids: list[str], options: dict, *, rounds: int = 50) -> None:
     """Runs one analysis job per volume, in volume order, until each one ends."""
-    import time
 
     from app.db import SessionLocal
     from app.jobs.queue import claim, enqueue

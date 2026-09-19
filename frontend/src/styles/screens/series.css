@@ -507,6 +507,53 @@
   font-size: var(--text-sm);
 }
 
+/* One file split into chapters at its headings. */
+.wizard-split {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.wizard-split-parts {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.wizard-split-part {
+  display: grid;
+  grid-template-columns: 88px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-1) var(--space-3);
+  min-width: 0;
+  padding: var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-sunken);
+}
+
+.wizard-split-part.is-merged {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.wizard-split-part .field {
+  min-width: 0;
+}
+
+.wizard-split-excerpt,
+.wizard-split-merged {
+  min-width: 0;
+  margin: 0;
+  font-size: var(--text-xs);
+  overflow-wrap: anywhere;
+}
+
+.wizard-split-excerpt {
+  grid-column: 1 / -1;
+}
+
 .wizard-subtitle {
   margin: 0;
   font-size: var(--text-md);
@@ -832,6 +879,20 @@ ol.bible-list {
     height: auto;
     overflow: visible;
     clip: auto;
+  }
+
+  .wizard-split-part {
+    grid-template-columns: 72px minmax(0, 1fr);
+  }
+
+  .wizard-split-part.is-merged {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .wizard-split-part .btn {
+    grid-column: 1 / -1;
+    justify-self: start;
+    min-height: var(--touch-target);
   }
 
 

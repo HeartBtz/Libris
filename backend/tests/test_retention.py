@@ -38,7 +38,7 @@ def test_retention_empties_bodies_and_trims_logs_but_keeps_what_counts(seeded):
     pid, _, provider_id = seeded
     seed(pid, provider_id)
     expected = {"request_bodies": 2, "events": 41, "outbox": 1, "bible_revisions": 4, "job_state": 0,
-                "import_sessions": 0}
+                "import_sessions": 0, "results": 0}
     assert retention.apply(dry_run=True) == expected
     with SessionLocal() as db:  # a dry run writes nothing
         assert db.scalar(select(func.count()).select_from(Event).where(Event.project_id == pid)) == retention.KEPT_EVENTS + 41
@@ -64,11 +64,11 @@ def test_zero_disables_a_rule(seeded, monkeypatch):
     old_job_state(pid)
     for name in (
         "retention_request_bodies_days", "retention_events_days", "retention_outbox_sent_days",
-        "retention_bible_revisions", "retention_job_state_days",
+        "retention_bible_revisions", "retention_job_state_days", "retention_results_days",
     ):
         monkeypatch.setattr(settings(), name, 0)
     assert retention.apply() == dict.fromkeys(
-        ("request_bodies", "events", "outbox", "bible_revisions", "job_state", "import_sessions"), 0
+        ("request_bodies", "events", "outbox", "bible_revisions", "job_state", "import_sessions", "results"), 0
     )
 
 
@@ -136,3 +136,30 @@ def test_old_finished_jobs_keep_only_their_review_outcomes(seeded):
                 assert steps == {state.REVIEWED}, name  # the review history of the book is intact
             else:
                 assert len(steps) == 6, name  # a recent or resumable job keeps everything
+
+
+def test_old_delivered_results_lose_their_file_but_keep_their_report(seeded):
+    from app.engines.delivery.results import results_dir
+    from app.models import Project, TranslationRequest
+
+    pid = seeded[0]
+    with SessionLocal() as db:
+        owner = db.get(Project, pid).owner_id
+        for name, finished in (("old", OLD), ("recent", time.time())):
+            db.add(
+                TranslationRequest(
+                    id=name, owner_id=owner, payload_sha256="0" * 64, status="completed", finished_at=finished,
+                    report={"outcome": "completed"}, artifact={"path": f"results/{name}/result.json", "format": "json"},
+                )
+            )
+        db.commit()
+        for request in db.scalars(select(TranslationRequest)):
+            results_dir(request).mkdir(parents=True)
+            (results_dir(request) / "result.json").write_text("{}")
+    assert retention.apply(dry_run=True)["results"] == 1
+    assert retention.apply()["results"] == 1
+    assert retention.apply()["results"] == 0
+    with SessionLocal() as db:
+        old, recent = db.get(TranslationRequest, "old"), db.get(TranslationRequest, "recent")
+        assert old.artifact is None and old.report == {"outcome": "completed"} and not results_dir(old).exists()
+        assert recent.artifact and (results_dir(recent) / "result.json").is_file()

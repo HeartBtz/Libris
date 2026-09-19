@@ -113,6 +113,7 @@ Le worker borne lui-même la croissance de la base : une passe au démarrage, pu
 | `RETENTION_OUTBOX_SENT_DAYS` | `7` | supprime les envois OpenViking déjà transmis. La recherche OpenViking et la reconstruction s’appuient sur les mémoires SQL, pas sur ces lignes. |
 | `RETENTION_BIBLE_REVISIONS` | `20` | garde les 20 dernières révisions automatiques de la Book Bible par livre ; les révisions humaines sont toutes conservées. |
 | `RETENTION_JOB_STATE_DAYS` | `30` | pour les jobs terminés, échoués ou annulés depuis plus longtemps, supprime l'état par passage qui ne sert qu'à la reprise (`job_segment_state` : passages finis, cibles, groupes réparés, lots de synthèse et de cohérence). Les issues de la revue finale (`reviewed`) sont gardées : elles alimentent l'historique de relecture du livre. Les jobs en pause ou en attente ne sont jamais touchés ; si un job échoué ou annulé est repris après ce délai, ses passages déjà terminés ne sont pas retraduits, sauf retraduction forcée, qui les refait. |
+| `RETENTION_RESULTS_DAYS` | `30` | supprime le fichier de résultat (`DATA_DIR/results`) des requêtes d'API terminées depuis plus longtemps. La requête et son rapport restent ; redemander le résultat le reconstruit depuis la base. |
 
 La même passe supprime les fichiers des imports expirés (`DATA_DIR/staging`, `IMPORT_SESSION_HOURS`) ; la réponse d’un import confirmé est gardée une semaine de plus pour qu’une confirmation répétée reste idempotente.
 

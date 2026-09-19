@@ -40,7 +40,7 @@ Run `python3 scripts/setup.py` in the repository root. It generates independent 
 | `AUTOPILOT_FALLBACK_PROVIDERS`             | Providers (names or ids, comma-separated) tried after the job's and the project's own fallbacks; empty |
 | `AUTOPILOT_OUTAGE_MAX_RETRIES`, `AUTOPILOT_OUTAGE_MAX_WAIT_SECONDS` | Waits for an unavailable provider before switching to the next one; `5` and `3600`. With no provider left the job ends `failed` |
 | `AUTOPILOT_GLOSSARY_MIN_CONFIDENCE`, `AUTOPILOT_IDENTITY_MIN_CONFIDENCE`, `AUTOPILOT_BIBLE_MIN_COVERAGE`, `AUTOPILOT_STALE_MIN_COVERAGE` | Thresholds (0–1) of the automatic glossary, series identity, Book Bible and outdated-context decisions; `0.75`, `0.8`, `0.8`, `0.5` |
-| `RETENTION_REQUEST_BODIES_DAYS`, `RETENTION_EVENTS_DAYS`, `RETENTION_OUTBOX_SENT_DAYS`, `RETENTION_BIBLE_REVISIONS`, `RETENTION_JOB_STATE_DAYS` | Automatic clean-up of diagnostic data (`30`, `7`, `7`, `20`, `30`; `0` disables a rule) — see the operations guide |
+| `RETENTION_REQUEST_BODIES_DAYS`, `RETENTION_EVENTS_DAYS`, `RETENTION_OUTBOX_SENT_DAYS`, `RETENTION_BIBLE_REVISIONS`, `RETENTION_JOB_STATE_DAYS`, `RETENTION_RESULTS_DAYS` | Automatic clean-up of diagnostic data and delivered API result files (`30`, `7`, `7`, `20`, `30`, `30`; `0` disables a rule) — see the operations guide |
 | `METRICS_TOKEN`                            | Empty by default: `GET /metrics` answers 404. Set a random value of at least 24 characters (`openssl rand -hex 32`) to let Prometheus scrape it with `Authorization: Bearer <token>` — see the operations guide |
 
 Changing bootstrap credentials does not reset an existing account. Changing the database password in `.env` does not change an initialized PostgreSQL role's password.

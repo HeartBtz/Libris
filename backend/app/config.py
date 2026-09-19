@@ -99,6 +99,7 @@ class Settings(BaseSettings):
     retention_outbox_sent_days: int = Field(default=7, ge=0)
     retention_bible_revisions: int = Field(default=20, ge=0)
     retention_job_state_days: int = Field(default=30, ge=0)
+    retention_results_days: int = Field(default=30, ge=0)
     # Empty: GET /metrics does not exist. Set: Prometheus must send it as a Bearer token.
     metrics_token: str = ""
 

@@ -24,6 +24,7 @@ import {
   useDialogs,
 } from "../ui";
 import { ApiTokens } from "./ApiTokens";
+import { AutopilotSettings, WebhookSettings } from "./AutomationSettings";
 import { CodexConnection } from "./CodexConnection";
 import { RecoverySettings } from "./Account";
 
@@ -37,6 +38,7 @@ registerTranslations({
   "Mémoire · OpenViking": "Memory · OpenViking",
   Utilisateurs: "Users",
   "Reprise automatique": "Automatic recovery",
+  "Pilote automatique": "Autopilot",
   "{message} — {count} résultat. Le test ne modifie pas la configuration.":
     "{message} — {count} result. The test does not change the configuration.",
   "{message} — {count} résultats. Le test ne modifie pas la configuration.":
@@ -219,6 +221,7 @@ export function Settings({ run }: { run: Run }) {
             { id: "search", label: "SearXNG" },
             { id: "prompts", label: "Prompts" },
             { id: "users", label: t("Utilisateurs") },
+            { id: "autopilot", label: t("Pilote automatique") },
             { id: "recovery", label: t("Reprise automatique") },
             { id: "api", label: t("API d’automatisation") },
           ]}
@@ -234,8 +237,13 @@ export function Settings({ run }: { run: Run }) {
             <SearchSettings run={run} />
           ) : tab === "recovery" ? (
             <RecoverySettings run={run} />
+          ) : tab === "autopilot" ? (
+            <AutopilotSettings run={run} />
           ) : tab === "api" ? (
-            <ApiTokens run={run} />
+            <div className="stack">
+              <ApiTokens run={run} />
+              <WebhookSettings run={run} />
+            </div>
           ) : (
             <Users run={run} />
           )}

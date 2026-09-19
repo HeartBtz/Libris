@@ -31,6 +31,7 @@ import { RequestDetails } from "./Editor";
 import { MemoryPanel } from "./MemoryPanel";
 import { duration, projectProgress } from "./progress";
 import { fetchAutopilot } from "./Autopilot";
+import { ProviderChain } from "./ProviderChain";
 
 registerTranslations({
   "{words} mots · {sections} sections · {images} images · {size} Mo":
@@ -241,17 +242,10 @@ registerTranslations({
   désactivé: "off",
   Activé: "On",
   "Désactivé : les décisions attendent une personne": "Off: decisions wait for a person",
-  "Fournisseurs de secours": "Fallback providers",
   "Essayés dans cet ordre quand le fournisseur du livre est en panne ou refuse ses identifiants.":
     "Tried in this order when the book's provider is down or refuses its credentials.",
-  "Aucun fournisseur de secours : seuls ceux de l’installation (AUTOPILOT_FALLBACK_PROVIDERS) sont essayés.":
-    "No fallback provider: only the installation's (AUTOPILOT_FALLBACK_PROVIDERS) are tried.",
-  "Ajouter un fournisseur de secours": "Add a fallback provider",
-  "Choisir un fournisseur…": "Choose a provider…",
-  "Monter {name}": "Move {name} up",
-  "Descendre {name}": "Move {name} down",
-  "Retirer {name}": "Remove {name}",
-  "Fournisseur inconnu ({id})": "Unknown provider ({id})",
+  "Aucun fournisseur de secours propre au livre : ceux de l’installation (Paramètres › Pilote automatique) sont essayés.":
+    "No fallback provider of the book's own: the installation's (Settings › Autopilot) are tried.",
   "Mode de relecture": "Review mode",
   "Relecture puis révision (deux appels)": "Review then revision (two calls)",
   "Relecture et révision en un appel": "Review and revision in one call",
@@ -260,8 +254,8 @@ registerTranslations({
   "Taille des passages (caractères)": "Passage size (characters)",
   "Vide : réglage de l’installation. S’applique aux chapitres importés ensuite ; les passages existants ne sont pas redécoupés.":
     "Empty: installation setting. Applies to chapters imported later; existing passages are not cut again.",
-  "Limites de l’installation (variables d’environnement) : {rounds} tours de convergence au plus, {retries} attentes d’une panne au plus, {minutes} min d’attente au plus.":
-    "Installation limits (environment variables): at most {rounds} convergence rounds, at most {retries} waits for an outage, at most {minutes} min of waiting.",
+  "Limites de l’installation (Paramètres › Pilote automatique) : {rounds} tours de convergence au plus, {retries} attentes d’une panne au plus, {minutes} min d’attente au plus.":
+    "Installation limits (Settings › Autopilot): at most {rounds} convergence rounds, at most {retries} waits for an outage, at most {minutes} min of waiting.",
 });
 
 interface Member {
@@ -317,18 +311,6 @@ export function ProjectSettings({
   const touched = () => setSaved("");
   // The installation's default is what the book gets when it has no choice of its own.
   const installationDefault = autopilot && config?.autopilot == null ? autopilot.enabled : null;
-  const providerLabel = (providerId: string) => {
-    const found = providers.find((provider) => provider.id === providerId);
-    return found ? `${found.name} · ${found.model}` : t("Fournisseur inconnu ({id})", { id: providerId });
-  };
-  const moveFallback = (index: number, delta: number) => {
-    touched();
-    setFallbacks((list) => {
-      const next = [...list];
-      [next[index], next[index + delta]] = [next[index + delta], next[index]];
-      return next;
-    });
-  };
   const field = <K extends keyof Project>(name: K, next: Project[K]) => {
     setSaved("");
     setValue((current) => ({ ...current, [name]: next }));
@@ -571,75 +553,21 @@ export function ProjectSettings({
                   />
                 </Field>
               </FormGrid>
-              <fieldset className="fallback-providers">
-                <legend className="field-label">{t("Fournisseurs de secours")}</legend>
-                <p className="field-hint">
-                  {t("Essayés dans cet ordre quand le fournisseur du livre est en panne ou refuse ses identifiants.")}
-                </p>
-                {fallbacks.length ? (
-                  <ol className="fallback-list">
-                    {fallbacks.map((providerId, index) => (
-                      <li key={providerId}>
-                        <span className="tabular subtle">{index + 1}.</span>
-                        <span className="grow fallback-name">{providerLabel(providerId)}</span>
-                        <IconButton
-                          icon="chevronUp"
-                          size="sm"
-                          label={t("Monter {name}", { name: providerLabel(providerId) })}
-                          disabled={index === 0}
-                          onClick={() => moveFallback(index, -1)}
-                        />
-                        <IconButton
-                          icon="chevronDown"
-                          size="sm"
-                          label={t("Descendre {name}", { name: providerLabel(providerId) })}
-                          disabled={index === fallbacks.length - 1}
-                          onClick={() => moveFallback(index, 1)}
-                        />
-                        <IconButton
-                          icon="x"
-                          size="sm"
-                          label={t("Retirer {name}", { name: providerLabel(providerId) })}
-                          onClick={() => {
-                            touched();
-                            setFallbacks((list) => list.filter((item) => item !== providerId));
-                          }}
-                        />
-                      </li>
-                    ))}
-                  </ol>
-                ) : (
-                  <p className="subtle">
-                    {t("Aucun fournisseur de secours : seuls ceux de l’installation (AUTOPILOT_FALLBACK_PROVIDERS) sont essayés.")}
-                  </p>
-                )}
-                {fallbacks.length < 10 && (
-                  <Field label={t("Ajouter un fournisseur de secours")}>
-                    <Select
-                      value=""
-                      onChange={(e) => {
-                        const chosen = e.target.value;
-                        if (!chosen) return;
-                        touched();
-                        setFallbacks((list) => (list.includes(chosen) ? list : [...list, chosen]));
-                      }}
-                    >
-                      <option value="">{t("Choisir un fournisseur…")}</option>
-                      {providers
-                        .filter((provider) => !fallbacks.includes(provider.id) && provider.id !== value.provider_id)
-                        .map((provider) => (
-                          <option key={provider.id} value={provider.id}>
-                            {provider.name} · {provider.model}
-                          </option>
-                        ))}
-                    </Select>
-                  </Field>
-                )}
-              </fieldset>
+              <ProviderChain
+                value={fallbacks}
+                onChange={(next) => {
+                  touched();
+                  setFallbacks(next);
+                }}
+                providers={providers}
+                exclude={value.provider_id ? [value.provider_id] : []}
+                hint={t("Essayés dans cet ordre quand le fournisseur du livre est en panne ou refuse ses identifiants.")}
+                empty={t("Aucun fournisseur de secours propre au livre : ceux de l’installation (Paramètres › Pilote automatique) sont essayés.")}
+              />
               {autopilot && (
                 <p className="subtle">
                   {t(
-                    "Limites de l’installation (variables d’environnement) : {rounds} tours de convergence au plus, {retries} attentes d’une panne au plus, {minutes} min d’attente au plus.",
+                    "Limites de l’installation (Paramètres › Pilote automatique) : {rounds} tours de convergence au plus, {retries} attentes d’une panne au plus, {minutes} min d’attente au plus.",
                     {
                       rounds: autopilot.settings.max_rounds,
                       retries: autopilot.settings.outage_max_retries,

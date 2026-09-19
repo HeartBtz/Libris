@@ -9,7 +9,6 @@ import asyncio
 import contextvars
 import functools
 import threading
-import time
 import weakref
 from collections.abc import Awaitable, Callable, Coroutine, Iterable
 from concurrent.futures import ThreadPoolExecutor
@@ -19,6 +18,7 @@ from sqlalchemy import func, select
 
 from app.config import settings
 from app.db import SessionLocal
+from app.jobs.clock import database_now
 from app.models import Job, Provider
 
 T = TypeVar("T")
@@ -74,7 +74,7 @@ def book_parallelism(provider_id: str | None) -> int:
         books = db.scalar(
             select(func.count())
             .select_from(Job)
-            .where(Job.provider_id == provider_id, Job.status.in_(RUNNING), Job.lease_until >= time.time())
+            .where(Job.provider_id == provider_id, Job.status.in_(RUNNING), Job.lease_until >= database_now())
         )
     share = -(-capacity // max(books, 1))
     wanted = settings().worker_book_parallelism

@@ -137,5 +137,7 @@ def test_requests_restored_from_an_archive_are_counted(seeded):
         metrics = client.get(f"/api/projects/{restored.json()['id']}/metrics").json()
     assert (metrics["requests"], metrics["input_tokens"]) == (original["requests"], original["input_tokens"])
     with SessionLocal() as db:
-        restored_rows = select(func.sum(UsageDaily.requests)).where(UsageDaily.project_id == restored.json()["id"])
+        restored_rows = select(func.sum(UsageDaily.requests)).where(
+            UsageDaily.project_id == restored.json()["id"]
+        )
         assert db.scalar(restored_rows) == 6  # the dated ones went straight into the aggregates

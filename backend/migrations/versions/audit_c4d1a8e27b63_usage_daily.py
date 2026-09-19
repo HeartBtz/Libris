@@ -33,7 +33,14 @@ def upgrade():
         sa.ForeignKeyConstraint(["project_id"], ["projects.id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint(
-            "day", "project_id", "provider_id", "operation", "model", "status", "cached", name="uq_usage_daily_key"
+            "day",
+            "project_id",
+            "provider_id",
+            "operation",
+            "model",
+            "status",
+            "cached",
+            name="uq_usage_daily_key",
         ),
     )
     op.create_index("ix_usage_daily_day", "usage_daily", ["day"])

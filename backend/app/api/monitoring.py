@@ -17,6 +17,7 @@ from sqlalchemy import and_, func, or_, select
 
 from app.config import settings
 from app.db import SessionLocal
+from app.jobs.clock import database_now
 from app.jobs.queue import RUNNING
 from app.maintenance.usage import usage
 from app.models import Event, Job, Outbox, Provider, RequestLog, Segment
@@ -77,7 +78,7 @@ def render() -> str:
         ).all()
         since = queued_since(db, now)
         expired = db.scalar(
-            select(func.count()).select_from(Job).where(Job.status.in_(RUNNING), Job.lease_until < now)
+            select(func.count()).select_from(Job).where(Job.status.in_(RUNNING), Job.lease_until < database_now())
         )
         # Daily aggregates plus the requests not rolled up yet (app.maintenance.usage).
         calls = [

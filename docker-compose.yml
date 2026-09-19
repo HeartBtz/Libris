@@ -11,8 +11,15 @@ x-app: &app
   environment:
     DATABASE_URL: postgresql+psycopg://translator:${POSTGRES_PASSWORD:?Run scripts/setup.py}@database:5432/translator
     DATA_DIR: /data
+    # Temporary files (batch export ZIPs, EPUBCheck copies) go to the data volume, not to memory.
+    TMPDIR: /data/tmp
   volumes:
     - books:/data
+  # Nothing in the image is written at run time: code, prompts and interface are read-only; the
+  # data volume and a small /tmp (JVM, libraries) are the only writable places.
+  read_only: true
+  tmpfs:
+    - /tmp:size=256m,mode=1777
   restart: unless-stopped
   security_opt:
     - no-new-privileges:true
@@ -58,6 +65,17 @@ services:
       interval: 5s
       timeout: 5s
       retries: 20
+    # The entrypoint starts as root only to fix the data directory's owner, then drops to `postgres`
+    # (gosu, a setuid() call that no-new-privileges allows): these five capabilities are all it needs.
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    cap_add: [CHOWN, DAC_OVERRIDE, FOWNER, SETGID, SETUID]
+    read_only: true
+    tmpfs:
+      - /var/run/postgresql:size=16m
+      - /tmp:size=64m,mode=1777
+    shm_size: 256m
     pids_limit: 256
     logging: *logging
     restart: unless-stopped

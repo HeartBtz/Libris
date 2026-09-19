@@ -6,6 +6,7 @@ from sqlalchemy import select
 
 from app.db import SessionLocal
 from app.engines.context.config import memory_config
+from app.engines.context.prefix import ordered
 from app.engines.context.providers import ContextItem, HybridContextProvider
 from app.engines.context.series import prior_volumes, series_decisions, series_identities, series_terms
 from app.engines.memory.identities import effective_names, plausible_name
@@ -18,6 +19,7 @@ from app.schemas import (
     ContextNeeds,
     FinalReviewResult,
     ReviewResult,
+    ReviewRevisionResult,
     TranslationResult,
 )
 
@@ -60,6 +62,7 @@ RESPONSE_MODELS = {
     "translation_revision": TranslationResult,
     "polishing": TranslationResult,
     "translation_review": ReviewResult,
+    "review_revision": ReviewRevisionResult,
     "final_review": FinalReviewResult,
     "chapter_analysis": ChapterAnalysis,
     "context_planner": ContextNeeds,
@@ -500,8 +503,10 @@ def _assemble(prepared: _Prepared, retrieved: list[ContextItem], trace: dict, op
             "moins qu’un extrait des passages voisins. Choisissez un fournisseur avec une fenêtre plus "
             "grande ou réduisez sa sortie maximale."
         )
-    sections = [section(item["source"], item["content"]) for item in kept]
-    sections += [section(key, json.dumps(value, ensure_ascii=False)) for key, value in mandatory.items()]
+    pairs = [(item["source"], item["content"]) for item in kept]
+    pairs += [(key, json.dumps(value, ensure_ascii=False)) for key, value in mandatory.items()]
+    # Most stable sections first: a provider's prefix cache can then serve them (see prefix.py).
+    sections = [section(name, content) for name, content in ordered(pairs)]
     messages = [{"role": "system", "content": system}, {"role": "user", "content": "\n\n".join(sections)}]
     return BuiltContext(
         messages,

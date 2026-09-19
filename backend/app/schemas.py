@@ -76,6 +76,10 @@ class ProjectConfig(StrictModel):
     instructions: str = Field(default="", max_length=20000)
     # Stored in Project.config; omitted by clients that predate it, the stored choice is then kept.
     translation_memory: bool = True
+    # Passage size for chapters imported into this volume from now on (empty: PASSAGE_MAX_CHARS).
+    passage_max_chars: int | None = Field(default=None, ge=500, le=20000)
+    # "fused": one call reviews and corrects a passage (high/maximum quality); empty: REVIEW_MODE.
+    review_mode: Literal["separate", "fused"] | None = None
     # Autopilot of this book (None: AUTOPILOT_ENABLED) and the providers it falls back to, in order.
     autopilot: bool | None = None
     fallback_provider_ids: list[str] | None = Field(default=None, max_length=10)
@@ -216,6 +220,16 @@ class Critique(StrictModel):
 
 class ReviewResult(StrictModel):
     issues: list[Critique] = Field(default_factory=list)
+
+
+class ReviewRevisionResult(StrictModel):
+    """Review and revision in one answer: the corrected units only when there is something to correct."""
+
+    issues: list[Critique] = Field(default_factory=list)
+    units: list[TextUnit] = Field(default_factory=list)
+    new_terms: list[Term] = Field(default_factory=list)
+    events: list[Fact] = Field(default_factory=list)
+    uncertainties: list[str] = Field(default_factory=list)
 
 
 class FinalReviewResult(ReviewResult):

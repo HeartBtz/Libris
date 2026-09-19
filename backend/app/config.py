@@ -1,5 +1,6 @@
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -23,6 +24,13 @@ class Settings(BaseSettings):
     import_session_hours: int = Field(default=24, ge=1, le=24 * 30)
     # Characters of one text chapter (TXT file or JSON chapter), after decoding.
     text_chapter_max_chars: int = Field(default=2_000_000, ge=1000, le=50_000_000)
+    # Characters of one passage, the unit of every model call, for volumes and chapters imported from
+    # now on (a volume may choose its own, `config.passage_max_chars`). Longer passages share the fixed
+    # context cost of a call across more text; see docs/operations.md before raising it.
+    passage_max_chars: int = Field(default=3500, ge=500, le=20000)
+    # "fused": at high and maximum quality, one call reviews a passage and corrects it when needed,
+    # instead of a review call then a revision call (a volume may choose, `config.review_mode`).
+    review_mode: Literal["separate", "fused"] = "separate"
     # Automation API (/api/v1): JSON body of one request (empty: MAX_UPLOAD_MB), chapters per request,
     # and calls per token and per minute in each API process (0: no limit).
     api_max_payload_mb: int | None = Field(default=None, ge=1, le=4096)
@@ -95,6 +103,9 @@ class Settings(BaseSettings):
     autopilot_stale_min_coverage: float = Field(default=0.5, ge=0, le=1)
     # Diagnostic data is bounded by the worker (app.maintenance.retention); 0 disables a rule.
     retention_request_bodies_days: int = Field(default=30, ge=0)
+    # Whole request rows, once rolled up into usage_daily (0: kept; the response cache and the request
+    # inspector need them, 180 is a reasonable value once the statistics no longer do).
+    retention_request_rows_days: int = Field(default=0, ge=0)
     retention_events_days: int = Field(default=7, ge=0)
     retention_outbox_sent_days: int = Field(default=7, ge=0)
     retention_bible_revisions: int = Field(default=20, ge=0)
@@ -108,7 +119,7 @@ class Settings(BaseSettings):
         return self.api_max_payload_mb or self.max_upload_mb
 
     def prepare(self) -> None:
-        for name in ("books", "projects", "exports", "sources", "staging", "results"):
+        for name in ("books", "projects", "exports", "sources", "staging", "results", "tmp"):
             (self.data_dir / name).mkdir(parents=True, exist_ok=True)
         if len(self.secret_key) < 32:
             raise RuntimeError("SECRET_KEY doit contenir au moins 32 caractères (voir .env.example).")

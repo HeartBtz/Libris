@@ -17,7 +17,9 @@ from sqlalchemy import and_, func, or_, select
 
 from app.config import settings
 from app.db import SessionLocal
+from app.jobs.clock import database_now
 from app.jobs.queue import RUNNING
+from app.maintenance.usage import usage
 from app.models import Event, Job, Outbox, Provider, RequestLog, Segment
 
 router = APIRouter()
@@ -76,20 +78,16 @@ def render() -> str:
         ).all()
         since = queued_since(db, now)
         expired = db.scalar(
-            select(func.count()).select_from(Job).where(Job.status.in_(RUNNING), Job.lease_until < now)
+            select(func.count()).select_from(Job).where(Job.status.in_(RUNNING), Job.lease_until < database_now())
         )
-        calls = db.execute(
-            select(
-                RequestLog.operation,
-                RequestLog.status,
-                RequestLog.cached,
-                func.count(),
-                func.coalesce(func.sum(RequestLog.prompt_tokens), 0),
-                func.coalesce(func.sum(RequestLog.completion_tokens), 0),
+        # Daily aggregates plus the requests not rolled up yet (app.maintenance.usage).
+        calls = [
+            (operation, status, cached, count, prompt, completion)
+            for operation, status, cached, count, prompt, completion, _duration, _cost in usage(
+                db, ("operation", "status", "cached")
             )
-            .where(RequestLog.status != "running")
-            .group_by(RequestLog.operation, RequestLog.status, RequestLog.cached)
-        ).all()
+            if status != "running"
+        ]
         running = db.execute(
             select(Provider.name, func.count(RequestLog.id))
             .outerjoin(

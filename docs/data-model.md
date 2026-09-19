@@ -37,6 +37,13 @@ lines.
 confirmed, the answer of the commit, so that repeating a commit returns what the first one did.
 Sessions expire after `IMPORT_SESSION_HOURS` (24 h); the retention removes their files.
 
+A session has one `format`: `epub` (one file is a volume) or `txt`, `md`, `html`, `docx` (one file is
+a chapter of a series; accepted extensions `.txt`, `.md`/`.markdown`, `.html`/`.htm`/`.xhtml`,
+`.docx`). Structured chapters are stored as `source_assets` of their format and cut like TXT chapters
+(resource `<format>/<hash>`, layout in `import_meta`). Every volume and text chapter records the
+passage size it was cut with (`book_info.passage_max_chars`, `import_meta.passage_max_chars`; absent
+means 3 500, the size of every import before 0.6).
+
 ## Series memory
 
 | Table | Content |
@@ -61,6 +68,15 @@ token, `external_id`, `Idempotency-Key`, payload hash, series, volume, job, stat
 and intake decisions among them —, chapters, error, `finished_at`, completion `report`, stored `artifact`
 (path under `DATA_DIR/results/<request>/`, format, size, SHA-256) and the webhook's `callback_url`,
 `webhook_state`, attempts, next attempt and last error) — see [the API guide](api.md).
+
+## Usage aggregates
+
+`usage_daily` holds one row per UTC day, book, provider (`""` when unknown; not a foreign key, a
+deleted provider keeps its history), operation, model, outcome and cache flag: `requests`,
+`prompt_tokens`, `completion_tokens`, `duration`, `cost` (at the price recorded with each request).
+Rows are added by the worker's hourly rollup of requests older than two hours
+(`app/maintenance/usage.py`); `app_settings["usage_rollup"]` is the watermark. Statistics read the
+aggregates plus the requests created since the watermark. Rows follow their book (`ON DELETE CASCADE`).
 
 ## External memory
 

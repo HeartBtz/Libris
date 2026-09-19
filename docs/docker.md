@@ -15,6 +15,8 @@ Libris uses three long-running containers and one short migration task:
 
 The `api` and `worker` use the same `heartbtz/libris` image. Named Docker volumes retain the database and book files when containers are replaced.
 
+Every container runs without added privileges (`no-new-privileges`, all Linux capabilities dropped; the database keeps the five its entrypoint needs to own its data directory and switch to the `postgres` user) and with a read-only root filesystem. The writable places are the named volumes, a small in-memory `/tmp`, and `/data/tmp` on the books volume for large temporary files (batch export archives, uploads being received). A customised Compose file that mounts other writable paths must declare them as volumes or `tmpfs`.
+
 ## Before you begin
 
 Install these tools on a Linux AMD64 machine:
@@ -160,5 +162,6 @@ See [Codex connection](codex.md).
 | Job remains queued | Confirm `worker` is running and the selected provider has available concurrency. |
 | Migration container exited | Exit code 0 is expected; inspect `docker compose ps -a migrate`. |
 | Export is rejected | Resolve missing or refused passages and review the EPUBCheck report. |
+| `Read-only file system` in the logs | A customised setup writes outside the volumes: add a volume or `tmpfs` for that path in the Compose file rather than removing `read_only`. |
 
 When requesting help, include the Libris version, Docker/Compose versions, `docker compose ps`, and bounded logs. Remove credentials, cookies, provider keys and book content first.

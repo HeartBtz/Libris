@@ -13,6 +13,7 @@ from typing import Annotated, Literal
 from pydantic import AfterValidator, Field, ValidationError, field_validator, model_validator
 
 from app.engines.ingestion.base import ImportedAsset, ImportedChapter
+from app.engines.ingestion.passages import passage_chars
 from app.engines.ingestion.store import text_resource
 from app.engines.ingestion.text import text_chapter
 from app.models import Project
@@ -174,7 +175,8 @@ def payload_chapters(project: Project, payload: TranslationPayload, max_length: 
         title = item.title.strip()
         try:
             chapter, warnings = text_chapter(
-                item.content, title=title, resource=text_resource(project, "json", chapter_key(item)), max_length=max_length
+                item.content, title=title, resource=text_resource(project, "json", chapter_key(item)),
+                max_chars=passage_chars(project), max_length=max_length,
             )
         except ValueError as exc:
             raise PayloadRejected([{"loc": ["chapters", index, "content"], "msg": str(exc), "type": "value_error"}]) from None

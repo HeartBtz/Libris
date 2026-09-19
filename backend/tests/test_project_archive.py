@@ -213,6 +213,7 @@ def test_project_archive_round_trip_is_faithful(seeded):
         assert imported.status_code == 201, imported.text
         new_id = imported.json()["id"]
         restored = client.get(f"/api/projects/{new_id}").json()
+        restored_metrics = client.get(f"/api/projects/{new_id}/metrics").json()
     after = snapshot(new_id)
     # The only deliberate difference: work that was running waits for Resume after a restore.
     assert (before["project"]["status"], after["project"]["status"]) == ("translating", "paused")
@@ -226,7 +227,8 @@ def test_project_archive_round_trip_is_faithful(seeded):
     assert sum(s["status"] == "ok" for s in after["segments"]) == 4
     assert len(after["versions"]) == 11
     assert restored["progress"]["review"]["resolved"] == 1
-    assert restored["progress"]["estimate"]["spent_cost"] == 0  # the provider, and its price, stay behind
+    # The provider stays behind; what the book cost stays with its requests, at the price they recorded.
+    assert restored["progress"]["estimate"]["spent_cost"] == pytest.approx(restored_metrics["cost"])
     with SessionLocal() as db:
         project = db.get(Project, new_id)
         assert project.owner_id == user_id and project.provider_id is None

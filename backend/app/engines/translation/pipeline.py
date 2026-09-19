@@ -11,6 +11,7 @@ from app.engines.context.builder import ContextTooLarge, build_context
 from app.engines.context.series import enforced_glossary
 from app.engines.memory.store import propose_terms, remember
 from app.engines.quality.checks import checks, locked_term_error, validate_translation
+from app.engines.translation.fused_review import review_and_revise
 from app.engines.translation.memory import remembered_translation
 from app.engines.translation.versions import save_version
 from app.jobs import segment_state as state
@@ -368,7 +369,10 @@ async def _translate_passage(job, owner, project, segment, force, restarted, reu
             if segment.human and job.operation != "review":
                 await blocking(finish_segment, job.id, owner, sid)
                 return
-            if segment.stage == "translated" or job.operation == "review":
+            fused = await _improvement(
+                job, owner, sid, "review_revision", lambda: review_and_revise(job, owner, project, segment, needs)
+            )
+            if not fused and (segment.stage == "translated" or job.operation == "review"):
 
                 async def review_call(segment=segment):
                     built = await build_context(

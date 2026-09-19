@@ -1,0 +1,10 @@
+[Unit]
+Description=Hourly clean-up of Libris CI leftovers on the shell runner
+
+[Timer]
+OnCalendar=hourly
+RandomizedDelaySec=10m
+Persistent=true
+
+[Install]
+WantedBy=timers.target

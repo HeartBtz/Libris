@@ -14,6 +14,7 @@ from app.config import settings
 from app.engines.epub.book import SEGMENTATION
 from app.engines.epub.check import epubcheck
 from app.engines.ingestion import EpubAdapter
+from app.engines.ingestion.passages import passage_chars
 from app.engines.ingestion.store import (
     Files,
     attach,
@@ -47,6 +48,8 @@ from app.schemas import InstructionInput, JobInput, ProjectConfig, SeriesBatchIn
 from app.security import DB, CurrentUser, access
 
 router = APIRouter(prefix="/api/projects")
+# ProjectConfig fields kept in Project.config rather than in columns.
+CONFIG_KEYS = ("translation_memory", "passage_max_chars", "review_mode")
 
 
 # Settings kept in Project.config, only changed when a client sends them.
@@ -121,6 +124,7 @@ def import_book(
     series: Series | None = None,
     volume_number: int | None = None,
     files: Files | None = None,
+    passage_max_chars: int | None = None,
 ) -> Project:
     original_hash = hashlib.sha256(data).hexdigest()
     lock(db, f"{owner_id}:{original_hash}")
@@ -133,7 +137,9 @@ def import_book(
                 "Restaurez-le depuis les archives.",
             )
         raise HTTPException(409, f"Cet EPUB est déjà importé dans « {existing.title} ».")
-    volume = EpubAdapter().parse(name, data, segmentation=segmentation)
+    volume = EpubAdapter().parse(
+        name, data, segmentation=segmentation, max_chars=passage_chars(None, passage_max_chars)
+    )
     files = files if files is not None else Files()
     try:
         return create_volume(
@@ -238,7 +244,7 @@ def final_review_info(project_id: str, user: CurrentUser, db: DB):
 @router.put("/{project_id}")
 def configure(project_id: str, body: ProjectConfig, user: CurrentUser, db: DB):
     project = access(db, project_id, user, write=True)
-    values = body.model_dump(exclude={"translation_memory", *PROJECT_SETTINGS})
+    values = body.model_dump(exclude={*CONFIG_KEYS, *PROJECT_SETTINGS})
     changed = {key for key, value in values.items() if getattr(project, key) != value}
     provider_selected = project.provider_id is None and body.provider_id is not None
     if changed - {"series_name", "volume_number"} and db.scalar(
@@ -263,10 +269,11 @@ def configure(project_id: str, body: ProjectConfig, user: CurrentUser, db: DB):
         for series_id in {previous_series, project.series_id} - {None}:
             refresh_series(db, series_id)
     # Clients that predate the setting omit it: the stored choice is then kept.
-    if "translation_memory" in body.model_fields_set:
-        project.config = {**project.config, "translation_memory": body.translation_memory}
+    stored = {key: getattr(body, key) for key in CONFIG_KEYS if key in body.model_fields_set}
     for key in PROJECT_SETTINGS & body.model_fields_set:
-        project.config = {**project.config, key: getattr(body, key)}
+        stored[key] = getattr(body, key)
+    if stored:
+        project.config = {**project.config, **stored}
     for job in db.scalars(select(Job).where(Job.project_id == project_id, Job.status.in_(HELD))):
         if "provider_id" in changed:
             job.provider_id = body.provider_id

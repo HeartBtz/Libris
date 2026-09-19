@@ -7,6 +7,7 @@ usage() {
 Usage: libris-production-deploy COMMIT VERSION APP_IMAGE_ID CODEX_IMAGE_ID
        libris-production-deploy --rollback
        libris-production-deploy --prune-images [--dry-run]
+       libris-production-deploy --check-compose
 USAGE
 	exit 64
 }
@@ -52,6 +53,35 @@ prune_images() {
 	done < <(docker image ls --no-trunc --digests --format '{{.Repository}} {{.Tag}} {{.Digest}} {{.ID}}' "$registry_repository")
 }
 
+# The Compose file is versioned with the application: every image carries the docker-compose.yml of
+# its commit (/app/deploy/docker-compose.yml). Images older than 0.6 carry none (empty output).
+shipped_compose() {
+	docker run --rm --entrypoint cat "$1" /app/deploy/docker-compose.yml 2>/dev/null || true
+}
+
+# Exit 0 when the installed Compose file is the deployed version's, 1 with the difference otherwise.
+check_compose() {
+	local deployed shipped
+	[[ -s "$base/current-app-image-id" ]] || { echo "No deployed image is recorded in $base" >&2; exit 65; }
+	deployed="$(<"$base/current-app-image-id")"
+	shipped="$(mktemp)"
+	shipped_compose "$deployed" > "$shipped"
+	if [[ ! -s "$shipped" ]]; then
+		rm -f "$shipped"
+		echo "The deployed image carries no Compose file (older than 0.6): nothing to compare." >&2
+		exit 0
+	fi
+	if cmp -s "$shipped" "$compose_file"; then
+		rm -f "$shipped"
+		echo "$compose_file is the deployed version's."
+		exit 0
+	fi
+	echo "Drift: $compose_file differs from the deployed version's Compose file:"
+	diff -u "$compose_file" "$shipped" || true
+	rm -f "$shipped"
+	exit 1
+}
+
 mode=deploy
 case "${1:-}" in
 --rollback)
@@ -62,6 +92,11 @@ case "${1:-}" in
 	[[ $# -eq 1 || ( $# -eq 2 && "$2" == --dry-run ) ]] || usage
 	prune_images "$([[ "${2:-}" == --dry-run ]] && echo true || echo false)"
 	exit 0
+	;;
+--check-compose)
+	[[ $# -eq 1 ]] || usage
+	[[ -r "$compose_file" ]] || { echo "Production configuration is not provisioned" >&2; exit 65; }
+	check_compose
 	;;
 *)
 	[[ $# -eq 4 ]] || usage
@@ -120,6 +155,24 @@ for image in "$app_image" "$codex_image"; do
 	[[ "$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.version" }}' "$image")" == "$version" ]] || { echo "Image version mismatch" >&2; exit 65; }
 done
 
+# The Compose file of the version being deployed replaces the installed one once the services are
+# stopped; a drifted file is reported and kept next to it, and put back if the images are restored.
+new_compose="$(mktemp)"
+shipped_compose "$app_image" > "$new_compose"
+compose_backup="$compose_file.before-$version"
+compose_replaced=false
+if [[ ! -s "$new_compose" ]]; then
+	echo "Warning: $app_image carries no Compose file (older than 0.6): $compose_file is kept as it is." >&2
+	rm -f "$new_compose"
+	new_compose=""
+elif cmp -s "$new_compose" "$compose_file"; then
+	rm -f "$new_compose"
+	new_compose=""
+else
+	echo "The installed $compose_file differs from the Compose file of $version; it will be replaced:"
+	diff -u "$compose_file" "$new_compose" || true
+fi
+
 export LIBRIS_IMAGE="$app_image"
 export LIBRIS_CODEX_IMAGE="$codex_image"
 export LIBRIS_ENV_FILE="$secret_env"
@@ -162,6 +215,7 @@ if [[ "$version" == "$deployed_version" && "$commit" == "$deployed_commit" && -n
 	&& [[ "$(docker inspect --format '{{.State.Status}}' "$worker_container")" == running ]] \
 	&& [[ "$(docker inspect --format '{{.State.Health.Status}}' "$codex_container")" == healthy ]] \
 	&& [[ "$current_revision" == "$target_revision" ]] \
+	&& [[ -z "$new_compose" ]] \
 	&& check_health; then
 	echo "Libris $version ($commit) is already deployed and healthy"
 	exit 0
@@ -186,7 +240,7 @@ rollback() {
 	status="${1:-$?}"
 	trap - ERR INT TERM
 	if [[ "$services_stopped" == false ]]; then
-		rm -f "$backup"
+		rm -f "$backup" "$new_compose"
 		echo "Deployment failed before service interruption; production remains online." >&2
 		exit "$status"
 	fi
@@ -202,6 +256,10 @@ rollback() {
 		fi
 	fi
 	if [[ "$schema_unchanged" == true ]]; then
+		if [[ "$compose_replaced" == true ]]; then
+			# The previous images run with the Compose file they were deployed with.
+			install -m 0600 "$compose_backup" "$compose_file"
+		fi
 		export LIBRIS_IMAGE=libris-production:previous-api
 		services=(api)
 		restore_failed=false
@@ -240,6 +298,13 @@ if [[ ! -s "$backup" ]]; then
 fi
 services_stopped=true
 "${compose[@]}" stop api worker codex
+if [[ -n "$new_compose" ]]; then
+	install -m 0600 "$compose_file" "$compose_backup"
+	install -m 0600 "$new_compose" "$compose_file"
+	rm -f "$new_compose"
+	compose_replaced=true
+	echo "Installed the Compose file of $version ($compose_file; the previous one is $compose_backup)"
+fi
 schema_unchanged=false
 migration_started=true
 # `up --wait` returns as soon as a one-shot container is running, not when it has finished: wait for
@@ -261,7 +326,9 @@ fi
 [[ "$migrated_revision" != "$current_revision" ]] || schema_unchanged=true
 [[ "$migrated_revision" == "$target_revision" ]] || { echo "Migration did not reach $target_revision" >&2; false; }
 "${compose[@]}" up -d --no-build --wait api codex
-check_health
+# Not a bare call: errexit would stop the script inside the function, where the ERR trap (not
+# inherited without `set -E`) never runs, leaving an unhealthy version up and the worker stopped.
+check_health || rollback 1
 "${compose[@]}" up -d --no-build --wait worker
 
 trap - ERR INT TERM

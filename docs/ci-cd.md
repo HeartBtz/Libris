@@ -8,9 +8,20 @@ All jobs run on the CT105 shell runner and start their tools with `docker run`; 
 
 Cancelling or killing a job only kills the `docker` client of the shell runner: the container it started keeps running. So every container a job starts is named `libris-ci-<role>-$CI_JOB_ID`, carries the label `libris-ci-job=$CI_JOB_ID` and runs under `--init`; every test command is wrapped in `timeout --signal=TERM --kill-after=30s <limit>` (the TERM reaches the container through `--init`), and every job has its own `timeout:` (5 to 45 minutes). The `after_script` of each job, which GitLab also runs on cancellation, removes every container with the job's label (`docker ps --all --quiet --filter label=libris-ci-job=$CI_JOB_ID | xargs docker rm --force --volumes`); `e2e` also takes its Compose project down. As a last resort, `audit` (which runs in every pipeline) removes any `libris-ci-job` container or `libris-e2e-*` stack older than two hours. To clean by hand: `docker ps --all --filter label=libris-ci-job`.
 
+Volumes are the one leftover the jobs cannot always see: images that declare a `VOLUME` (PostgreSQL) create an anonymous volume per `docker run`, and a job killed before its `after_script` leaves its `libris-e2e-*` volumes and network. `deploy/libris-runner-prune` removes, on the runner host, the unused anonymous volumes and the unused volumes and networks of `libris-e2e-*` projects older than `LIBRIS_PRUNE_MIN_AGE_HOURS` (6 by default, longer than any job); named volumes of other projects, images and the build cache are never touched. `--dry-run` lists without removing. To install it on CT105 (operator, root):
+
+```bash
+install -m 0755 deploy/libris-runner-prune /usr/local/sbin/libris-runner-prune
+install -m 0644 deploy/libris-runner-prune.service deploy/libris-runner-prune.timer /etc/systemd/system/
+libris-runner-prune --dry-run            # check what it would remove first
+systemctl daemon-reload && systemctl enable --now libris-runner-prune.timer
+```
+
+The timer runs it every hour; `journalctl -u libris-runner-prune` shows what was removed.
+
 | Pipeline | Jobs |
 | --- | --- |
-| Merge request, branch | `backend` (Ruff + pytest on SQLite), `backend-postgres` (migration round trip + pytest on PostgreSQL), `frontend` (build, `npm audit`, Playwright specs that mock the API), `e2e` (user journey against the Compose stack), `audit` (version consistency, `pip-audit`, Gitleaks) |
+| Merge request, branch | `backend` (Ruff + pytest on SQLite), `backend-postgres` (migration round trip + pytest on PostgreSQL), `frontend` (build, `npm audit`, Playwright specs that mock the API), `e2e` (user journey against the Compose stack), `audit` (version consistency, hashed lock files, `pip-audit`, Gitleaks) |
 | Default branch | the same, then `container-build`, `container-runtime`, `container-epubcheck`, `container-scan`, and `verified-image` once everything passed |
 | Release tag `vX.Y.Z` | `release-policy`, `release-images`, `container-runtime`, `container-scan`, publication, release, `deploy-production` |
 
@@ -90,19 +101,21 @@ Scheduled Dependabot version pull requests are disabled on the read-only GitHub 
 
 The protected semver-tag `deploy-production` job is serialized by `resource_group` and runs automatically on CT105. It opens an audited Teleport session to CT116, where the root-owned target pulls the digest-pinned application and Codex images from the GitLab registry using its local read-only identity. The target then passes their commit, version and immutable image IDs to the preinstalled root-owned deployment procedure. That fixed procedure creates a transactionally consistent PostgreSQL dump while the current application remains available, then gracefully stops the old API, worker and Codex bridge for the migration and image switch. It preserves the existing named volumes and private `/opt/epub-translator/.env`, starts the API and Codex bridge, verifies the exact version through `/health`, and only then restarts the worker from its checkpoints. A healthy redeploy of the same commit is a no-op. The procedure also rejects an older version or a reused version number associated with another commit.
 
-A successful deployment then removes the Libris images that are neither deployed nor retained as `previous-*` (see [Rollback](release.md#rollback)). The manual `rollback-production` job of the same tag pipeline returns to the retained previous version when the schema did not change. The procedure intentionally restarts the worker with checkpoint recovery. If health fails and the schema did not change, it verifies restoration of the previous images. After a schema change it leaves application services stopped and retains the pre-deployment dump rather than attempting an unsafe automatic downgrade. Keep the dedicated runner, fixed Compose file, deployment procedure and protected production environment provisioned outside Git. Never put `.env`, registry credentials or user books in this repository.
+A successful deployment then removes the Libris images that are neither deployed nor retained as `previous-*` (see [Rollback](release.md#rollback)). The manual `rollback-production` job of the same tag pipeline returns to the retained previous version when the schema did not change. The procedure intentionally restarts the worker with checkpoint recovery. If health fails and the schema did not change, it verifies restoration of the previous images. After a schema change it leaves application services stopped and retains the pre-deployment dump rather than attempting an unsafe automatic downgrade. Keep the dedicated runner, deployment procedure and protected production environment provisioned outside Git; the Compose file comes with each image (below). Until 0.6 a failed `/health` check stopped the procedure without restoring the previous images (the ERR trap is not inherited by shell functions); it now triggers the same restoration as any other failure. Never put `.env`, registry credentials or user books in this repository.
 
 ### What lives outside Git on the production target
 
 | Path on CT116 | Purpose | Recreated by |
 |---|---|---|
 | `/usr/local/sbin/libris-production-deploy` | fixed deployment, rollback and image-pruning procedure (copy of `deploy/libris-production-deploy`; reinstall it whenever that file changes, `rollback-production` needs the `--rollback` mode) | operator |
-| `/opt/libris-production/docker-compose.yml` | the Compose file the procedure drives; it is the repository `docker-compose.yml`, unmodified | operator |
+| `/opt/libris-production/docker-compose.yml` | the Compose file the procedure drives: the repository `docker-compose.yml` of the deployed version. Since 0.6 every application image carries it (`/app/deploy/docker-compose.yml`) and the procedure installs it at each deployment, once the services are stopped; the replaced file is kept as `docker-compose.yml.before-<version>` and put back if the previous images are restored | the procedure (operator for versions before 0.6) |
 | `/opt/libris-production/current-*` | deployed version, commit and image IDs | the procedure, after each successful deployment |
 | `/opt/libris-production/backups/pre-*.dump` | the five most recent pre-deployment PostgreSQL dumps (several GB each) | the procedure |
 | `/opt/epub-translator/.env` | secrets; never stored anywhere else (the scheduled backup copies it only with `LIBRIS_BACKUP_INCLUDE_ENV=true`) | operator |
 | `/usr/local/sbin/libris-backup`, `libris-restore`, `/etc/systemd/system/libris-backup.{service,timer}`, `/etc/libris-backup.conf` | daily verified backup to another host and restore test ([backup](backup.md)) | operator |
 | `/etc/libris-registry/config.json` | read-only registry credentials | operator |
+
+The Compose file is versioned: change `docker-compose.yml` in the repository, never on CT116. A deployment reports a drifted file (a `diff -u` in the job log) before replacing it, and a healthy redeploy of the same commit is no longer a no-op when the installed file drifted: the procedure installs the versioned file. `libris-production-deploy --check-compose` compares the installed file with the deployed version's and exits 1 with the difference on drift (0 when identical, or when the deployed image predates 0.6); it changes nothing and can run from a monitoring timer. Settings that must differ on CT116 belong in `/opt/epub-translator/.env` (Compose interpolation: `BIND_ADDRESS`, `PORT`, images…) or in an override file named by `LIBRIS_PRODUCTION_COMPOSE_OVERRIDE`.
 
 `/opt/libris-production` holds multi-gigabyte dumps: when disk space is short, delete old files inside `backups/`, never the directory itself. Without `docker-compose.yml` the next `deploy-production` job stops with `Production configuration is not provisioned` (exit 65) before touching anything; the running containers are unaffected.
 

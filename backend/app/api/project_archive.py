@@ -25,7 +25,15 @@ from app import __version__
 from app.api.common import row
 from app.config import settings
 from app.engines.exports.text import chapter_segments, reparse_options, source_text
-from app.engines.ingestion import ImportedAsset, ImportedChapter, ImportedVolume, TextRejected, TxtAdapter
+from app.engines.ingestion import (
+    CHAPTER_FORMATS,
+    ImportedAsset,
+    ImportedChapter,
+    ImportedVolume,
+    TextRejected,
+    chapter_adapter,
+)
+from app.engines.ingestion.passages import DEFAULT_PASSAGE_CHARS
 from app.engines.ingestion.store import (
     EXTENSIONS,
     Files,
@@ -39,6 +47,7 @@ from app.engines.memory.archive import restore_graph
 from app.engines.quality.checks import validate_translation
 from app.jobs.queue import HELD
 from app.jobs.segment_state import split_legacy
+from app.maintenance.usage import absorb
 from app.models import (
     BibleRevision,
     Chapter,
@@ -63,8 +72,8 @@ from app.schemas import BookBible, GlossaryInput, TranslationResult
 SCHEMA_VERSION = 3
 LEGACY_EPUB = "original.epub"
 # Version 3 entries: nothing else is read, and no name from the archive is ever used as a path.
-SOURCE_ENTRY = r"sources/[1-9][0-9]{0,5}\.(?:epub|txt|json)"
-TEXT_ENTRY = r"(?:sources/[1-9][0-9]{0,5}|texts/[1-9][0-9]{0,5})\.txt"
+SOURCE_ENTRY = r"sources/[1-9][0-9]{0,5}\.(?:epub|txt|json|md|html|docx)"
+TEXT_ENTRY = r"(?:sources/[1-9][0-9]{0,5}\.(?:txt|md|html|docx)|texts/[1-9][0-9]{0,5}\.txt)"
 ENTRY = re.compile(rf"(?:{SOURCE_ENTRY}|{TEXT_ENTRY})")
 
 # Columns deliberately left out of the archive. Everything else is exported and restored; a test
@@ -139,7 +148,7 @@ class ArchivedTextSource(BaseModel):
 class ArchivedSource(BaseModel):
     model_config = ConfigDict(extra="ignore")
     file: str = Field(pattern=rf"^{SOURCE_ENTRY}$")
-    format: Literal["epub", "txt", "json"]
+    format: Literal["epub", "txt", "json", "md", "html", "docx"]
     original_name: str = Field(default="", max_length=500)
     media_type: str = Field(default="application/octet-stream", max_length=100)
     sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
@@ -403,7 +412,7 @@ def archive_chapters(db, project: Project, names: dict[str, str], files: dict[st
         if (chapter.import_meta or {}).get("layout"):
             rows = segments.get(chapter.id, [])
             title, first_line_title = reparse_options(chapter, rows)
-            if value["asset"] and formats[value["asset"]] == "txt":
+            if value["asset"] and formats[value["asset"]] in CHAPTER_FORMATS:
                 source = value["asset"]
             else:
                 # A JSON payload is not a chapter text: the chapter's source text travels on its own.
@@ -611,15 +620,18 @@ def text_chapters(archive: ProjectArchive, files: dict[str, bytes]) -> list[Impo
     for saved in sorted(archive.chapters, key=lambda chapter: chapter.position):
         source = saved.text_source
         try:
+            # Cut with the passage size of the import; archives made before 0.6 used the default.
+            size = (saved.import_meta or {}).get("passage_max_chars") or DEFAULT_PASSAGE_CHARS
             if source.file.startswith("sources/"):
-                chapter = TxtAdapter(limit).parse(
+                fmt = source.file.rsplit(".", 1)[-1]
+                chapter = chapter_adapter(fmt if fmt in CHAPTER_FORMATS else "txt", limit).parse(
                     names[source.file], files[source.file], title=source.title, resource=saved.resource,
-                    first_line_title=source.first_line_title,
+                    first_line_title=source.first_line_title, max_chars=size,
                 )
             else:
                 chapter, _ = text_chapter(
                     files[source.file].decode("utf-8"), title=source.title, resource=saved.resource,
-                    first_line_title=source.first_line_title, max_length=limit,
+                    first_line_title=source.first_line_title, max_chars=size, max_length=limit,
                 )
         except (TextRejected, UnicodeDecodeError) as exc:
             raise ValueError(f"Le texte source du chapitre « {saved.title or saved.position} » est illisible : {exc}") from None
@@ -869,4 +881,6 @@ def restore_jobs(db, project: Project, archive: ProjectArchive, ids: dict[str, s
                 **_dated(saved.model_dump()),
             )
         )
+    # Dated in the past: behind the usage watermark, they must be counted in the aggregates now.
+    absorb(db, project.id)
 

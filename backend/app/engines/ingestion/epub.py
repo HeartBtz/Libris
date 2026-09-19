@@ -15,6 +15,7 @@ from app.engines.ingestion.base import (
     SourceAdapter,
 )
 from app.engines.ingestion.naming import clean_title
+from app.engines.ingestion.passages import DEFAULT_PASSAGE_CHARS
 
 
 def series_metadata(package: etree._Element) -> dict:
@@ -74,7 +75,8 @@ class EpubAdapter(SourceAdapter):
 
     def parse(self, name: str, data: bytes, **options) -> ImportedVolume:
         segmentation = options.get("segmentation", SEGMENTATION)
-        parsed = parse_book(data, segmentation=segmentation)
+        max_chars = options.get("max_chars") or DEFAULT_PASSAGE_CHARS
+        parsed = parse_book(data, max_chars=max_chars, segmentation=segmentation)
         asset = ImportedAsset(name=name, format="epub", media_type=self.media_type, data=data)
         chapters = [
             ImportedChapter(
@@ -91,6 +93,7 @@ class EpubAdapter(SourceAdapter):
             author=parsed["author"][:500],
             language=parsed["language"][:80] or "en",
             chapters=chapters,
-            info=parsed["info"],
+            # An archive restore cuts the book again: it must use the same passage size.
+            info={**parsed["info"], "passage_max_chars": max_chars},
             asset=asset,
         )

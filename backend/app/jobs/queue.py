@@ -4,6 +4,7 @@ from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.orm import Session
 
 from app.db import SessionLocal
+from app.jobs import clock
 from app.jobs.concurrency import job_lock
 from app.jobs.segment_state import FINISHED, mark
 from app.models import AppSetting, Event, Job, Project, Provider, RequestLog
@@ -50,8 +51,9 @@ def enqueue(db: Session, project: Project, operation: str, options: dict) -> Job
 
 
 def claim(operations: tuple[str, ...] | None = None) -> tuple[str, str] | None:
-    now = time.time()
     with SessionLocal() as db:
+        # Leases are on the database clock, shared by every worker (app/jobs/clock.py).
+        now = clock.now(db)
         condition = or_(
             Job.status == "pending",
             and_(Job.status == "waiting", Job.next_attempt <= now),
@@ -128,7 +130,7 @@ def claim(operations: tuple[str, ...] | None = None) -> tuple[str, str] | None:
             .where(Job.id == job.id, condition)
             .values(
                 lease_owner=owner,
-                lease_until=now + 60,
+                lease_until=now + clock.LEASE_SECONDS,
                 status=state,
                 attempts=Job.attempts + 1,
                 next_attempt=0,
@@ -153,10 +155,11 @@ def checkpoint(job_id: str, owner: str, progress: dict | None = None) -> Job:
 
 def _checkpoint(job_id: str, owner: str, progress: dict | None) -> Job:
     with SessionLocal() as db:
-        job = db.scalar(select(Job).where(Job.id == job_id).with_for_update())
-        if not job or job.lease_owner != owner or job.status not in RUNNING or job.lease_until < time.time():
+        found = db.execute(select(Job, clock.database_now()).where(Job.id == job_id).with_for_update()).first()
+        job, now = found if found else (None, 0)
+        if not job or job.lease_owner != owner or job.status not in RUNNING or job.lease_until < now:
             raise JobStopped()
-        job.lease_until = time.time() + 60
+        job.lease_until = now + clock.LEASE_SECONDS
         if progress is not None:
             job.checkpoint = {**job.checkpoint, **progress}
             state = STEP_STATUS.get(progress.get("step"))
@@ -169,8 +172,9 @@ def _checkpoint(job_id: str, owner: str, progress: dict | None) -> Job:
 
 
 def fence(db: Session, job_id: str, owner: str) -> Job:
-    job = db.scalar(select(Job).where(Job.id == job_id).with_for_update())
-    if not job or job.lease_owner != owner or job.status not in RUNNING or job.lease_until < time.time():
+    found = db.execute(select(Job, clock.database_now()).where(Job.id == job_id).with_for_update()).first()
+    job, now = found if found else (None, 0)
+    if not job or job.lease_owner != owner or job.status not in RUNNING or job.lease_until < now:
         raise JobStopped()
     return job
 

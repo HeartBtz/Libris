@@ -16,6 +16,7 @@ from fastapi import APIRouter, Query
 from sqlalchemy import func, select
 
 from app.config import settings
+from app.engines.translation.fused_review import review_mode
 from app.models import Chapter, Entity, Glossary, Memory, Project, Provider, RequestLog, Segment
 from app.security import DB, CurrentUser, access
 
@@ -36,6 +37,7 @@ FAMILIES = {
         "translation",
         "translation_review",
         "translation_revision",
+        "review_revision",
         "polishing",
         "final_review",
         "consistency_check",
@@ -43,7 +45,7 @@ FAMILIES = {
 }
 FAMILIES["review"] = FAMILIES["translate"]
 PASSAGE_STEPS = {"chapter_analysis", "translation", "translation_review", "translation_revision",
-                 "polishing", "final_review"}
+                 "review_revision", "polishing", "final_review"}
 
 
 @dataclass
@@ -72,6 +74,8 @@ def default_tokens(operation: str, passage: float) -> tuple[float, float]:
         "translation": (PROMPT_OVERHEAD + passage, rewritten),
         "translation_review": (PROMPT_OVERHEAD + 2 * passage, 500),
         "translation_revision": (PROMPT_OVERHEAD + 2.5 * passage, rewritten),
+        # Findings always, the corrected units only for the passages with findings.
+        "review_revision": (PROMPT_OVERHEAD + 2 * passage, 500 + DEFAULT_SHARE["translation_revision"] * rewritten),
         "polishing": (PROMPT_OVERHEAD + 2 * passage, rewritten),
         "final_review": (PROMPT_OVERHEAD + 2 * passage, rewritten),
         "consistency_check": (PROMPT_OVERHEAD + 8 * passage, 500),
@@ -129,7 +133,12 @@ def plan(db, project: Project, operation: str) -> tuple[list[Step], int, int]:
         revisable = missing + translated + reviewed
     else:
         revisable = 0
-    if quality in {"high", "maximum"}:
+    if quality in {"high", "maximum"} and operation == "translate" and review_mode(project) == "fused":
+        # One call reviews and revises what this job translates; a passage already reviewed is revised.
+        steps = [step for step in steps if step.operation != "translation_review"]
+        steps.append(Step("review_revision", missing + translated))
+        steps.append(Step("translation_revision", reviewed, conditional=True))
+    elif quality in {"high", "maximum"}:
         steps.append(Step("translation_revision", revisable, conditional=True))
     if quality == "maximum":
         steps.append(Step("polishing", unpolished))

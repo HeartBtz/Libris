@@ -218,7 +218,8 @@ audit:
       docker run --rm --name "libris-ci-pip-audit-$CI_JOB_ID" --label "libris-ci-job=$CI_JOB_ID" --init --volume "$CI_PROJECT_DIR:/work" --workdir /work
       --env PIP_CACHE_DIR=/work/.cache/pip-audit --env PIP_DISABLE_PIP_VERSION_CHECK=1 --env PIP_ROOT_USER_ACTION=ignore
       "$PYTHON_IMAGE" sh -lc
-      "python3 scripts/check_version.py && pip install -q pip-audit==2.9.0 && pip-audit -r backend/requirements.lock"
+      "python3 scripts/check_version.py && python3 scripts/hash_lock.py --check backend/requirements.lock codex_bridge/requirements.lock
+      && pip install -q pip-audit==2.9.0 && pip-audit -r backend/requirements.lock -r codex_bridge/requirements.lock"
     - timeout --signal=TERM --kill-after=30s 5m docker run --rm --name "libris-ci-gitleaks-$CI_JOB_ID" --label "libris-ci-job=$CI_JOB_ID" --init --volume "$CI_PROJECT_DIR:/repo" "$GITLEAKS_IMAGE" git /repo --redact --no-banner
   rules:
     - if: $CI_COMMIT_TAG

@@ -27,12 +27,15 @@ WORKDIR /app/backend
 COPY scripts/harden_epubcheck.py /tmp/harden_epubcheck.py
 RUN python /tmp/harden_epubcheck.py /opt/epubcheck-5.3.0 && rm /tmp/harden_epubcheck.py
 COPY backend/requirements.lock ./requirements.lock
-RUN pip install --no-cache-dir -r requirements.lock
+# Every file checked against the hash recorded in the lock (scripts/hash_lock.py).
+RUN pip install --no-cache-dir --require-hashes -r requirements.lock
 RUN pip uninstall -y pip
 COPY backend/ ./
 COPY prompts/ /app/prompts/
+# The production deployment installs the Compose file of the image it deploys (deploy/libris-production-deploy).
+COPY docker-compose.yml /app/deploy/docker-compose.yml
 COPY --from=frontend /build/dist /app/frontend/dist
-RUN useradd --uid 10001 --create-home translator && mkdir -p /data/books /data/projects /data/exports \
+RUN useradd --uid 10001 --create-home translator && mkdir -p /data/books /data/projects /data/exports /data/tmp \
     && chown -R translator:translator /data && chmod -R a+rX /app
 USER translator
 EXPOSE 8088

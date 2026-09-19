@@ -1,0 +1,16 @@
+[Unit]
+Description=Libris CI: remove volumes and networks left by jobs on the shell runner
+Documentation=https://git.hbtz.fr/dev/libris/-/blob/main/docs/ci-cd.md
+Wants=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/libris-runner-prune
+Nice=10
+IOSchedulingClass=idle
+TimeoutStartSec=30m
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=full

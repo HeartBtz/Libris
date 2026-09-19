@@ -5,6 +5,7 @@ from sqlalchemy import func, select
 
 from app.api.common import row
 from app.automation_settings import autopilot_config
+from app.engines.budget import cost_report
 from app.jobs.launch import autopilot_default
 from app.models import AutopilotDecision, Job
 from app.security import DB, CurrentUser, access
@@ -66,6 +67,8 @@ def autopilot(
             "job_id": last.id,
             "status": last.status,
             "finished_at": last.finished_at,
+            # Estimated against real cost of that job (app.engines.budget).
+            "cost": cost_report(db, last),
         },
         "decisions": {
             "items": [row(decision) for decision in decisions],

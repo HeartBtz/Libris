@@ -5,6 +5,7 @@ import time
 
 from sqlalchemy import case, func, literal_column, select
 
+from app.engines.budget import cost_report
 from app.models import AutopilotDecision, Chapter, Job, Project, RequestLog, Segment, TranslationRequest
 
 REPORT_VERSION = 1
@@ -149,6 +150,8 @@ def build_report(
         "residuals": residuals,
         "residuals_truncated": residual_total > len(residuals),
         "usage": usage(db, job),
+        # Estimated against real cost, with the book's budget (app.engines.budget).
+        "cost": cost_report(db, job),
         "durations": {
             "total_seconds": round(now - request.created_at, 3),
             "queued_seconds": round(started - request.created_at, 3) if started else None,

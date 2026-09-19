@@ -101,3 +101,23 @@ def recovery_base_seconds(db: Session | None = None) -> int:
     if isinstance(value, int) and not isinstance(value, bool):
         return value
     return settings().provider_recovery_base_seconds
+
+
+# Cost budgets (app.engines.budget): BUDGET_* gives the defaults, the "budget" row saved from
+# Settings › Budgets wins over it until it is reset (app.api.budget).
+BUDGET_KEY = "budget"
+BUDGET_FIELDS = ("default_book", "switch_threshold", "on_estimate")
+
+
+def budget_defaults() -> dict:
+    config = settings()
+    return {
+        "default_book": config.budget_default_book,
+        "switch_threshold": config.budget_switch_threshold,
+        "on_estimate": config.budget_on_estimate,
+    }
+
+
+def budget_config(db: Session | None = None) -> dict:
+    stored = saved(db, BUDGET_KEY)
+    return {**budget_defaults(), **{k: v for k, v in stored.items() if k in BUDGET_FIELDS}}

@@ -38,4 +38,15 @@ def launch(db: Session, project: Project, mode: str, options: dict | None = None
     base = pipeline_options(project) if mode == "pipeline" else {}
     if mode != "pipeline" and autopilot_default(project):
         base = {"autopilot": True}  # an analysis alone: a refused passage is skipped, not blocking
-    return enqueue(db, project, "analyze", {**base, **(options or {})}), ""
+    options = {**base, **(options or {})}
+    # Cost budgets of the book and of the API token that asked (app.engines.budget).
+    from app.engines.budget import admit, request_token
+
+    token = request_token(db, options.get("translation_request"))
+    estimated = ("analyze", "translate") if mode == "pipeline" else ("analyze",)
+    refusal, kept = admit(db, project, estimated, token)
+    if refusal:
+        return None, refusal
+    if kept:
+        options["budget"] = kept
+    return enqueue(db, project, "analyze", options), ""

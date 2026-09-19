@@ -327,6 +327,10 @@ MESSAGES = {
     # Problems recorded on passages (GET /api/projects/{id}/issues)
     "Traduction refusée deux fois ; passage ignoré.": "Translation refused twice; passage skipped.",
     "Texte original conservé par décision humaine ; ce passage n’est pas traduit.": "Original text kept by a human decision; this passage is not translated.",
+    # Cost budgets
+    "Budget du livre": "Book budget",
+    "ce mois-ci": "this month",
+    "depuis sa création": "since it was created",
 }  # fmt: skip
 
 TEMPLATES = {
@@ -405,6 +409,14 @@ TEMPLATES = {
     "Requête toujours inachevée après {hours} h : délai maximal dépassé.": "Request still unfinished after {hours} h: maximum delay exceeded.",
     "L’hôte « {host} » n’est pas dans la liste des webhooks autorisés.": "The host “{host}” is not in the list of allowed webhooks.",
     "L’hôte « {host} » désigne une adresse privée ou réservée : webhook refusé.": "The host “{host}” points to a private or reserved address: webhook refused.",
+    # Cost budgets
+    "Budget du jeton d’API « {name} »": "API token budget “{name}”",
+    "{label} atteint ({spent} sur {amount}) : relevez-le avant de lancer ou de reprendre un travail.": "{label} reached ({spent} of {amount}): raise it before starting or resuming a job.",
+    "{label} atteint à {percent} % ({spent} sur {amount}) : travail mis en pause. Relevez le budget, puis reprenez le travail.": "{label} at {percent}% ({spent} of {amount}): job paused. Raise the budget, then resume the job.",
+    "{label} atteint à {percent} % ({spent} sur {amount}) : le travail continue avec « {provider} », fournisseur moins cher.": "{label} at {percent}% ({spent} of {amount}): the job continues with “{provider}”, a cheaper provider.",
+    "Coût estimé {estimate} pour {remaining} restants ({label}) : lancement refusé. Relevez le budget ou lancez un travail plus petit.": "Estimated cost {estimate} for {remaining} left ({label}): launch refused. Raise the budget or start a smaller job.",
+    "Coût estimé {estimate} pour {remaining} restants ({label}) : le travail sera mis en pause près du plafond.": "Estimated cost {estimate} for {remaining} left ({label}): the job will be paused near the cap.",
+    "{label} atteint ({spent} sur {amount}, {period}) : requête refusée. Relevez le budget du jeton ou attendez la période suivante.": "{label} reached ({spent} of {amount}, {period}): request refused. Raise the token's budget or wait for the next period.",
 }  # fmt: skip
 
 

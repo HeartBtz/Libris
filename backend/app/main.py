@@ -34,6 +34,7 @@ from app.api import (
     tokens,
     v1,
 )
+from app.api import budget as budget_api
 from app.config import settings
 from app.db import SessionLocal
 from app.diagnostics import safe_trace
@@ -212,6 +213,7 @@ for module in (
 ):  # fmt: skip
     app.include_router(module.router)
 app.include_router(estimates.router)
+app.include_router(budget_api.router)
 app.include_router(monitoring.router)
 
 

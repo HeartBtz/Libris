@@ -30,6 +30,7 @@ from app.api.providers import SHARED_FIELDS
 from app.api.tokens import Caller, require
 from app.config import API_RESULT_WAIT_CEILING, settings
 from app.db import SessionLocal
+from app.engines.budget import refuse_token_request
 from app.engines.delivery.epub import DeliveryFailed
 from app.engines.delivery.intake import UploadOptions, epub_digest, text_payload, upload_options
 from app.engines.delivery.lifecycle import ENDED, SUCCESS, finalize, refresh, settle
@@ -236,6 +237,7 @@ def check_start(db, caller: Caller, start: bool, provider_id: str | None) -> Non
         )  # fmt: skip
     if provider_id and not db.get(Provider, provider_id):
         raise HTTPException(422, {"code": "unknown_provider", "message": "Provider inconnu."})
+    refuse_token_request(db, caller.token, start)  # 402 once the token's cost budget is reached
 
 
 def check_callback(caller: Caller, url: str | None) -> None:

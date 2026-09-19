@@ -229,7 +229,16 @@ def estimate(
     db: DB,
     operation: Literal["analyze", "translate", "review"] = Query(),
 ):
+    from app.engines.budget import estimate_view
+
     project = access(db, pid, user)
+    result = forecast(db, project, operation)
+    # The book's budget, when it has one: what remains of it against this estimate.
+    return {**result, "budget": estimate_view(db, project, result["cost"])}
+
+
+def forecast(db, project: Project, operation: str) -> dict:
+    """The estimate of `operation` on the book (also read by the budgets before a launch)."""
     provider = db.get(Provider, project.provider_id) if project.provider_id else None
     steps, passages, chars = plan(db, project, operation)
     passage_tokens = chars / passages / CHARS_PER_TOKEN if passages else 0

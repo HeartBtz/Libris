@@ -11,6 +11,8 @@ from starlette.concurrency import run_in_threadpool
 
 from app.api.common import row
 from app.config import settings
+from app.engines.budget import admit as budget_admission
+from app.engines.budget import resume_refusal as budget_resume_refusal
 from app.engines.epub.book import SEGMENTATION
 from app.engines.epub.check import epubcheck
 from app.engines.ingestion import EpubAdapter
@@ -456,6 +458,15 @@ def start_job(project_id: str, body: JobInput, user: CurrentUser, db: DB):
         # Autopilot by default (project setting, else AUTOPILOT_ENABLED); `autopilot: false` opts out.
         if body.autopilot if body.autopilot is not None else autopilot_default(project):
             options.update(AUTOPILOT)
+    # Cost budget: the estimate against what remains, a cap already reached refuses (app.engines.budget).
+    estimated: tuple[str, ...] = ()
+    if whole_book and body.operation in {"analyze", "translate", "review"}:
+        estimated = ("analyze", "translate") if options.get("continue_pipeline") else (body.operation,)
+    refusal, kept = budget_admission(db, project, estimated, provider_id=body.provider_id)
+    if refusal:
+        raise HTTPException(409, {"code": "budget_exceeded", "message": refusal})
+    if kept:
+        options["budget"] = kept
     try:
         job = enqueue(db, project, body.operation, options)
     except ValueError as exc:  # A job is already held for this book: a state conflict, not bad input.
@@ -525,6 +536,8 @@ def control_job(db, project: Project, job: Job, action: str) -> Job:
         raise HTTPException(409, "Un autre travail est déjà actif pour ce livre.")
     if action in {"resume", "retry"} and project.archived_at is not None:
         raise HTTPException(409, "Restaurez ce projet avant de reprendre un travail.")
+    if action in {"resume", "retry"} and (refusal := budget_resume_refusal(db, project, job)):
+        raise HTTPException(409, {"code": "budget_exceeded", "message": refusal})
     if action == "cancel" and job.status not in (*HELD, "failed"):
         raise HTTPException(409, "Ce travail est déjà terminé.")
     # Pausing a failed job would turn it back into a held job that blocks the book.

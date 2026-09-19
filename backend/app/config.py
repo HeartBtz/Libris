@@ -116,6 +116,12 @@ class Settings(BaseSettings):
     retention_bible_revisions: int = Field(default=20, ge=0)
     retention_job_state_days: int = Field(default=30, ge=0)
     retention_results_days: int = Field(default=30, ge=0)
+    # Cost budgets (app.engines.budget), in the currency of the provider prices. Default cap of a book
+    # without its own (0: none); share of a cap at which a job switches to a cheaper fallback provider,
+    # or pauses when there is none; what a launch whose estimate exceeds the cap does (warn or refuse).
+    budget_default_book: float = Field(default=0, ge=0)
+    budget_switch_threshold: float = Field(default=0.9, ge=0.5, le=1)
+    budget_on_estimate: Literal["warn", "refuse"] = "warn"
     # Empty: GET /metrics does not exist. Set: Prometheus must send it as a Bearer token.
     metrics_token: str = ""
 

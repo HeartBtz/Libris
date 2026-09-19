@@ -41,6 +41,8 @@ def finalize(
     request.finished_at = time.time()
     request.report = report
     request.artifact = artifact
+    # Kept for the token budgets, which still count it once the model calls are purged.
+    request.cost = float((report.get("usage") or {}).get("cost") or 0) if report else None
     if request.callback_url:
         request.webhook_state, request.webhook_attempts, request.webhook_next_attempt = "pending", 0, 0
         request.webhook_error = ""

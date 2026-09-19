@@ -163,6 +163,10 @@ class ApiToken(Identified, Base):
     last_used_at: Mapped[float | None] = mapped_column(Float)
     # Signs the webhooks of this token's requests (HMAC-SHA256), encrypted with SECRET_KEY; shown once.
     webhook_secret: Mapped[str | None] = mapped_column(Text)
+    # Spending cap of the requests made with this token, in the currency of the provider prices
+    # (app.engines.budget); None: no cap. Counted per calendar month (UTC) or over the token's life.
+    budget_amount: Mapped[float | None] = mapped_column(Float)
+    budget_period: Mapped[str] = mapped_column(String(10), default="month", server_default="month")
 
 
 LIVE_REQUEST = "status IN ('queued','running')"
@@ -182,6 +186,7 @@ class TranslationRequest(Identified, Base):
             postgresql_where=text(LIVE_REQUEST),
             sqlite_where=text(LIVE_REQUEST),
         ),
+        Index("ix_translation_requests_token", "token_id"),
         Index(
             "ix_translation_requests_webhook",
             "webhook_next_attempt",
@@ -207,6 +212,9 @@ class TranslationRequest(Identified, Base):
     finished_at: Mapped[float | None] = mapped_column(Float)
     # Completion report and stored result (app.engines.delivery), written when the request ends.
     report: Mapped[dict | None] = mapped_column(JSON)
+    # What the request's job cost (the report's usage.cost), kept when the request ends: token budgets
+    # still count it once the model calls themselves are purged.
+    cost: Mapped[float | None] = mapped_column(Float)
     artifact: Mapped[dict | None] = mapped_column(JSON)
     # Webhook: "" (none) | pending | delivered | failed; sent by the worker, never by the API.
     callback_url: Mapped[str | None] = mapped_column(String(2000))

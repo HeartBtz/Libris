@@ -74,7 +74,8 @@ def link_characters(db: Session, series: Series, volume: Project) -> None:
     decided = {
         link.entity_id
         for link in db.scalars(select(SeriesEntityLink).where(SeriesEntityLink.project_id == volume.id))
-        if link.status == "linked" or link.human
+        # A rejection settles the entity too (the autopilot rejects every candidate when in doubt).
+        if link.status in ("linked", "rejected") or link.human
     }
     for entity in locals_:
         if entity.id in decided:

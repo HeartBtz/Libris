@@ -37,10 +37,12 @@ def test_first_provider_selection_starts_automatic_pipeline(seeded):
     with SessionLocal() as db:
         job = db.scalar(select(Job).where(Job.project_id == pid))
         assert job.operation == "analyze" and job.status == "pending"
+        # Autopilot by default (AUTOPILOT_ENABLED): nothing waits for a person.
         assert job.options == {
             "continue_pipeline": True,
             "automatic_recovery": True,
             "full_review": True,
+            "autopilot": True,
         }
 
 

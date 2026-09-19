@@ -27,6 +27,7 @@ from app.engines.ingestion.store import (
 from app.engines.memory.identities import canonical_bible
 from app.engines.series.bible import refresh_series
 from app.engines.translation.memory import translation_memory_enabled
+from app.jobs.launch import AUTOPILOT, autopilot_default, pipeline_options
 from app.jobs.queue import ACTIVE, HELD, emit, enqueue
 from app.models import (
     Chapter,
@@ -46,6 +47,10 @@ from app.schemas import InstructionInput, JobInput, ProjectConfig, SeriesBatchIn
 from app.security import DB, CurrentUser, access
 
 router = APIRouter(prefix="/api/projects")
+
+
+# Settings kept in Project.config, only changed when a client sends them.
+PROJECT_SETTINGS = {"autopilot", "fallback_provider_ids"}
 
 
 def project_views(db, projects: list[Project], *, bible: bool = True) -> list[dict]:
@@ -233,7 +238,7 @@ def final_review_info(project_id: str, user: CurrentUser, db: DB):
 @router.put("/{project_id}")
 def configure(project_id: str, body: ProjectConfig, user: CurrentUser, db: DB):
     project = access(db, project_id, user, write=True)
-    values = body.model_dump(exclude={"translation_memory"})
+    values = body.model_dump(exclude={"translation_memory", *PROJECT_SETTINGS})
     changed = {key for key, value in values.items() if getattr(project, key) != value}
     provider_selected = project.provider_id is None and body.provider_id is not None
     if changed - {"series_name", "volume_number"} and db.scalar(
@@ -242,6 +247,8 @@ def configure(project_id: str, body: ProjectConfig, user: CurrentUser, db: DB):
         raise HTTPException(409, "Mettez le travail en pause avant de modifier sa configuration.")
     if body.provider_id and not db.get(Provider, body.provider_id):
         raise HTTPException(422, "Provider inconnu.")
+    if any(not db.get(Provider, value) for value in body.fallback_provider_ids or []):
+        raise HTTPException(422, "Fournisseur de secours inconnu.")
     if "series_name" in changed:
         check_series_access(db, project, user, body.series_name)
         if project.project_kind == "serial" or (project.source_format != "epub" and not body.series_name.strip()):
@@ -258,6 +265,8 @@ def configure(project_id: str, body: ProjectConfig, user: CurrentUser, db: DB):
     # Clients that predate the setting omit it: the stored choice is then kept.
     if "translation_memory" in body.model_fields_set:
         project.config = {**project.config, "translation_memory": body.translation_memory}
+    for key in PROJECT_SETTINGS & body.model_fields_set:
+        project.config = {**project.config, key: getattr(body, key)}
     for job in db.scalars(select(Job).where(Job.project_id == project_id, Job.status.in_(HELD))):
         if "provider_id" in changed:
             job.provider_id = body.provider_id
@@ -269,16 +278,7 @@ def configure(project_id: str, body: ProjectConfig, user: CurrentUser, db: DB):
     if provider_selected and project.archived_at is None and not db.scalar(
         select(Job.id).where(Job.project_id == project_id, Job.status.in_(HELD))
     ):
-        enqueue(
-            db,
-            project,
-            "analyze",
-            {
-                "continue_pipeline": True,
-                "automatic_recovery": True,
-                "full_review": True,
-            },
-        )
+        enqueue(db, project, "analyze", pipeline_options(project))
     db.commit()
     return project_view(db, project)
 
@@ -439,8 +439,16 @@ def start_job(project_id: str, body: JobInput, user: CurrentUser, db: DB):
         segment = db.get(Segment, body.segment_id)
         if not segment or segment.project_id != project_id:
             raise HTTPException(404, "Passage introuvable.")
+    options = body.model_dump(exclude={"operation", "autopilot"})
+    whole_book = not any(
+        options.get(key) for key in ("chapter_id", "segment_id", "segment_ids", "refused_only")
+    )
+    if body.operation in {"analyze", "translate"} and whole_book:
+        # Autopilot by default (project setting, else AUTOPILOT_ENABLED); `autopilot: false` opts out.
+        if body.autopilot if body.autopilot is not None else autopilot_default(project):
+            options.update(AUTOPILOT)
     try:
-        job = enqueue(db, project, body.operation, body.model_dump(exclude={"operation"}))
+        job = enqueue(db, project, body.operation, options)
     except ValueError as exc:  # A job is already held for this book: a state conflict, not bad input.
         raise HTTPException(409, str(exc)) from None
     if body.operation == "analyze" and body.force:

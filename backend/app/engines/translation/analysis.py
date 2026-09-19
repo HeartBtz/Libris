@@ -3,6 +3,7 @@ import json
 from sqlalchemy import select
 
 from app.db import SessionLocal
+from app.engines.autopilot.degrade import degradable, note, reason_of
 from app.engines.context.builder import build_context
 from app.engines.memory.identities import identities
 from app.engines.memory.relations import collect
@@ -28,6 +29,7 @@ def _unanalyzed(job: Job) -> tuple[list[str], set[str]]:
                 select(Memory.segment_id).where(Memory.project_id == job.project_id, Memory.kind == "analysis")
             )
         )
+        analyzed |= state.marked(db, job.id, state.ANALYSIS_SKIPPED)
     return ids, analyzed
 
 
@@ -148,17 +150,35 @@ async def analyze(job: Job, owner: str) -> None:
         project = await blocking(_pending_analysis, job, sid)
         if project is None:
             continue
-        built = await build_context(project.id, sid, "chapter_analysis", provider_id=job.provider_id)
-        result = await llm.complete(
-            project_id=project.id,
-            provider_id=job.provider_id,
-            segment_id=sid,
-            operation="chapter_analysis",
-            messages=built.messages,
-            response_model=ChapterAnalysis,
-            context=built.inspector,
-            temperature=0.2,
-        )
+        try:
+            built = await build_context(project.id, sid, "chapter_analysis", provider_id=job.provider_id)
+            result = await llm.complete(
+                project_id=project.id,
+                provider_id=job.provider_id,
+                segment_id=sid,
+                operation="chapter_analysis",
+                messages=built.messages,
+                response_model=ChapterAnalysis,
+                context=built.inspector,
+                temperature=0.2,
+            )
+        except Exception as exc:
+            if not degradable(job, exc):
+                raise
+            # Autopilot: the passage is translated without its own analysis rather than blocking the book.
+            await blocking(
+                note,
+                job,
+                owner,
+                stage="analysis",
+                kind="chapter_analysis",
+                action="skipped",
+                reason=f"Analyse du passage abandonnée ({reason_of(exc)}) ; la traduction s’appuie sur le "
+                "contexte voisin.",
+                segment_id=sid,
+                mark=lambda db, sid=sid: state.mark(db, job.id, state.ANALYSIS_SKIPPED, sid),
+            )
+            continue
         await blocking(_store_analysis, job, owner, sid, result)
     # Hierarchical consolidation, one chapter at a time: no full-book context explosion.
     chapter_ids = await blocking(_chapters_to_consolidate, job, owner)
@@ -218,15 +238,35 @@ async def analyze(job: Job, owner: str) -> None:
                     ),
                 },
             ]
-            result = await llm.complete(
-                project_id=project.id,
-                provider_id=job.provider_id,
-                operation="book_analysis",
-                messages=messages,
-                response_model=BookOverview,
-                context={"prompt_version": version, "chapter_id": cid},
-                temperature=0.2,
-            )
+            try:
+                result = await llm.complete(
+                    project_id=project.id,
+                    provider_id=job.provider_id,
+                    operation="book_analysis",
+                    messages=messages,
+                    response_model=BookOverview,
+                    context={"prompt_version": version, "chapter_id": cid},
+                    temperature=0.2,
+                )
+            except Exception as exc:
+                if not degradable(job, exc):
+                    raise
+                await blocking(
+                    note,
+                    job,
+                    owner,
+                    stage="analysis",
+                    kind="book_bible",
+                    action="skipped",
+                    reason=f"Consolidation d’un lot du chapitre « {chapter.title} » abandonnée "
+                    f"({reason_of(exc)}) ; la Book Bible garde les autres lots.",
+                    mark=lambda db, key=batch_key: state.mark(db, job.id, state.BIBLE, key=key, outcome="skipped"),
+                )
+                continue
             await blocking(_store_bible, job, owner, project.id, batch_key, result)
         await blocking(_chapter_done, job, owner, cid)
     await blocking(_refresh_series, job.project_id)
+    if job.options.get("autopilot"):
+        from app.engines.autopilot.memory import decide_memory
+
+        await blocking(decide_memory, job, owner)

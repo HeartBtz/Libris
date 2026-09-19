@@ -38,6 +38,8 @@ class Job(Identified, Base):
     stop_reason: Mapped[str] = mapped_column(String(40), default="", server_default="")
     # When the job last became completed, failed or cancelled; bounds the retention of its state.
     finished_at: Mapped[float | None] = mapped_column(Float)
+    # What the job produced, read by clients once it is terminal (e.g. {"autopilot": {...}}).
+    result: Mapped[dict] = mapped_column(JSON, default=dict, server_default="{}")
 
 
 class Event(Base):
@@ -110,3 +112,21 @@ class JobSegmentState(Base):
     key: Mapped[str] = mapped_column(String(100), primary_key=True, default="")
     outcome: Mapped[str] = mapped_column(String(30), default="")
     data: Mapped[dict] = mapped_column(JSON, default=dict)
+
+
+class AutopilotDecision(Identified, Base):
+    """One decision the autopilot took instead of a person, with its reason: none is silent."""
+
+    __tablename__ = "autopilot_decisions"
+    __table_args__ = (Index("ix_autopilot_decisions_project_created", "project_id", "created_at"),)
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"))
+    job_id: Mapped[str | None] = mapped_column(ForeignKey("jobs.id", ondelete="SET NULL"), index=True)
+    # Kept when the passage is re-imported: the log outlives what it talks about.
+    segment_id: Mapped[str | None] = mapped_column(ForeignKey("segments.id", ondelete="SET NULL"), index=True)
+    stage: Mapped[str] = mapped_column(String(40))  # analysis, translation, recovery, arbitration, memory…
+    kind: Mapped[str] = mapped_column(String(40))  # what was decided on: critique, glossary_term, outage…
+    action: Mapped[str] = mapped_column(String(40))  # what was done: applied, rejected, source_retained…
+    reason: Mapped[str] = mapped_column(Text, default="")
+    # Name and model of the provider involved, as they were then (a provider can be renamed or deleted).
+    provider: Mapped[str] = mapped_column(String(200), default="")
+    model: Mapped[str] = mapped_column(String(200), default="")

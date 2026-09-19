@@ -1,4 +1,4 @@
-"""Provider comparison (audit I-33): the same passages of a book through several providers, side by side.
+"""Provider comparison: the same passages of a book through several providers, side by side.
 
     docker compose exec api python -m app.maintenance.compare_providers \\
         --project <book id> --providers <provider id>,<provider id> [--sample 5] [--output report.json]
@@ -7,7 +7,8 @@ Each provider translates the same sample (evenly spread over the book's narrativ
 prompt and context the pipeline would build for it, answer cache off. Nothing is written to the book:
 translations stay in the report. The model calls are real and paid; they are recorded like any other
 request under the operation `provider_comparison`, so they appear in the statistics but not in the
-book's translation stages. The report gives, per provider: passages translated and failed (with the
+book's translation stages. A relative --output path is written under DATA_DIR/tmp, the writable place
+of the read-only container; the final path is printed. The report gives, per provider: passages translated and failed (with the
 reason), latency, tokens, cost at the price recorded with each call, the automatic checks' findings
 (locked glossary, markers, untranslated text…), the length ratio, and the translations side by side.
 """
@@ -18,9 +19,11 @@ import json
 import statistics
 import time
 from collections import Counter
+from pathlib import Path
 
 from sqlalchemy import func, select
 
+from app.config import settings
 from app.db import SessionLocal
 from app.engines.context.builder import build_context
 from app.engines.context.series import enforced_glossary
@@ -169,18 +172,31 @@ def table(report: dict) -> str:
     return "\n".join(lines)
 
 
+def write_report(report: dict, output: str) -> Path:
+    """Write the JSON report; a relative path lands under DATA_DIR/tmp (the container is read-only)."""
+    path = Path(output).expanduser()
+    if not path.is_absolute():
+        path = settings().data_dir / "tmp" / path
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(report, ensure_ascii=False, indent=2))
+    return path
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--project", required=True)
     parser.add_argument("--providers", required=True, help="provider ids, comma separated")
     parser.add_argument("--sample", type=int, default=5)
-    parser.add_argument("--output", help="write the full report (with the translations) to this JSON file")
+    parser.add_argument(
+        "--output",
+        help="write the full report (with the translations) to this JSON file; a relative path is written "
+        "under DATA_DIR/tmp",
+    )
     arguments = parser.parse_args()
     report = asyncio.run(compare(arguments.project, arguments.providers.split(","), max(1, arguments.sample)))
     print(table(report))
     if arguments.output:
-        with open(arguments.output, "w") as file:
-            json.dump(report, file, ensure_ascii=False, indent=2)
+        print(f"Report written to {write_report(report, arguments.output)}")
 
 
 if __name__ == "__main__":

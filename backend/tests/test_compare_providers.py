@@ -1,4 +1,4 @@
-"""Provider comparison (audit I-33): same sample, several providers, nothing written to the book."""
+"""Provider comparison: same sample, several providers, nothing written to the book."""
 
 import httpx
 import respx
@@ -6,7 +6,7 @@ from sqlalchemy import select
 from test_pipeline import mock_completion
 
 from app.db import SessionLocal
-from app.maintenance.compare_providers import OPERATION, compare, sample_passages, table
+from app.maintenance.compare_providers import OPERATION, compare, sample_passages, table, write_report
 from app.models import Provider, RequestLog, Segment
 
 
@@ -57,3 +57,18 @@ async def test_the_same_sample_goes_through_each_provider(seeded):
         assert after == before
         operations = set(db.scalars(select(RequestLog.operation).where(RequestLog.project_id == pid)))
         assert operations == {OPERATION}
+
+
+def test_a_relative_report_path_lands_in_the_writable_data_directory(tmp_path, monkeypatch):
+    import json
+
+    from app.config import settings
+
+    monkeypatch.chdir(tmp_path)
+    path = write_report({"providers": []}, "reports/report.json")
+    assert path == settings().data_dir / "tmp" / "reports" / "report.json"
+    assert json.loads(path.read_text()) == {"providers": []}
+    assert not (tmp_path / "reports").exists()
+    absolute = tmp_path / "elsewhere.json"
+    assert write_report({"providers": []}, str(absolute)) == absolute
+    assert absolute.is_file()

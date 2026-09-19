@@ -260,13 +260,14 @@ cache. Nothing is written to the book.
 
 ```bash
 docker compose exec api python -m app.maintenance.compare_providers \
-  --project <book id> --providers <provider id>,<provider id> --sample 5 --output /data/tmp/comparison.json
+  --project <book id> --providers <provider id>,<provider id> --sample 5 --output comparison.json
 ```
 
 The table lists, per provider, passages translated and failed, seconds per passage, tokens, cost and the findings
 of the automatic checks (locked glossary, markers, untranslated text…). The JSON report adds failure reasons,
-length ratios and the translations side by side; copy it out with
-`docker compose cp api:/data/tmp/comparison.json .`. These calls are real and billed; they appear in the
+length ratios and the translations side by side. A relative `--output` path is written under `DATA_DIR/tmp`
+(`/data/tmp` in the container, whose other directories are read-only), and the command prints the final path;
+copy the file out with `docker compose cp api:/data/tmp/comparison.json .`. These calls are real and billed; they appear in the
 statistics under the operation `provider_comparison`.
 
 ## Troubleshooting

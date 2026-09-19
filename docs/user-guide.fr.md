@@ -166,6 +166,7 @@ Réglage **Mémoire de traduction** (Stratégie du livre, activé par défaut ; 
 - Le texte préformaté (`pre`), les formules MathML et les titres de dessins SVG sont conservés en original ; ils sont listés dans **Rapport de validation à l’import** (« Conservés tels quels à l’import »). Le texte visible des dessins SVG et les `aria-label` sont traduits.
 - La table des matières et le NCX sont traduits mais ne comptent pas dans le nombre de sections ; les pages hors lecture linéaire (`linear="no"`) viennent après le récit.
 - La quatrième de couverture (`dc:description`) et les sujets courts (`dc:subject`) forment une section **Métadonnées du livre**, traduite et réécrite dans le fichier exporté.
+- Des chapitres Markdown, HTML ou Word (DOCX) s’importent comme des chapitres TXT par `/api/imports` (format `md`, `html` ou `docx`) : titres, paragraphes, listes et citations sont traduits, le code, les tableaux Markdown et les séparateurs restent tels quels, et les exports texte redonnent les marques de titre et de liste.
 - Vers l’arabe, l’hébreu, le persan ou l’ourdou, l’export pose `dir="rtl"` et le sens de lecture droite-gauche ; les citations dans une troisième langue gardent leur langue.
 
 ### Modes
@@ -176,6 +177,8 @@ Réglage **Mémoire de traduction** (Stratégie du livre, activé par défaut ; 
 | Normal        | Rapide + critique LLM                                         |
 | Haute qualité | Critique, révision si problèmes réels, contrôles de cohérence |
 | Maximum       | Haute qualité + polishing littéraire                          |
+
+En haute qualité et en maximum, `review_mode: "fused"` (`PUT /api/projects/{id}`, ou `REVIEW_MODE=fused` pour toute l’instance) fait relire et corriger chaque passage en un seul appel au lieu de deux : moins de tokens pour les passages où la relecture trouve quelque chose, même résultat attendu. `passage_max_chars` règle la longueur des passages des chapitres ajoutés ensuite à ce volume (voir « Coût par passage » dans le guide d’exploitation).
 
 Les contrôles globaux LLM échantillonnent les occurrences dans tout le livre, pour la terminologie et les personnages, avec un plafond de trois lots par sujet. Leur couverture est explicitement notée `sampled`. Les contrôles structurels et de présence du glossaire verrouillé s’appliquent à chaque unité.
 

@@ -28,7 +28,7 @@ from starlette.datastructures import UploadFile
 from app.api.projects import control_job, import_book
 from app.api.providers import SHARED_FIELDS
 from app.api.tokens import Caller, require
-from app.config import settings
+from app.config import API_RESULT_WAIT_CEILING, settings
 from app.db import SessionLocal
 from app.engines.delivery.epub import DeliveryFailed
 from app.engines.delivery.intake import UploadOptions, epub_digest, text_payload, upload_options
@@ -750,7 +750,7 @@ async def translation_request(
     http: Request,
     caller: Annotated[Caller, Depends(require("jobs:read"))],
     db: DB,
-    wait: int = Query(default=0, ge=0, le=3600),
+    wait: int = Query(default=0, ge=0, le=API_RESULT_WAIT_CEILING),
 ):
     if wait:
         await wait_for_end(db, request_id, caller, wait)
@@ -873,7 +873,7 @@ async def translation_result(
     db: DB,
     format: Literal[FORMATS] | None = None,  # noqa: A002 - the documented query parameter
     partial: bool = Query(default=False),
-    wait: int = Query(default=0, ge=0, le=3600),
+    wait: int = Query(default=0, ge=0, le=API_RESULT_WAIT_CEILING),
 ):
     if wait:
         await wait_for_end(db, request_id, caller, wait)

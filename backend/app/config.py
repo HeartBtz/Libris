@@ -5,6 +5,9 @@ from typing import Literal
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+# Hard ceiling of API_RESULT_MAX_WAIT_SECONDS, and so of any `?wait=` a client may send.
+API_RESULT_WAIT_CEILING = 600
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
@@ -39,7 +42,7 @@ class Settings(BaseSettings):
     api_max_chapters: int = Field(default=2000, ge=1, le=100_000)
     api_rate_limit_per_minute: int = Field(default=120, ge=0, le=100_000)
     # Delivery of automation requests (app.engines.delivery). Longest `?wait=` a client may ask for.
-    api_result_max_wait_seconds: int = Field(default=60, ge=0, le=600)
+    api_result_max_wait_seconds: int = Field(default=60, ge=0, le=API_RESULT_WAIT_CEILING)
     # A request whose job stays paused, blocked or waiting this long fails (with the reason), and so
     # does one still unfinished after api_request_max_hours: no request stays `running` forever.
     api_request_stall_minutes: int = Field(default=360, ge=1, le=60 * 24 * 30)

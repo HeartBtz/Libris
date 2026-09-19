@@ -298,8 +298,8 @@ curl -sS "$LIBRIS_URL/api/v1/translation-requests/$REQUEST_ID?wait=60" \
 ```
 
 `?wait=<seconds>` holds the answer until the request ends, up to `API_RESULT_MAX_WAIT_SECONDS`
-(60 by default); a larger value is cut to that limit, and values above 3600 are refused. Nothing is
-held open in the database while waiting.
+(60 by default, 600 at most); a larger value is cut to that limit, and values above 600 are refused
+with `422`. Nothing is held open in the database while waiting.
 
 ### How a request moves
 

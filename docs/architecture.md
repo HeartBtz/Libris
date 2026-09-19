@@ -493,12 +493,42 @@ prompt only: it recognises names but links two names, or a pronoun to a person, 
 or a context section it received says so. The scores therefore measure what each mode puts in front of
 each call. `scripts/evaluate_analysis_modes.py` runs every mode on the same serial:
 
-QUALITY_TABLE
+Three seeds, 60 chapters × 2 volumes each (907 passages in all); recall and precision against the ground
+truth, spoilers counted in the stored memory and in every prompt sent:
+
+| Measure | strict | parallel (`all`) | parallel (`flagged`) | no reconciliation |
+| --- | --- | --- | --- | --- |
+| Characters of each passage: precision / recall | 1.00 / 0.977 | 1.00 / 0.999 | 1.00 / 0.999 | 1.00 / 0.968 |
+| Pronoun-only passages resolved (194) | 0.761 | 0.984 | 0.984 | 0.673 |
+| … referent 3 passages away or more (63) | 0.285 | 0.965 | 0.965 | 0.000 |
+| Late aliases resolved in the passage (409) | 1.000 | 1.000 | 0.975 | 0.472 |
+| Identities, relations, glossary: precision / recall | 1.00 / 1.00 | 1.00 / 1.00 | 1.00 / 1.00 | 1.00 / 1.00 |
+| Spoilers (memory / prompts) | 0 / 0 | 0 / 0 | 0 / 0 | 0 / 0 |
+| Analysis calls | 1,267 | 2,294 | 1,666 | 1,387 |
+| Prompt tokens | 2.64 M | 3.76 M | 2.27 M | 1.58 M |
+
+The parallel mode keeps every score of the strict mode and finds far more pronoun referents (the strict
+rolling summary is per chapter, and its neighbours reach two passages back); reconciling only the flagged
+passages loses part of the alias resolution, and skipping the reconciliation loses half of it: every
+passage is reconciled by default. These figures measure the information each call receives, not a real
+model's use of it; confirm on a real book with the protocol of [development](development.md#evaluating-translation-quality).
 
 `scripts/benchmark_analysis.py` measures the analysis of a 400-chapter serial (800 passages), every
 model call answered after 0.2 s, on a provider allowing 16 calls at once:
 
-BENCH_TABLE
+| Mode | Threads | Wall time | Calls | Prompt tokens | Completion tokens |
+| --- | --- | --- | --- | --- | --- |
+| strict | 1 | 289 s | 1,200 (800 analyses, 400 Bible) | 2.88 M | 76 k |
+| parallel | 1 | 493 s | 2,134 (800 + 800, 534 Bible) | 3.07 M | 146 k |
+| parallel | 4 | 128 s | 2,134 | 3.09 M | 146 k |
+| parallel | 8 | 69 s | 2,134 | 3.09 M | 146 k |
+| parallel | 16 | 60 s | 2,134 | 3.09 M | 146 k |
+
+With 16 calls at once the analysis ends 4.8 times sooner than the strict one, for 1.8 times more calls and
+1.07 times more prompt tokens (an extraction carries no memory). Beyond 8 threads the in-process overhead of
+this benchmark (SQLite, context building) dominates the 0.2 s calls; with a real model taking seconds per call
+the gain follows the threads more closely (about calls ÷ threads × latency, plus the few levels of the Book
+Bible tree). The translation stage, which makes most of a book's calls, is unchanged.
 
 ### Outages and failures
 

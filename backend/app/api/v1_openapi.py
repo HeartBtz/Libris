@@ -1003,6 +1003,8 @@ def raw_epub_parameters(options: dict) -> list[dict]:
                 "required": False,
                 "description": f"Raw EPUB body only (`Content-Type: application/epub+zip`). {note}".strip(),
                 "schema": schema,
+                # Lets a renderer group these options apart from the parameters of every call.
+                "x-libris-raw-epub-only": True,
             }
         )
     return parameters

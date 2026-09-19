@@ -454,7 +454,8 @@
             "description": "Raw EPUB body only (`Content-Type: application/epub+zip`). The file name, used to guess the volume number.",
             "schema": {
               "type": "string"
-            }
+            },
+            "x-libris-raw-epub-only": true
           },
           {
             "name": "external_id",
@@ -464,7 +465,8 @@
             "schema": {
               "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]{0,199}$",
               "type": "string"
-            }
+            },
+            "x-libris-raw-epub-only": true
           },
           {
             "name": "series",
@@ -474,7 +476,8 @@
             "schema": {
               "maxLength": 500,
               "type": "string"
-            }
+            },
+            "x-libris-raw-epub-only": true
           },
           {
             "name": "series_id",
@@ -484,7 +487,8 @@
             "schema": {
               "maxLength": 36,
               "type": "string"
-            }
+            },
+            "x-libris-raw-epub-only": true
           },
           {
             "name": "volume",
@@ -495,7 +499,8 @@
               "maximum": 10000,
               "minimum": 1,
               "type": "integer"
-            }
+            },
+            "x-libris-raw-epub-only": true
           },
           {
             "name": "volume_external_id",
@@ -505,7 +510,8 @@
             "schema": {
               "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]{0,199}$",
               "type": "string"
-            }
+            },
+            "x-libris-raw-epub-only": true
           },
           {
             "name": "title",
@@ -516,7 +522,8 @@
               "default": "",
               "maxLength": 500,
               "type": "string"
-            }
+            },
+            "x-libris-raw-epub-only": true
           },
           {
             "name": "author",
@@ -527,7 +534,8 @@
               "default": "",
               "maxLength": 500,
               "type": "string"
-            }
+            },
+            "x-libris-raw-epub-only": true
           },
           {
             "name": "source_language",
@@ -537,7 +545,8 @@
             "schema": {
               "maxLength": 35,
               "type": "string"
-            }
+            },
+            "x-libris-raw-epub-only": true
           },
           {
             "name": "target_language",
@@ -547,7 +556,8 @@
             "schema": {
               "maxLength": 35,
               "type": "string"
-            }
+            },
+            "x-libris-raw-epub-only": true
           },
           {
             "name": "provider_id",
@@ -557,7 +567,8 @@
             "schema": {
               "maxLength": 36,
               "type": "string"
-            }
+            },
+            "x-libris-raw-epub-only": true
           },
           {
             "name": "quality",
@@ -572,7 +583,8 @@
                 "maximum"
               ],
               "type": "string"
-            }
+            },
+            "x-libris-raw-epub-only": true
           },
           {
             "name": "context_backend",
@@ -586,7 +598,8 @@
                 "hybrid"
               ],
               "type": "string"
-            }
+            },
+            "x-libris-raw-epub-only": true
           },
           {
             "name": "start",
@@ -596,7 +609,8 @@
             "schema": {
               "default": true,
               "type": "boolean"
-            }
+            },
+            "x-libris-raw-epub-only": true
           },
           {
             "name": "final_review",
@@ -606,7 +620,8 @@
             "schema": {
               "default": true,
               "type": "boolean"
-            }
+            },
+            "x-libris-raw-epub-only": true
           },
           {
             "name": "output_format",
@@ -621,7 +636,8 @@
                 "epub"
               ],
               "type": "string"
-            }
+            },
+            "x-libris-raw-epub-only": true
           },
           {
             "name": "callback_url",
@@ -631,7 +647,8 @@
             "schema": {
               "maxLength": 2000,
               "type": "string"
-            }
+            },
+            "x-libris-raw-epub-only": true
           },
           {
             "name": "replace_changed_chapters",
@@ -641,7 +658,8 @@
             "schema": {
               "default": false,
               "type": "boolean"
-            }
+            },
+            "x-libris-raw-epub-only": true
           },
           {
             "name": "discard_human",
@@ -651,7 +669,8 @@
             "schema": {
               "default": false,
               "type": "boolean"
-            }
+            },
+            "x-libris-raw-epub-only": true
           }
         ],
         "requestBody": {

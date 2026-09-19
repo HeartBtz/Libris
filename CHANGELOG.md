@@ -9,8 +9,9 @@ All notable changes are documented here. Libris follows [Semantic Versioning](ht
 - **Behaviour change — fair order instead of first come, first served.** The worker no longer starts waiting jobs strictly oldest first: it takes the highest priority, then the account and the API token with the fewest jobs running, in turn between accounts, and a job that has waited `QUEUE_PRIORITY_AGING_MINUTES` (60) rises one level. With one account and default priorities, jobs still start in the order they entered the queue (a resumed job enters it again), apart from the turn taken between API tokens. Existing jobs become `normal` priority; existing API tokens may ask for `normal` at most until their `max_priority` is raised.
 - **Behaviour change — follow-up chapters are translated alone.** Chapters sent to a volume already translated are no longer followed by a final review and a consistency check of the whole volume: only the new or replaced chapters (and any chapter still missing a translation) are worked on.
 - **Behaviour change — secure session cookie by default** (see Changed): an installation opened over plain HTTP on a network address whose `.env` has no `COOKIE_SECURE` line must add `COOKIE_SECURE=false`.
+- **Behaviour change — parallel analysis by default.** A volume's analysis now runs its passages side by side and reconciles each one with what precedes it (`ANALYSIS_MODE=parallel`): much faster on long serials, with about 1.8 times more analysis calls (translation calls are unchanged). `ANALYSIS_MODE=strict` restores the previous passage-by-passage analysis.
 - **Nothing new is on by default.** No budget applies until one is set (`BUDGET_DEFAULT_BOOK=0`), no queue quota until one is set (`QUEUE_MAX_RUNNING_PER_ACCOUNT=0`, `QUEUE_MAX_QUEUED_PER_ACCOUNT=0`), and OpenViking documents are only removed on deletion once an administrator switches the cleanup on (`OPENVIKING_CLEANUP_ON_DELETE=false`).
-- New settings, all optional: budgets (`BUDGET_DEFAULT_BOOK`, `BUDGET_SWITCH_THRESHOLD`, `BUDGET_ON_ESTIMATE`, also in *Settings › Budgets*), fair queue (`QUEUE_MAX_RUNNING_PER_ACCOUNT`, `QUEUE_MAX_QUEUED_PER_ACCOUNT`, `QUEUE_PRIORITY_AGING_MINUTES`, also in *Settings › Queue* with per-account quotas) and OpenViking cleanup (`OPENVIKING_CLEANUP_ON_DELETE`, also in *Settings › Memory · OpenViking*). Values saved in the interface override the environment until they are reset.
+- New settings, all optional: budgets (`BUDGET_DEFAULT_BOOK`, `BUDGET_SWITCH_THRESHOLD`, `BUDGET_ON_ESTIMATE`, also in *Settings › Budgets*), fair queue (`QUEUE_MAX_RUNNING_PER_ACCOUNT`, `QUEUE_MAX_QUEUED_PER_ACCOUNT`, `QUEUE_PRIORITY_AGING_MINUTES`, also in *Settings › Queue* with per-account quotas) OpenViking cleanup (`OPENVIKING_CLEANUP_ON_DELETE`, also in *Settings › Memory · OpenViking*) and analysis (`ANALYSIS_MODE`, `ANALYSIS_RECONCILIATION`). Values saved in the interface override the environment until they are reset.
 - New automation API answers a client may meet: `402 budget_exceeded` (a token's cost budget is reached), `403 priority_not_allowed` and `429 queue_full` (fair queue), and new fields in the status document (`priority`, `queue`, `chapters.new`, `chapter_events`) and in the completion report (`cost`, `quality`). The published OpenAPI description (`docs/openapi/libris-v1.json`) describes them all.
 
 ### Added
@@ -39,6 +40,44 @@ All notable changes are documented here. Libris follows [Semantic Versioning](ht
 - **Providers listed to API tokens.** A script with only a token could not find the provider ids a translation request names in `provider_id`: the list was only served to the interface's session. `GET /api/v1/providers` (scope `content:write`) returns each provider's id, name, kind, model and the caller's series that use it by default, never its address or key.
 - **Restoring a prompt version or the built-in prompt.** *Settings › Prompts* could only create new versions: going back to an earlier text, or to the prompt shipped with Libris, meant copying it by hand. The page now shows the **Version history** of the selected prompt (date, version in force, content) with a **Restore** button, and **Go back to the original prompt**; both ask for confirmation. Restoring saves the chosen text as a new version, so nothing is erased; going back to the original follows the built-in prompt, including its updates in later releases. The API is `GET /api/prompts/{name}/versions` and `POST /api/prompts/{name}/restore` (administrators only, like editing).
 - **Resetting the automatic recovery delay.** Once a delay was saved in *Settings › Automatic recovery*, `PROVIDER_RECOVERY_BASE_SECONDS` was ignored for good, and with nothing saved the page showed 60 seconds whatever the environment said. The page now shows where the delay comes from (saved here or environment) and the environment value, and **Go back to the environment delay** forgets the saved one, like the autopilot and webhook pages. `GET /api/settings/recovery` answers `retry_seconds`, `default_seconds` and `saved`; `DELETE` resets.
+- **Parallel analysis, quality first.** Analysing a long webnovel passage after passage took as long as
+  the provider's latency times the number of passages (a 400-chapter serial: hours before the first
+  translated line). The analysis of a volume now runs its passages side by side (`ANALYSIS_MODE=parallel`,
+  the default): each passage is first extracted on its own, the extractions are consolidated in book order,
+  then every passage is reconciled, in parallel too, with what the passages **before it** established
+  (identities and aliases, the characters named last for pronouns, relations, terms, the summaries of the
+  passages before); the memory is then written in book order by the same code as before, and the Book Bible
+  is built as a tree. Nothing a later passage reveals is shown to an earlier one, the result is the same
+  whatever the number of threads, every stage resumes without asking the model twice, and translation starts
+  only once the whole analysis of the volume is done. A numbered volume of a series waits, before its
+  reconciliation, for an earlier volume still being analysed (queue reason `earlier_volume`, bounded by
+  `API_REQUEST_STALL_MINUTES`). On a synthetic serial with known ground truth the parallel mode keeps every
+  score of the strict mode and resolves far more pronoun references; on a 400-chapter serial with 16 calls at
+  once the analysis ends about 5 times sooner, for about 1.8 times more analysis calls. The strict mode stays
+  available (`ANALYSIS_MODE=strict`, **Analysis mode** in the book settings, `analysis_mode` of a launch or of
+  an API request); `ANALYSIS_RECONCILIATION=flagged` reconciles only ambiguous passages.
+- **One threads knob.** A volume (**Passages worked on at once** in its settings), a launch (`threads`) and an
+  automation request (`pipeline.threads`, upload option `threads`) choose how many passages are in flight at
+  once, for the analysis and the translation. It can only lower the book's share of the provider's capacity,
+  so one big book never starves the others. After a provider answers `429` or is overloaded, the job resumes
+  at half its width and widens again by one passage per minute; near a cost budget, the calls in flight are
+  reserved before they start and the job narrows down to one call at a time.
+- **Analysis progress.** The interface shows the step of a running analysis (extraction i/N, consolidation,
+  reconciliation i/N, memory writing, Book Bible level k/K), and so do `analysis_phase` in the book and
+  `progress.analysis` in the `/api/v1` status document.
+- **Split one file into chapters by headings.** Webnovels often come as one big TXT, Markdown or DOCX file,
+  which Libris imported as a single chapter. The import assistant now finds the chapter headings (Word heading
+  styles, Markdown `#` titles, lines such as "Chapter 12", "Chapitre 12 : Titre", "CHAPTER XII", "第12章",
+  "Prologue", or consecutive "12. Title" lines), skips a table of contents and sentences that merely mention a
+  chapter, and proposes "Split into N chapters" with each chapter's number, title, size and first words:
+  rename, renumber, merge a chapter with the previous one or keep the file whole. Text before the first heading
+  becomes a front matter chapter. Each part is imported exactly like a separate file named with its number
+  (same numbering, deduplication, exports and project archives), and a file too long for one chapter can now
+  be imported split. The automation API accepts DOCX chapters and a `split=headings` option that applies the
+  split without preview and records it in the report.
+- **Evaluation tools.** `scripts/evaluate_analysis_modes.py` scores the memory of each analysis mode against a
+  synthetic ground truth; `scripts/benchmark_analysis.py` measures wall time, calls and tokens per mode and
+  thread count.
 
 ### Changed
 

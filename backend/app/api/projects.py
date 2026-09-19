@@ -462,11 +462,12 @@ def start_job(project_id: str, body: JobInput, user: CurrentUser, db: DB):
     estimated: tuple[str, ...] = ()
     if whole_book and body.operation in {"analyze", "translate", "review"}:
         estimated = ("analyze", "translate") if options.get("continue_pipeline") else (body.operation,)
-    refusal, kept = budget_admission(db, project, estimated, provider_id=body.provider_id)
-    if refusal:
-        raise HTTPException(409, {"code": "budget_exceeded", "message": refusal})
-    if kept:
-        options["budget"] = kept
+    if body.operation != "sync_memory":  # the only job that never calls a model
+        refusal, kept = budget_admission(db, project, estimated, provider_id=body.provider_id)
+        if refusal:
+            raise HTTPException(409, {"code": "budget_exceeded", "message": refusal})
+        if kept:
+            options["budget"] = kept
     try:
         job = enqueue(db, project, body.operation, options)
     except ValueError as exc:  # A job is already held for this book: a state conflict, not bad input.

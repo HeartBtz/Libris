@@ -131,6 +131,10 @@ def test_a_reached_cap_refuses_launches_and_resumes_until_it_is_raised(seeded):
     assert view["state"] == "exceeded" and view["spent"] == pytest.approx(3.0) and view["remaining"] == 0
     refused = web.post(f"/api/projects/{pid}/jobs", json={"operation": "analyze"})
     assert refused.status_code == 409 and "Budget du livre atteint (3.00 sur 2.50)" in refused.text
+    # Mirroring the memory calls no model: it is never refused for its cost.
+    synced = web.post(f"/api/projects/{pid}/jobs", json={"operation": "sync_memory"})
+    assert synced.status_code == 202, synced.text
+    assert web.post(f"/api/projects/{pid}/jobs/{synced.json()['id']}/cancel").status_code == 200
     # 0 turns the budget off for this book, even with an installation default.
     assert web.put(f"/api/projects/{pid}/budget", json={"amount": 0}).json()["state"] == "none"
     assert web.post(f"/api/projects/{pid}/jobs", json={"operation": "analyze"}).status_code == 202

@@ -7,6 +7,7 @@ import type {
   Confidence,
   ContextBackend,
   FileInspection,
+  ImportFormat,
   ImportResult,
   ImportSession,
   Project,
@@ -143,6 +144,24 @@ registerTranslations({
   "Numéro en double dans ce lot.": "Duplicate number in this batch.",
   "Le volume {number} existe déjà dans la série : « {title} ».": "Volume {number} already exists in the series: “{title}”.",
   "Numéro incertain : confirmez-le ou corrigez-le.": "Uncertain number: confirm or correct it.",
+  "Numéro retenu automatiquement ; modifiable ici.": "Number chosen automatically; you can change it here.",
+  "Sans numéro : le volume suivant de la série lui sera attribué automatiquement.":
+    "No number: it will automatically get the series' next volume.",
+  "Sans numéro : chapitre placé automatiquement d’après son nom.": "No number: the chapter is placed automatically from its name.",
+  "Chapitres Markdown, HTML ou DOCX": "Markdown, HTML or DOCX chapters",
+  "Un fichier par chapitre : titres, paragraphes, listes et citations sont traduits ; le code et les tableaux restent tels quels.":
+    "One file per chapter: headings, paragraphs, lists and quotes are translated; code and tables stay as they are.",
+  "Format des chapitres": "Chapter format",
+  "Des chapitres appartiennent toujours à une série : choisissez-la ou créez-la.":
+    "Chapters always belong to a series: choose it or create it.",
+  "Taille des passages": "Passage size",
+  "Caractères par passage (vide : réglage de l’installation).": "Characters per passage (empty: installation setting).",
+  "« Importer et lancer tout le pipeline » : le pilote automatique mène chaque volume jusqu’au résultat (analyse, traduction, relecture, arbitrage) sans aucune validation à faire. Vous pourrez corriger un passage si vous le souhaitez.":
+    "“Import and run the whole pipeline”: the autopilot takes each volume all the way to the result (analysis, translation, review, arbitration) with no validation to do. You can correct a passage if you wish.",
+  "Décisions automatiques": "Automatic decisions",
+  "{name} : volume {number}": "{name}: volume {number}",
+  "{name} : chapitre {number}": "{name}: chapter {number}",
+  "{name} : sans numéro": "{name}: no number",
   "Indiquez un numéro de chapitre ou confirmez qu’il n’en a pas.": "Enter a chapter number or confirm it has none.",
   "Identique au chapitre existant : ignoré.": "Identical to the existing chapter: skipped.",
   "Le chapitre existe déjà (« {title} ») avec un autre contenu : cochez Remplacer ou ignorez ce fichier.":
@@ -218,7 +237,19 @@ registerTranslations({
   "Rattachement": "Attachment",
 });
 
-type Format = "epub" | "txt" | "archive";
+type Format = ImportFormat | "archive";
+type ChapterFormat = Exclude<ImportFormat, "epub">;
+/** Extensions the server accepts for each import format (app/engines/ingestion UPLOAD_EXTENSIONS). */
+const EXTENSIONS: Record<ImportFormat, string[]> = {
+  epub: ["epub"],
+  txt: ["txt"],
+  md: ["md", "markdown"],
+  html: ["html", "htm", "xhtml"],
+  docx: ["docx"],
+};
+const FORMAT_LABELS: Record<ImportFormat, string> = { epub: "EPUB", txt: "TXT", md: "Markdown", html: "HTML", docx: "DOCX" };
+const isChapterFormat = (value: Format | null): value is ChapterFormat =>
+  !!value && value !== "epub" && value !== "archive";
 type Step = "format" | "destination" | "files" | "review" | "confirm" | "done";
 type DestinationMode = "existing" | "new" | "standalone";
 type TargetMode = "serial" | "volume" | "new_volume";
@@ -260,6 +291,7 @@ interface Defaults {
   provider_id: string;
   quality: "" | Quality;
   context_backend: "" | ContextBackend;
+  passage_max_chars: string;
 }
 
 export interface WizardStart {
@@ -272,8 +304,10 @@ export interface WizardStart {
 const PARALLEL_UPLOADS = 1;
 
 export function formatOf(name: string): Format | null {
-  const extension = name.toLowerCase().split(".").pop();
-  return extension === "epub" ? "epub" : extension === "txt" ? "txt" : extension === "zip" ? "archive" : null;
+  const extension = name.toLowerCase().split(".").pop() || "";
+  if (extension === "zip") return "archive";
+  const found = (Object.keys(EXTENSIONS) as ImportFormat[]).find((format) => EXTENSIONS[format].includes(extension));
+  return found || null;
 }
 
 const normalizeName = (value: string) => value.split(/\s+/).filter(Boolean).join(" ").toLocaleLowerCase();
@@ -314,6 +348,11 @@ export function ImportWizard({
   const { confirm } = useDialogs();
   const initialFormat = start?.files?.length ? formatOf(start.files[0].name) : null;
   const [format, setFormat] = useState<Format | null>(initialFormat);
+  // TXT, Markdown, HTML and DOCX files are chapters of a series; an EPUB is a volume.
+  const chapters = isChapterFormat(format);
+  // Low-confidence guesses are applied by the server unless it asks for a confirmation
+  // (IMPORT_CONFIRM_LOW_CONFIDENCE); a refusal at commit time also turns the confirmation on.
+  const [confirmRequired, setConfirmRequired] = useState(false);
   const [step, setStep] = useState<Step>(
     initialFormat === "archive" ? "files" : initialFormat ? "destination" : "format",
   );
@@ -338,6 +377,7 @@ export function ImportWizard({
     provider_id: "",
     quality: "",
     context_backend: "",
+    passage_max_chars: "",
   });
   const [providers, setProviders] = useState<ProviderSummary[]>([]);
   const [error, setError] = useState("");
@@ -387,7 +427,7 @@ export function ImportWizard({
     (project) => project.project_kind !== "serial" && project.source_format !== "epub" && !project.archived_at,
   );
   const targetProjectId =
-    format !== "txt" ? "" : targetMode === "volume" ? targetProject : targetMode === "serial" ? serial?.id || "" : "";
+    !chapters ? "" : targetMode === "volume" ? targetProject : targetMode === "serial" ? serial?.id || "" : "";
   const steps: Step[] = format === "archive" ? ["format", "files"] : ["format", "destination", "files", "review", "confirm"];
   const stepLabels: Record<Step, string> = {
     format: t("Format"),
@@ -421,7 +461,7 @@ export function ImportWizard({
   }
   function addFiles(files: File[], wanted: Format | null = format) {
     if (!wanted || wanted === "archive") return;
-    const label = wanted.toUpperCase();
+    const label = FORMAT_LABELS[wanted];
     const added: Upload[] = [];
     for (const file of files) {
       const key = `f${++counter.current}`;
@@ -458,12 +498,13 @@ export function ImportWizard({
     setSession(null);
     if (current && !current.result) await api(`/imports/${current.id}`, { method: "DELETE" }).catch(() => undefined);
   }
-  async function ensureSession(wanted: "epub" | "txt") {
+  async function ensureSession(wanted: ImportFormat) {
     if (sessionRef.current?.format === wanted) return;
     await discardSession();
     const created = await send<ImportSession>("/imports", { format: wanted });
     sessionRef.current = created;
     setSession(created);
+    setConfirmRequired(!!created.confirm_low_confidence);
     pump();
   }
   function chooseFormat(next: Format) {
@@ -473,7 +514,7 @@ export function ImportWizard({
     queue.current = [];
     setUploads([]);
     setRows(null);
-    if (next === "txt" && mode === "standalone") setMode(null);
+    if (isChapterFormat(next) && mode === "standalone") setMode(null);
     void discardSession();
   }
   async function remove(upload: Upload) {
@@ -498,11 +539,12 @@ export function ImportWizard({
     if (targetSeriesId) params.set("series_id", targetSeriesId);
     if (targetProjectId) params.set("project_id", targetProjectId);
     const view = await api<ImportSession>(`/imports/${current.id}?${params}`);
-    const chapters =
-      format === "txt" && targetSeriesId && targetProjectId
+    if (view.confirm_low_confidence) setConfirmRequired(true);
+    const existing =
+      chapters && targetSeriesId && targetProjectId
         ? await api<SeriesChapter[]>(`/series/${targetSeriesId}/chapters?project_id=${targetProjectId}`)
         : [];
-    setExistingChapters(chapters);
+    setExistingChapters(existing);
     const proposal = view.proposal;
     if (format === "epub" && mode === "new" && !seriesName.trim() && proposal?.series?.name)
       setSeriesName(proposal.series.name);
@@ -533,7 +575,7 @@ export function ImportWizard({
         excluded,
         existingChapter: "existing_chapter" in item ? item.existing_chapter : null,
         conflict: null,
-        libraryTitle: duplicate?.kind === "library" && format === "txt" ? duplicate.title : "",
+        libraryTitle: duplicate?.kind === "library" && chapters ? duplicate.title : "",
         confirmed: false,
         skip: false,
         replace: false,
@@ -611,8 +653,10 @@ export function ImportWizard({
       if (!seriesMode) return { errors, warnings, notes, needsConfirm, canReplace };
       if (number === undefined || (typeof number === "number" && (!Number.isInteger(number) || number < 1)))
         errors.push(t("Numéro invalide."));
-      else if (number === null) errors.push(t("Indiquez un numéro de volume."));
-      else {
+      else if (number === null) {
+        if (confirmRequired) errors.push(t("Indiquez un numéro de volume."));
+        else notes.push(t("Sans numéro : le volume suivant de la série lui sera attribué automatiquement."));
+      } else {
         if (duplicates.includes(number)) errors.push(t("Numéro en double dans ce lot."));
         if (taken.has(number))
           errors.push(t("Le volume {number} existe déjà dans la série : « {title} ».", { number, title: taken.get(number)! }));
@@ -622,7 +666,8 @@ export function ImportWizard({
       if (number === undefined) errors.push(t("Numéro invalide."));
       else if (number === null) {
         needsConfirm = true;
-        if (!row.confirmed) errors.push(t("Indiquez un numéro de chapitre ou confirmez qu’il n’en a pas."));
+        if (!confirmRequired) notes.push(t("Sans numéro : chapitre placé automatiquement d’après son nom."));
+        else if (!row.confirmed) errors.push(t("Indiquez un numéro de chapitre ou confirmez qu’il n’en a pas."));
       } else {
         if (duplicates.includes(number)) errors.push(t("Numéro en double dans ce lot."));
         needsConfirm = row.confidence === "low" && number === row.guess;
@@ -641,8 +686,12 @@ export function ImportWizard({
       }
       if (row.libraryTitle) warnings.push(t("Ce fichier a déjà été importé dans « {title} ».", { title: row.libraryTitle }));
     }
-    if (needsConfirm && !row.confirmed && number !== null)
-      errors.push(t("Numéro incertain : confirmez-le ou corrigez-le."));
+    // A low-confidence guess is the server's decision unless it asks for a confirmation: shown, editable,
+    // never blocking.
+    if (needsConfirm && !row.confirmed && number !== null) {
+      if (confirmRequired) errors.push(t("Numéro incertain : confirmez-le ou corrigez-le."));
+      else notes.push(t("Numéro retenu automatiquement ; modifiable ici."));
+    }
     return { errors, warnings, notes, needsConfirm, canReplace };
   }
   const rowChecks = new Map((rows || []).map((row) => [row.index, checks(row)]));
@@ -650,14 +699,14 @@ export function ImportWizard({
   const blocking = [
     ...(nameMissing ? [t("Nommez la série.")] : []),
     ...(rows && !kept.length ? [t("Aucun fichier à importer.")] : []),
-    ...(duplicates.length && (format === "txt" || seriesMode)
+    ...(duplicates.length && (chapters || seriesMode)
       ? [t("Numéros en double : {numbers}.", { numbers: duplicates.join(", ") })]
       : []),
   ];
   const rowErrors = Array.from(rowChecks.values()).reduce((total, check) => total + check.errors.length, 0);
   const blockingCount = blocking.length + rowErrors;
   const missing =
-    format === "txt"
+    chapters
       ? missingNumbers([...numbersInBatch, ...chaptersByNumber.keys()])
       : seriesMode
         ? missingNumbers([...numbersInBatch, ...taken.keys()])
@@ -687,7 +736,7 @@ export function ImportWizard({
     try {
       if (step === "format") setStep(format === "archive" ? "files" : "destination");
       else if (step === "destination") {
-        await ensureSession(format as "epub" | "txt");
+        await ensureSession(format as ImportFormat);
         setStep("files");
       } else if (step === "files") {
         await loadReview();
@@ -709,7 +758,11 @@ export function ImportWizard({
     if (!current || !rows) return;
     setError("");
     setBusy(true);
-    const settings = Object.fromEntries(Object.entries(defaults).filter(([, value]) => value !== ""));
+    const settings = Object.fromEntries(
+      Object.entries(defaults)
+        .filter(([, value]) => value !== "")
+        .map(([key, value]) => [key, key === "passage_max_chars" ? Number(value) : value]),
+    );
     const body = {
       destination:
         mode === "standalone"
@@ -717,7 +770,7 @@ export function ImportWizard({
           : mode === "existing"
             ? { mode: "series", series_id: seriesId }
             : { mode: "series", series_name: seriesName.trim() },
-      ...(format === "txt"
+      ...(chapters
         ? {
             target:
               targetMode === "volume"
@@ -740,7 +793,7 @@ export function ImportWizard({
           skip: row.skip || !!row.excluded,
         };
       }),
-      first_line_title: firstLineTitle,
+      first_line_title: format === "txt" && firstLineTitle,
       discard_human: discardHuman,
       settings,
       start: launch,
@@ -769,6 +822,14 @@ export function ImportWizard({
         });
         if (accepted) return commit(launch, true);
         return;
+      }
+      if (e instanceof ApiError && e.status === 422 && !confirmRequired) {
+        // The server may require confirmations (IMPORT_CONFIRM_LOW_CONFIDENCE): show them if it does.
+        const view = await api<ImportSession>(`/imports/${current.id}`).catch(() => null);
+        if (view?.confirm_low_confidence) {
+          setConfirmRequired(true);
+          setStep("review");
+        }
       }
       if (detail && "conflicts" in detail && Array.isArray(detail.conflicts)) {
         const conflicts = detail.conflicts as { number: number | null; title: string }[];
@@ -891,6 +952,24 @@ export function ImportWizard({
             />
             <Choice
               name="import-format"
+              checked={format === "md" || format === "html" || format === "docx"}
+              onChange={() => chooseFormat(format === "html" || format === "docx" ? format : "md")}
+              title={t("Chapitres Markdown, HTML ou DOCX")}
+              description={t(
+                "Un fichier par chapitre : titres, paragraphes, listes et citations sont traduits ; le code et les tableaux restent tels quels.",
+              )}
+              icon="file"
+            >
+              <Field label={t("Format des chapitres")}>
+                <Select value={format || "md"} onChange={(e) => chooseFormat(e.target.value as ChapterFormat)}>
+                  <option value="md">Markdown (.md)</option>
+                  <option value="html">HTML (.html)</option>
+                  <option value="docx">DOCX (.docx)</option>
+                </Select>
+              </Field>
+            </Choice>
+            <Choice
+              name="import-format"
               checked={format === "archive"}
               onChange={() => chooseFormat("archive")}
               title={t("Restaurer une archive Libris")}
@@ -915,8 +994,12 @@ export function ImportWizard({
         <div className="stack">
           <fieldset className="choice-group">
             <legend>{format === "epub" ? t("Où ranger ces livres ?") : t("Série des chapitres")}</legend>
-            {format === "txt" && (
-              <p className="field-hint">{t("Des chapitres TXT appartiennent toujours à une série : choisissez-la ou créez-la.")}</p>
+            {chapters && (
+              <p className="field-hint">
+                {format === "txt"
+                  ? t("Des chapitres TXT appartiennent toujours à une série : choisissez-la ou créez-la.")
+                  : t("Des chapitres appartiennent toujours à une série : choisissez-la ou créez-la.")}
+              </p>
             )}
             <Choice
               name="import-destination"
@@ -968,7 +1051,7 @@ export function ImportWizard({
               />
             )}
           </fieldset>
-          {format === "txt" && (mode === "new" || (mode === "existing" && seriesId)) && (
+          {chapters && (mode === "new" || (mode === "existing" && seriesId)) && (
             <fieldset className="choice-group">
               <legend>{t("Où ajouter les chapitres ?")}</legend>
               <Choice
@@ -1058,8 +1141,8 @@ export function ImportWizard({
         </div>
       );
     if (step === "files") {
-      const label = (format || "").toUpperCase();
-      const accept = format === "epub" ? ".epub" : ".txt";
+      const label = FORMAT_LABELS[format as ImportFormat];
+      const accept = EXTENSIONS[format as ImportFormat].map((extension) => `.${extension}`).join(",");
       const done = uploads.filter((upload) => upload.state === "done" || upload.state === "failed").length;
       const counted = uploads.filter((upload) => upload.state !== "rejected").length;
       return (
@@ -1095,7 +1178,7 @@ export function ImportWizard({
                 <UploadItem
                   key={upload.key}
                   upload={upload}
-                  format={format as "epub" | "txt"}
+                  format={format as ImportFormat}
                   onRemove={() => void remove(upload)}
                 />
               ))}
@@ -1163,9 +1246,9 @@ export function ImportWizard({
               {t("Numéros manquants : {numbers}.", { numbers: missing.join(", ") })}
             </Callout>
           )}
-          {(format === "txt" || seriesMode) && listed.length > 1 && (
+          {(chapters || seriesMode) && listed.length > 1 && (
             <div className="row">
-              {format === "txt" && (
+              {chapters && (
                 <Button size="sm" icon="list" onClick={sortByNumber}>
                   {t("Trier par numéro")}
                 </Button>
@@ -1175,10 +1258,10 @@ export function ImportWizard({
               </Button>
             </div>
           )}
-          <div className={cx("wizard-table", !(format === "txt" || seriesMode) && "no-number")}>
+          <div className={cx("wizard-table", !(chapters || seriesMode) && "no-number")}>
             <div className="wizard-table-head" aria-hidden="true">
               <span>{t("Fichier")}</span>
-              {(format === "txt" || seriesMode) && <span>{format === "epub" ? t("N° vol.") : t("N° ch.")}</span>}
+              {(chapters || seriesMode) && <span>{format === "epub" ? t("N° vol.") : t("N° ch.")}</span>}
               <span>{t("Titre")}</span>
             </div>
             <ol className="wizard-rows">
@@ -1199,7 +1282,7 @@ export function ImportWizard({
                         {row.reason && <span className="wizard-reason">{row.reason}</span>}
                       </span>
                     </div>
-                    {(format === "txt" || seriesMode) && (
+                    {(chapters || seriesMode) && (
                       <Field label={format === "epub" ? t("N° vol.") : t("N° ch.")} className="wizard-number">
                         <Input
                           inputMode="decimal"
@@ -1259,7 +1342,7 @@ export function ImportWizard({
                       </ul>
                     )}
                     <div className="wizard-row-actions wizard-row-wide">
-                      {check.needsConfirm && !ignored && (
+                      {check.needsConfirm && confirmRequired && !ignored && (
                         <Checkbox
                           label={parseNumber(row.number) === null ? t("Confirmer : pas de numéro") : t("Confirmer le numéro")}
                           checked={row.confirmed}
@@ -1424,8 +1507,25 @@ export function ImportWizard({
                   <option value="hybrid">{t("Hybride")}</option>
                 </Select>
               </Field>
+              <Field label={t("Taille des passages")} hint={t("Caractères par passage (vide : réglage de l’installation).")}>
+                <Input
+                  type="number"
+                  min="500"
+                  max="20000"
+                  step="100"
+                  inputMode="numeric"
+                  placeholder="3500"
+                  value={defaults.passage_max_chars}
+                  onChange={(e) => setDefaults({ ...defaults, passage_max_chars: e.target.value })}
+                />
+              </Field>
             </FormGrid>
           </section>
+          <Callout tone="accent" icon="sparkles">
+            {t(
+              "« Importer et lancer tout le pipeline » : le pilote automatique mène chaque volume jusqu’au résultat (analyse, traduction, relecture, arbitrage) sans aucune validation à faire. Vous pourrez corriger un passage si vous le souhaitez.",
+            )}
+          </Callout>
         </div>
       );
     }
@@ -1440,7 +1540,7 @@ export function ImportWizard({
                 {" : "}
                 {result.projects.map((project) => project.title).join(" — ")}
               </li>
-              {format === "txt" && (
+              {chapters && (
                 <li>
                   {t("{created} chapitres créés · {unchanged} identiques · {replaced} remplacés", {
                     created: result.chapters.created,
@@ -1454,6 +1554,26 @@ export function ImportWizard({
               )}
             </ul>
           </Callout>
+          {!!result.decisions?.length && (
+            <Callout tone="info" title={t("Décisions automatiques")}>
+              <ul className="wizard-messages">
+                {result.decisions.map((decision) => {
+                  const number = decision.volume_number ?? decision.chapter_number;
+                  const label =
+                    number === null || number === undefined
+                      ? t("{name} : sans numéro", { name: decision.name })
+                      : "volume_number" in decision
+                        ? t("{name} : volume {number}", { name: decision.name, number })
+                        : t("{name} : chapitre {number}", { name: decision.name, number });
+                  return (
+                    <li key={`${decision.index}-${decision.reason}`}>
+                      {label} — <span className="muted">{decision.reason}</span>
+                    </li>
+                  );
+                })}
+              </ul>
+            </Callout>
+          )}
           {result.warnings.length > 0 && (
             <Callout tone="warning" role="status">
               <ul className="wizard-messages">
@@ -1603,7 +1723,7 @@ function UploadItem({
   onRemove,
 }: {
   upload: Upload;
-  format: "epub" | "txt";
+  format: ImportFormat;
   onRemove: () => void;
 }) {
   const { t } = useI18n();
@@ -1632,7 +1752,7 @@ function UploadItem({
   const summary = inspection
     ? [
         inspection.title,
-        format === "txt" && inspection.chapter_number !== null
+        format !== "epub" && inspection.chapter_number !== null
           ? t("chapitre {number}", { number: inspection.chapter_number })
           : "",
         format === "epub" && inspection.series ? t("Série déclarée : {series}", { series: inspection.series }) : "",
@@ -1649,7 +1769,7 @@ function UploadItem({
           {upload.name}
         </span>
         <span className="wizard-file-meta subtle tabular">
-          {format.toUpperCase()} · {fileSize(upload.size)}
+          {FORMAT_LABELS[format]} · {fileSize(upload.size)}
         </span>
         {summary && <span className="wizard-file-meta">{summary}</span>}
         {problems.map((text) => (

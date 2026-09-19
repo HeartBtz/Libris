@@ -134,9 +134,30 @@ def _chapter_done(job: Job, owner: str, cid: str) -> None:
         db.commit()
 
 
+def analysis_mode(job: Job) -> str:
+    """`parallel` or `strict`: the launch's choice, else the volume's, else ANALYSIS_MODE."""
+    from app.config import settings
+
+    chosen = (job.options or {}).get("analysis_mode")
+    if chosen not in {"parallel", "strict"}:
+        with SessionLocal() as db:
+            project = db.get(Project, job.project_id)
+            chosen = (project.config or {}).get("analysis_mode") if project else None
+    return chosen if chosen in {"parallel", "strict"} else settings().analysis_mode
+
+
 async def analyze(job: Job, owner: str) -> None:
+    if await blocking(analysis_mode, job) == "parallel":
+        from app.engines.translation.parallel_analysis import analyze_parallel
+
+        await analyze_parallel(job, owner)
+        return
+    await analyze_strict(job, owner)
+
+
+async def analyze_strict(job: Job, owner: str) -> None:
     # Strictly in book order: each analysis reads the chapter summary, characters and relations left
-    # by the passages before it, so running passages side by side would break that chronology.
+    # by the passages before it. The parallel mode rebuilds that chronology after the fact instead.
     ids, analyzed = await blocking(_unanalyzed, job)
     for index, sid in enumerate(ids):
         if sid in analyzed:

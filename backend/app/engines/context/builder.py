@@ -43,6 +43,9 @@ def context_query(source: str, neighbors: str, names: list[str]) -> str:
 
 
 NEIGHBORS = {"PREVIOUS_CONTEXT", "NEXT_CONTEXT"}
+# The analyses of a passage: strict (chapter_analysis), or parallel extraction then reconciliation
+# (app.engines.translation.parallel_analysis). They read the same memory of what precedes the passage.
+ANALYSIS_OPERATIONS = {"chapter_analysis", "chapter_extraction", "chapter_reconciliation"}
 
 
 def section(name: str, content: str) -> str:
@@ -65,6 +68,8 @@ RESPONSE_MODELS = {
     "review_revision": ReviewRevisionResult,
     "final_review": FinalReviewResult,
     "chapter_analysis": ChapterAnalysis,
+    "chapter_extraction": ChapterAnalysis,
+    "chapter_reconciliation": ChapterAnalysis,
     "context_planner": ContextNeeds,
     "ask": AskResult,
 }
@@ -130,11 +135,15 @@ async def build_context(
     extra: dict | None = None,
     needs: list[str] | None = None,
     provider_id: str | None = None,
+    known: list[ContextItem] | None = None,
 ) -> BuiltContext:
+    """`known`: optional sections the caller computed (the parallel analysis' memory of what precedes
+    the passage); they compete for the context budget like the others."""
     # Queries and scoring scale with the book: they run off the event loop shared by every job.
     prepared = await blocking(
         _prepare, project_id, segment_id, operation, deep, instruction, extra, needs, provider_id
     )
+    prepared.candidates.extend(known or [])
     memory = HybridContextProvider()
     retrieved = await memory.retrieve(prepared.project, prepared.query, prepared.segment.position, deep)
     return await blocking(_assemble, prepared, retrieved, memory.trace, operation)
@@ -350,7 +359,7 @@ def _prepare(
                     authority=4 if e.validated else 6,
                 )
             )
-        if operation == "chapter_analysis":
+        if operation in ANALYSIS_OPERATIONS:
             candidates.append(
                 ContextItem(
                     "CHARACTER_REGISTRY",

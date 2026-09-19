@@ -67,6 +67,8 @@ registerTranslations({
   "Le secret d’un jeton, quand il en a un, signe toujours ses propres requêtes.":
     "A token's own secret, when it has one, always signs its own requests.",
   "Enregistrer les webhooks": "Save the webhooks",
+  "Ce serveur ne permet pas encore de régler le pilote automatique depuis l’interface.":
+    "This server does not let the interface set the autopilot yet.",
 });
 
 interface AutopilotValues {
@@ -114,6 +116,9 @@ const lines = (value: string) =>
     .map((item) => item.trim())
     .filter(Boolean);
 
+const isSettings = <T,>(value: unknown): value is T =>
+  !!value && typeof value === "object" && !Array.isArray(value) && "values" in value && "defaults" in value;
+
 function SourceBadge({ saved }: { saved: boolean }) {
   const { t } = useI18n();
   return <Badge tone={saved ? "accent" : "neutral"}>{saved ? t("Valeurs enregistrées ici") : t("Valeurs de l’environnement")}</Badge>;
@@ -129,6 +134,7 @@ export function AutopilotSettings({ run }: { run: Run }) {
   const [providers, setProviders] = useState<ProviderSummary[]>([]);
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState("");
+  const [unsupported, setUnsupported] = useState(false);
   const load = (next: AutopilotAdmin) => {
     setView(next);
     setDraft(next.values);
@@ -137,13 +143,16 @@ export function AutopilotSettings({ run }: { run: Run }) {
   useEffect(() => {
     void run.background(async () => {
       const [value, list] = await Promise.all([
-        api<AutopilotAdmin>("/settings/autopilot"),
+        api<unknown>("/settings/autopilot").catch(() => null),
         api<ProviderSummary[]>("/providers"),
       ]);
       setProviders(list);
-      load(value);
+      if (isSettings<AutopilotAdmin>(value)) load(value);
+      else setUnsupported(true);
     });
   }, [run]);
+  if (unsupported)
+    return <Callout tone="info">{t("Ce serveur ne permet pas encore de régler le pilote automatique depuis l’interface.")}</Callout>;
   if (!view || !draft) return <LoadingBlock label={t("Chargement…")} />;
   const set = (change: Partial<AutopilotValues>) => {
     setStatus("");
@@ -315,6 +324,7 @@ export function WebhookSettings({ run }: { run: Run }) {
   const [timeout, setTimeoutSeconds] = useState(10);
   const [secret, setSecret] = useState("");
   const [clearSecret, setClearSecret] = useState(false);
+  const [unsupported, setUnsupported] = useState(false);
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState("");
   const load = (next: WebhookAdmin) => {
@@ -327,8 +337,14 @@ export function WebhookSettings({ run }: { run: Run }) {
     setClearSecret(false);
   };
   useEffect(() => {
-    void run.background(async () => load(await api<WebhookAdmin>("/settings/webhooks")));
+    void run.background(async () => {
+      // Servers before 0.6 have no such settings: the card is left out rather than broken.
+      const value = await api<unknown>("/settings/webhooks").catch(() => null);
+      if (isSettings<WebhookAdmin>(value)) load(value);
+      else setUnsupported(true);
+    });
   }, [run]);
+  if (unsupported) return null;
   if (!view) return <LoadingBlock label={t("Chargement…")} />;
   const touched = () => setStatus("");
   async function save() {

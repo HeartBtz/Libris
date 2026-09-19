@@ -207,8 +207,12 @@ schema, you need the database as it was before the update.
 3. Start the previous version:
 
    ```bash
+   git checkout v<previous version>
    LIBRIS_IMAGE=heartbtz/libris:<previous version> ./scripts/install-docker.sh
    ```
+
+   Go back to the matching files too: a later run of the installer from newer files would move `.env` to the
+   release those files ship.
 
 4. Check `/health`, sign in and resume the books.
 

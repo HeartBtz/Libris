@@ -192,20 +192,22 @@ Read the [changelog](../CHANGELOG.md) first, then:
 
 1. Pause running books in the interface (they would resume anyway, from their last checkpoint).
 2. Make a backup: see [backup and restore](backup.md).
-3. Update the Compose files, then install the new image, naming it explicitly:
+3. Update the files, then run the installer again:
 
    ```bash
    git pull --ff-only
-   LIBRIS_IMAGE=heartbtz/libris:0.6.0 ./scripts/install-docker.sh
+   ./scripts/install-docker.sh
    curl --fail http://127.0.0.1:8088/health
    ```
 
    Add `--profile codex` to the installer if you use the Codex bridge.
 
-The image is pinned in `.env` (`LIBRIS_IMAGE=...`), and the installer keeps the version written there: without
-the `LIBRIS_IMAGE=` prefix, it would restart the version you already run. With it, the installer writes the new
-version into `.env`. Database migrations run automatically before the web application starts. Resume the paused
-books afterwards.
+The image is pinned in `.env` (`LIBRIS_IMAGE=...`). When `.env` names an official release
+(`heartbtz/libris:<x.y.z>`) older than the one shipped with your copy of Libris, the installer moves it to the
+shipped release and says so. It keeps a newer release, and any other image you wrote there (a local build, another
+registry, another tag). To install a specific image, name it on the command line:
+`LIBRIS_IMAGE=heartbtz/libris:<version> ./scripts/install-docker.sh`; the installer writes it into `.env`.
+Database migrations run automatically before the web application starts. Resume the paused books afterwards.
 
 To go back to a previous version after a schema change, you need the backup taken before the update: see
 [backup and restore](backup.md). For finer control over restarts (updating the web application without

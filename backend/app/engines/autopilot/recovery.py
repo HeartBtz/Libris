@@ -28,6 +28,7 @@ from app.jobs.concurrency import blocking, book_share, in_parallel, job_lock
 from app.jobs.queue import JobStopped, checkpoint, emit, fence
 from app.models import Issue, Job, JobSegmentState, Project, Provider, Segment
 from app.providers.llm import (
+    InvalidResponseExhausted,
     LLMError,
     ProviderAuthenticationRequired,
     ProviderUnavailable,
@@ -223,7 +224,10 @@ async def climb(job: Job, owner: str, sid: str, round_no: int) -> None:
     project, segment, glossary = loaded
     reason = segment.error or "Passage non traduit."
     attempts: list[str] = []
+    repaired = False
     for name, runner, rung in await blocking(rungs, job, segment):
+        if name == "batch_repair" and repaired:
+            continue  # the retry's invalid answers already went through the same groups
         label = name if runner is job else f"{name}:{await blocking(_provider_name, runner.provider_id)}"
         try:
             result = await rung(runner, project, segment, glossary, reason)
@@ -237,6 +241,7 @@ async def climb(job: Job, owner: str, sid: str, round_no: int) -> None:
         except (LLMError, ValueError) as exc:
             attempts.append(f"{label} : {reason_of(exc)[:200]}")
             reason = reason_of(exc)
+            repaired = repaired or (name == "informed_retry" and isinstance(exc, InvalidResponseExhausted))
             continue
         # Applied, or the passage changed meanwhile (a person edited it): either way nothing more to do.
         await blocking(
@@ -287,12 +292,38 @@ def _recovered(job, owner, project, segment, result, provider_id, label, attempt
 
 
 def retain_source(job: Job, owner: str, sid: str, reason: str, round_no: int | None = None) -> bool:
-    """Last resort: the passage keeps its original text, with the reason recorded (never left failed)."""
+    """Last resort: the passage keeps its original text, with the reason recorded (never left failed).
+
+    A passage that failed a new attempt but still has a machine translation keeps that translation."""
     with job_lock(job.id), SessionLocal() as db:
         current_job = fence(db, job.id, owner)
         segment = db.get(Segment, sid)
         if segment.human or segment.validated or segment.retained_source:
             return False
+        provider = db.get(Provider, current_job.provider_id) if current_job.provider_id else None
+        if segment.translation:
+            segment.status, segment.error, segment.stage = "ok", "", "done"
+            db.execute(
+                update(Issue)
+                .where(Issue.segment_id == sid, Issue.code.in_(FAILURE_CODES), Issue.resolved.is_(False))
+                .values(resolved=True)
+            )
+            state.mark(db, job.id, state.FINISHED, sid)
+            if round_no is not None:
+                state.mark(db, job.id, state.LADDER, sid, key=f"r{round_no}", outcome="kept_translation")
+            record(
+                db,
+                job.project_id,
+                job_id=job.id,
+                segment_id=sid,
+                stage="recovery",
+                kind="failed_passage",
+                action="kept_translation",
+                reason=f"Traduction précédente conservée : {reason}",
+                provider=provider,
+            )
+            db.commit()
+            return True
         units = [{"id": u["id"], "text": u["text"]} for u in segment.units]
         if not save_version(db, sid, units, "source_retained", segment.revision, stage="done"):
             db.rollback()
@@ -324,7 +355,7 @@ def retain_source(job: Job, owner: str, sid: str, reason: str, round_no: int | N
             kind="failed_passage",
             action="source_retained",
             reason=reason,
-            provider=db.get(Provider, current_job.provider_id) if current_job.provider_id else None,
+            provider=provider,
         )
         emit(db, job.project_id, job_id=job.id, segment_id=sid, status="source_retained", automatic=True)
         db.commit()

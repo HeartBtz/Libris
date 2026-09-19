@@ -284,3 +284,155 @@ def test_launches_are_autopilot_by_default_and_can_opt_out(seeded):
         sid = client.get(f"/api/projects/{pid}/completion").json()["recovery"][0]["id"]
         scoped = client.post(f"/api/projects/{pid}/jobs", json={"operation": "translate", "segment_id": sid})
         assert "autopilot" not in scoped.json()["options"]
+
+
+@respx.mock
+async def test_convergence_is_bounded_and_settles_what_stays_open(seeded, monkeypatch):
+    """The arbitration is refused every time: the loop stops after AUTOPILOT_MAX_ROUNDS and closes the
+    open points on the current translation, with the reason, instead of leaving them to a person."""
+    monkeypatch.setattr(settings(), "autopilot_max_rounds", 2)
+    pid = seeded[0]
+    book = Book(set())
+
+    def model(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        if body["response_format"]["json_schema"]["name"] == "ArbitrationResult":
+            return REFUSAL
+        return book.backup(request)
+
+    respx.post("https://llm.test/v1/chat/completions").mock(side_effect=model)
+    with SessionLocal() as db:
+        job, _ = launch(db, db.get(Project, pid), "pipeline")
+        db.commit()
+        jid = job.id
+
+    job = await run(jid)
+
+    assert job.status == "completed"
+    assert job.result["autopilot"] == {"outcome": "completed", "rounds": 2, "residuals": [], "reason": None}
+    with SessionLocal() as db:
+        statuses = set(db.scalars(select(Segment.status).where(Segment.project_id == pid)))
+        assert statuses == {"ok"}
+        decisions = list(db.scalars(select(AutopilotDecision).where(AutopilotDecision.job_id == jid)))
+        deferred = [d for d in decisions if d.action == "deferred"]
+        settled = [d for d in decisions if d.kind == "open_points"]
+        assert len(deferred) == 2  # one refused arbitration per round, never more
+        assert len(settled) == 1 and "Nombre maximal de tours atteint (2)" in settled[0].reason
+        assert "Verbe faible" in settled[0].reason
+    arbitrations = [call for call in book.calls if call[1] == "ArbitrationResult"]
+    assert arbitrations == []  # refused before reaching the backup's answers
+
+
+def running_job(project_id: str, options: dict | None = None) -> tuple[Job, str]:
+    from app.jobs.queue import enqueue
+
+    with SessionLocal() as db:
+        job = enqueue(db, db.get(Project, project_id), "translate", {"autopilot": True, **(options or {})})
+        db.commit()
+        jid = job.id
+    owner = claim()[1]
+    with SessionLocal() as db:
+        return db.get(Job, jid), owner
+
+
+def test_series_identities_and_stale_chapters_are_decided_with_their_thresholds(seeded):
+    from app.engines.autopilot.memory import decide_identities, decide_stale_chapters
+    from app.jobs import segment_state as state
+    from app.models import Chapter, Entity, Series, SeriesEntity, SeriesEntityLink
+
+    pid, uid, _ = seeded
+    with SessionLocal() as db:
+        series = Series(owner_id=uid, name="Saga", normalized_name="saga", bible={})
+        db.add(series)
+        db.flush()
+        near = SeriesEntity(series_id=series.id, name="Robert", category="character", aliases=["Bob"],
+                            data={"gender": "male"})
+        far = SeriesEntity(series_id=series.id, name="Bobby Smith", category="character", aliases=["Bob", "B."],
+                           data={"gender": "female"})
+        twin_a = SeriesEntity(series_id=series.id, name="Ann", category="character", aliases=["Annie"])
+        twin_b = SeriesEntity(series_id=series.id, name="Anna", category="character", aliases=["Annie"])
+        bob = Entity(project_id=pid, name="Bob", category="character", data={"aliases": ["Robert"], "gender": "male"})
+        annie = Entity(project_id=pid, name="Annie", category="character", data={})
+        db.add_all([near, far, twin_a, twin_b, bob, annie])
+        db.flush()
+        for entity, candidates in ((bob, (near, far)), (annie, (twin_a, twin_b))):
+            for candidate in candidates:
+                db.add(SeriesEntityLink(series_entity_id=candidate.id, entity_id=entity.id, project_id=pid,
+                                        status="proposed", confidence=0.5))
+        chapters = list(db.scalars(select(Chapter).where(Chapter.project_id == pid).order_by(Chapter.position)))
+        chapters[0].context_stale = chapters[1].context_stale = True
+        db.commit()
+        first_chapter, second_chapter = chapters[0].id, chapters[1].id
+        first_segments = list(db.scalars(select(Segment.id).where(Segment.chapter_id == first_chapter)))
+    job, owner = running_job(pid)
+    with SessionLocal() as db:
+        state.mark_all(db, job.id, state.FINISHED, first_segments)
+        db.commit()
+
+    decide_identities(job, owner)
+    decide_stale_chapters(job, owner)
+
+    with SessionLocal() as db:
+        links = {(link.entity_id, link.series_entity_id): link.status for link in db.scalars(select(SeriesEntityLink))}
+        assert links[(bob.id, near.id)] == "linked" and links[(bob.id, far.id)] == "rejected"
+        # Two identities equally likely: none is chosen, the character stays this volume's own.
+        assert links[(annie.id, twin_a.id)] == links[(annie.id, twin_b.id)] == "rejected"
+        assert db.get(Chapter, first_chapter).context_stale is False
+        assert db.get(Chapter, second_chapter).context_stale is True  # not translated again by this job
+        kinds = [(d.kind, d.action) for d in db.scalars(select(AutopilotDecision).where(AutopilotDecision.job_id == job.id))]
+        assert sorted(kinds) == sorted([
+            ("series_identity", "linked"), ("series_identity", "rejected"),
+            ("context_stale", "cleared"), ("context_stale", "kept"),
+        ])  # fmt: skip
+        # A later refresh of the series keeps these decisions.
+        from app.engines.series.bible import link_characters
+
+        link_characters(db, db.get(Series, series.id), db.get(Project, pid))
+        db.flush()
+        assert db.get(SeriesEntityLink, next(
+            link.id for link in db.scalars(select(SeriesEntityLink).where(SeriesEntityLink.entity_id == annie.id))
+        )).status == "rejected"  # fmt: skip
+
+
+async def test_refused_consistency_samples_context_plans_and_reviews_are_skipped(seeded, monkeypatch):
+    from app.engines.translation import pipeline
+    from app.providers.llm import ProviderContentRefused, llm
+
+    pid = seeded[0]
+    job, owner = running_job(pid, {"deep": True})
+    samples = [{"key": "k1", "payload": {"subject": {"source": "Alice"}}, "occurrences": 2, "mapping": {}}]
+    monkeypatch.setattr(pipeline, "_consistency_samples", lambda job: (db_project(pid), samples))
+
+    async def refuse(**kwargs):
+        raise ProviderContentRefused("Refus explicite du provider ou filtrage du contenu.")
+
+    monkeypatch.setattr(llm, "complete", refuse)
+    await pipeline.consistency(job, owner)
+    with SessionLocal() as db:
+        from app.jobs import segment_state as state
+
+        assert state.batches(db, job.id, state.CONSISTENCY) == {"k1": {}}
+        decision = db.scalar(select(AutopilotDecision).where(AutopilotDecision.kind == "consistency_sample"))
+        assert decision.action == "skipped" and "Alice" in decision.reason
+        segment = db.scalar(select(Segment).where(Segment.project_id == pid, Segment.position == 1))
+        db.get(Project, pid).quality = "normal"
+        db.commit()
+
+    async def translation(project, segment, operation, job, *args, **kwargs):
+        from app.schemas import TranslationResult
+
+        return TranslationResult(units=[{"id": u["id"], "text": french(u["text"])} for u in segment.units])
+
+    # The context plan and the review are refused: the passage is translated anyway, with standard context.
+    monkeypatch.setattr(pipeline, "translation_call", translation)
+    await pipeline.translate_passage(job, owner, segment.id, False)
+    with SessionLocal() as db:
+        done = db.get(Segment, segment.id)
+        assert done.stage == "done" and done.translation and done.status in {"ok", "check"}
+        skipped = {d.kind for d in db.scalars(select(AutopilotDecision).where(AutopilotDecision.segment_id == segment.id))}
+        assert skipped == {"context_planner", "translation_review"}
+
+
+def db_project(pid: str) -> Project:
+    with SessionLocal() as db:
+        return db.get(Project, pid)

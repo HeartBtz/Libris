@@ -176,7 +176,8 @@ Les fichiers texte peuvent être en UTF-8 (avec ou sans BOM), en UTF-16 avec BOM
 page (paragraphes, lignes vides, indentation, séparateurs de scène) est conservée.
 
 Un encadré rappelle que des scripts peuvent aussi envoyer des chapitres en JSON par l’API d’automatisation, avec
-un [jeton d’API](#jetons-dapi).
+un [jeton d’API](#jetons-dapi) que chaque compte crée lui-même : son lien **Créer un jeton dans Mon compte ›
+Jetons d’API** ferme l’assistant et ouvre **Mon compte**.
 
 ### 2. Destination
 

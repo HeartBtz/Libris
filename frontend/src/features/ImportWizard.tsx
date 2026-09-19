@@ -59,8 +59,8 @@ registerTranslations({
   "Un projet exporté depuis Libris (.zip), avec tout son travail.": "A project exported from Libris (.zip), with all its work.",
   "Automatisation : l’API JSON reçoit des chapitres envoyés par un script.":
     "Automation: the JSON API receives chapters sent by a script.",
-  "Créer un jeton d’API dans les paramètres": "Create an API token in the settings",
-  "Un administrateur crée les jetons d’API dans les paramètres.": "An administrator creates API tokens in the settings.",
+  "Chaque compte crée ses propres jetons.": "Every account creates its own tokens.",
+  "Créer un jeton dans Mon compte › Jetons d’API": "Create a token in My account › API tokens",
   "Où ranger ces livres ?": "Where should these books go?",
   "Série existante": "Existing series",
   "Les volumes rejoignent une série de votre bibliothèque.": "The volumes join a series of your library.",
@@ -334,13 +334,11 @@ function missingNumbers(numbers: number[]): number[] {
 export function ImportWizard({
   run,
   start,
-  admin,
   onClose,
   onImported,
 }: {
   run: Run;
   start?: WizardStart;
-  admin: boolean;
   onClose: () => void;
   onImported: () => void;
 }) {
@@ -979,13 +977,10 @@ export function ImportWizard({
           </fieldset>
           <Callout tone="neutral">
             {t("Automatisation : l’API JSON reçoit des chapitres envoyés par un script.")}{" "}
-            {admin ? (
-              <a href="#settings" onClick={() => void close()}>
-                {t("Créer un jeton d’API dans les paramètres")}
-              </a>
-            ) : (
-              t("Un administrateur crée les jetons d’API dans les paramètres.")
-            )}
+            {t("Chaque compte crée ses propres jetons.")}{" "}
+            <a href="#account" onClick={() => void close()}>
+              {t("Créer un jeton dans Mon compte › Jetons d’API")}
+            </a>
           </Callout>
         </div>
       );

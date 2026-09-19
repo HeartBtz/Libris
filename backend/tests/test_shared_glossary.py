@@ -470,5 +470,14 @@ def test_automation_api_manages_shared_glossaries_with_token_scopes(world):
         )
         missing = api.get("/api/v1/glossaries/unknown", headers=read)
         assert missing.status_code == 404 and missing.json()["detail"]["code"] == "glossary_not_found"
+        invalid = api.post(
+            f"/api/v1/glossaries/{gid}/import",
+            files=csv_file("source;valeur\nsword;epee\n"),
+            headers={**write, "Accept-Language": "en"},
+        )
+        assert invalid.status_code == 422 and invalid.json()["detail"] == {
+            "code": "invalid_glossary",
+            "message": "Invalid CSV glossary: source and translation columns are expected.",
+        }
         exported = api.get(f"/api/v1/glossaries/{gid}/export/csv", headers=read)
         assert exported.text.splitlines()[1].startswith("Moonwell,Puits-de-Lune")

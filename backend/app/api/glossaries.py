@@ -627,9 +627,11 @@ async def v1_import_glossary(
 ):
     """Imports a JSON, CSV or TBX file; `?dry_run=true` answers the preview without changing anything."""
     glossary = owned(db, glossary_id, caller.user)
-    return translated(
-        await shared_import(glossary, file, options, caller.user, db, apply=not dry_run), request
-    )
+    try:
+        report = await shared_import(glossary, file, options, caller.user, db, apply=not dry_run)
+    except ValueError as exc:
+        raise HTTPException(422, {"code": "invalid_glossary", "message": str(exc)[:1500]}) from None
+    return translated(report, request)
 
 
 @v1_router.get("/series/{series_id}/shared-glossary")

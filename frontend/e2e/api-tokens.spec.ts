@@ -13,6 +13,7 @@ interface Token {
 }
 
 const SECRET = "lbr_ab12cd34_synthetic-secret-shown-once-only-0123456789";
+const SIGNING = "synthetic-webhook-signing-secret-0123456789abcdef";
 
 for (const width of [1440, 390]) {
   test(`API tokens are listed, created once and revoked at ${width}px`, async ({ page }) => {
@@ -40,7 +41,7 @@ for (const width of [1440, 390]) {
       let body: unknown = [];
       if (path === "/api/auth/me") body = { id: "admin", username: "owner", admin: true, active: true };
       else if (path === "/api/tokens" && request.method() === "POST") {
-        const input = request.postDataJSON() as { name: string; scopes: string[] };
+        const input = request.postDataJSON() as { name: string; scopes: string[]; webhook_secret?: boolean };
         created.push(input);
         const token = {
           id: "t2",
@@ -52,9 +53,10 @@ for (const width of [1440, 390]) {
           revoked_at: null,
           last_used_at: null,
           state: "active",
+          webhook_secret: !!input.webhook_secret,
         };
         tokens.unshift(token);
-        body = { ...token, token: SECRET };
+        body = { ...token, token: SECRET, ...(input.webhook_secret ? { webhook_secret: SIGNING } : {}) };
       } else if (path === "/api/tokens") body = tokens;
       else if (path.startsWith("/api/tokens/") && request.method() === "DELETE") {
         const id = path.split("/").at(-1) as string;
@@ -81,15 +83,15 @@ for (const width of [1440, 390]) {
     await page.getByLabel("Send content").check();
     await page.getByLabel("Expiration").selectOption({ label: "90 days" });
     await page.getByRole("button", { name: "Create a token" }).click();
-    await expect(page.getByLabel("Token secret")).toHaveValue(SECRET);
+    await expect(page.getByLabel("Token secret", { exact: true })).toHaveValue(SECRET);
     expect(created).toEqual([
       { name: "CI export", scopes: ["jobs:read", "results:read", "content:write"], expires_in_days: 90 },
     ]);
-    await page.getByRole("button", { name: "Copy", exact: true }).click();
+    await page.getByRole("button", { name: "Copy the token secret" }).click();
     await expect(page.getByText("Copied", { exact: true })).toBeVisible();
     expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(SECRET);
     await page.getByRole("button", { name: "I have copied the token" }).click();
-    await expect(page.getByLabel("Token secret")).toHaveCount(0);
+    await expect(page.getByLabel("Token secret", { exact: true })).toHaveCount(0);
     expect(await page.content()).not.toContain(SECRET);
     await expect(list.getByRole("listitem").filter({ hasText: "CI export" })).toContainText("Never used");
 

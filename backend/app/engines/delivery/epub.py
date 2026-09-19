@@ -68,7 +68,9 @@ def export_rows(segments: list[Segment], sourced: set[str]) -> list[dict]:
             {
                 "id": segment.id,
                 "units": segment.units,
-                "translated_units": source_units(segment) if segment.id in sourced else segment.translated_units,
+                "translated_units": source_units(segment)
+                if segment.id in sourced
+                else segment.translated_units,
             }
         )
     return rows
@@ -90,7 +92,9 @@ def keys(messages: list[dict]) -> set[tuple[str, str]]:
 
 def describe(message: dict) -> str:
     where = paths(message)
-    return f"{message.get('ID', '')} — {str(message.get('message', ''))[:300]}" + (f" ({where[0]})" if where else "")
+    return f"{message.get('ID', '')} — {str(message.get('message', ''))[:300]}" + (
+        f" ({where[0]})" if where else ""
+    )
 
 
 def check(content: bytes) -> dict:
@@ -105,7 +109,9 @@ def resources_of(segment: Segment) -> set[str]:
     return {unit.get("resource", "") for unit in segment.units}
 
 
-def deliver_epub(original: bytes, segments: list[Segment], language: str, title: str, author: str) -> EpubDelivery:
+def deliver_epub(
+    original: bytes, segments: list[Segment], language: str, title: str, author: str
+) -> EpubDelivery:
     sourced: dict[str, str] = {}
     for segment in segments:
         reason = usable(segment)
@@ -136,9 +142,7 @@ def deliver_epub(original: bytes, segments: list[Segment], language: str, title:
         if attempt == attempts:
             break
         named = {path for m in new for path in paths(m)}
-        targets = [
-            s for s in segments if s.id not in sourced and (resources_of(s) & named or not named)
-        ]
+        targets = [s for s in segments if s.id not in sourced and (resources_of(s) & named or not named)]
         if not targets:
             break
         for segment in targets:

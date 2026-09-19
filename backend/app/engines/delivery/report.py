@@ -109,7 +109,9 @@ def build_report(
             passages["validated"] += count if validated else 0
             passages["human"] += count if human else 0
         reasons = {
-            item.get("segment_id"): item for item in (autopilot or {}).get("residuals", []) if isinstance(item, dict)
+            item.get("segment_id"): item
+            for item in (autopilot or {}).get("residuals", [])
+            if isinstance(item, dict)
         }
         residual = (Segment.translation == "") | Segment.retained_source.is_(True)
         residual_total = db.scalar(select(func.count()).select_from(Segment).where(where, residual)) or 0
@@ -141,7 +143,9 @@ def build_report(
         if item["reason"] in {"markup_mismatch", "epubcheck_repair"}:
             residual_total += 1
             if len(residuals) < RESIDUAL_LIMIT:
-                residuals.append({"segment_id": item["segment_id"], "kept": "source", "reason": item["reason"]})
+                residuals.append(
+                    {"segment_id": item["segment_id"], "kept": "source", "reason": item["reason"]}
+                )
     started = job.created_at if job else None
     finished = (job.finished_at if job else None) or now
     return {
@@ -158,7 +162,9 @@ def build_report(
             "queued_seconds": round(started - request.created_at, 3) if started else None,
             "job_seconds": round(finished - started, 3) if started else None,
         },
-        "autopilot": {key: autopilot.get(key) for key in ("outcome", "rounds", "reason")} if autopilot else None,
+        "autopilot": {key: autopilot.get(key) for key in ("outcome", "rounds", "reason")}
+        if autopilot
+        else None,
         "decisions": {
             "autopilot": decisions_count(db, job),
             "intake": list(request.options.get("decisions") or []),

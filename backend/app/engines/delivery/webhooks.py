@@ -40,7 +40,11 @@ class WebhookRefused(ValueError):
 
 
 def allowed_hosts() -> list[str]:
-    return [item.strip().casefold().rstrip(".") for item in settings().api_webhook_hosts.split(",") if item.strip()]
+    return [
+        item.strip().casefold().rstrip(".")
+        for item in settings().api_webhook_hosts.split(",")
+        if item.strip()
+    ]
 
 
 def private_networks() -> list[ipaddress.IPv4Network | ipaddress.IPv6Network]:
@@ -149,7 +153,9 @@ def send(url: str, body: bytes, headers: dict) -> int:
     parts = urlsplit(url)
     literal = f"[{address}]" if ":" in address else address
     target = parts._replace(netloc=f"{literal}:{port}").geturl()
-    with httpx.Client(timeout=settings().api_webhook_timeout_seconds, follow_redirects=False, trust_env=False) as client:
+    with httpx.Client(
+        timeout=settings().api_webhook_timeout_seconds, follow_redirects=False, trust_env=False
+    ) as client:
         response = client.post(
             target,
             content=body,
@@ -219,7 +225,10 @@ def pump(now: float | None = None) -> int:
         due = list(
             db.scalars(
                 select(TranslationRequest.id)
-                .where(TranslationRequest.webhook_state == "pending", TranslationRequest.webhook_next_attempt <= now)
+                .where(
+                    TranslationRequest.webhook_state == "pending",
+                    TranslationRequest.webhook_next_attempt <= now,
+                )
                 .order_by(TranslationRequest.webhook_next_attempt)
                 .limit(BATCH)
             )

@@ -63,7 +63,11 @@ def upload_options(values: dict[str, str]) -> UploadOptions:
     except ValidationError as exc:
         raise PayloadRejected(
             [
-                {"loc": list(item["loc"]), "msg": str(item["msg"]).removeprefix("Value error, "), "type": item["type"]}
+                {
+                    "loc": list(item["loc"]),
+                    "msg": str(item["msg"]).removeprefix("Value error, "),
+                    "type": item["type"],
+                }
                 for item in exc.errors()
             ]
         ) from None
@@ -72,7 +76,9 @@ def upload_options(values: dict[str, str]) -> UploadOptions:
 def epub_digest(data: bytes, options: UploadOptions) -> str:
     """Same file and same options: same request (idempotence); the callback does not change the work."""
     meaning = options.model_dump(mode="json", exclude={"callback_url"})
-    return hashlib.sha256(hashlib.sha256(data).digest() + json.dumps(meaning, sort_keys=True).encode()).hexdigest()
+    return hashlib.sha256(
+        hashlib.sha256(data).digest() + json.dumps(meaning, sort_keys=True).encode()
+    ).hexdigest()
 
 
 def chapter_numbers(names: list[str]) -> tuple[list[float], list[dict]]:
@@ -102,11 +108,19 @@ def chapter_numbers(names: list[str]) -> tuple[list[float], list[dict]]:
     return numbers, decisions
 
 
-def text_payload(files: list[tuple[str, bytes]], options: UploadOptions, max_chapters: int) -> tuple[TranslationPayload, list[dict]]:
+def text_payload(
+    files: list[tuple[str, bytes]], options: UploadOptions, max_chapters: int
+) -> tuple[TranslationPayload, list[dict]]:
     """TXT chapters as the JSON request they stand for, and the decisions it took."""
     if len(files) > max_chapters:
         raise PayloadRejected(
-            [{"loc": ["files"], "msg": f"Trop de chapitres : {max_chapters} au maximum par requête.", "type": "too_long"}]
+            [
+                {
+                    "loc": ["files"],
+                    "msg": f"Trop de chapitres : {max_chapters} au maximum par requête.",
+                    "type": "too_long",
+                }
+            ]
         )
     if options.volume is None:
         raise PayloadRejected([{"loc": ["volume"], "msg": "Indiquez le numéro du volume (champ « volume »).",

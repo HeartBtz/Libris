@@ -63,7 +63,9 @@ def request_texts(db, request: TranslationRequest, project: Project) -> list[Cha
 
 def unresolved(db, chapter_ids: list[str]) -> dict[str, dict]:
     """Per chapter: unresolved quality issues and passages still flagged."""
-    found: dict[str, dict] = {chapter_id: {"issues": [], "flagged_passages": []} for chapter_id in chapter_ids}
+    found: dict[str, dict] = {
+        chapter_id: {"issues": [], "flagged_passages": []} for chapter_id in chapter_ids
+    }
     if not chapter_ids:
         return found
     for issue, chapter_id in db.execute(
@@ -73,14 +75,21 @@ def unresolved(db, chapter_ids: list[str]) -> dict[str, dict]:
         .order_by(Segment.position)
     ):
         found[chapter_id]["issues"].append(
-            {"segment_id": issue.segment_id, "severity": issue.severity, "code": issue.code, "message": issue.message}
+            {
+                "segment_id": issue.segment_id,
+                "severity": issue.severity,
+                "code": issue.code,
+                "message": issue.message,
+            }
         )
     for segment_id, chapter_id, position, status in db.execute(
         select(Segment.id, Segment.chapter_id, Segment.position, Segment.status)
         .where(Segment.chapter_id.in_(chapter_ids), Segment.status.in_(FLAGGED), Segment.validated.is_(False))
         .order_by(Segment.position)
     ):
-        found[chapter_id]["flagged_passages"].append({"segment_id": segment_id, "position": position, "status": status})
+        found[chapter_id]["flagged_passages"].append(
+            {"segment_id": segment_id, "position": position, "status": status}
+        )
     return found
 
 
@@ -149,7 +158,9 @@ def render_epub(db, project: Project) -> Rendered:
     original = original_epub(db, project)
     if original is None:
         raise DeliveryFailed("Le fichier EPUB d’origine de ce volume est introuvable sur le serveur.")
-    segments = list(db.scalars(select(Segment).where(Segment.project_id == project.id).order_by(Segment.position)))
+    segments = list(
+        db.scalars(select(Segment).where(Segment.project_id == project.id).order_by(Segment.position))
+    )
     built = deliver_epub(original, segments, project.target_language, project.title, project.author)
     validation = {key: value for key, value in built.validation.items() if key != "report"}
     return Rendered(
@@ -173,7 +184,9 @@ def render(
     if fmt == "epub":
         return render_epub(db, project)
     texts = request_texts(db, request, project)
-    complete = bool(texts) and all(item.complete for item in texts) and not (report or {}).get("residual_total")
+    complete = (
+        bool(texts) and all(item.complete for item in texts) and not (report or {}).get("residual_total")
+    )
     name = safe_filename(project.title)
     if fmt == "txt":
         return Rendered(consolidated(project, texts).encode("utf-8"), fmt, name + ".txt")
@@ -182,7 +195,9 @@ def render(
         with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as archive:
             write_chapters(archive, "", project, texts)
             if bundle_report and report is not None:
-                archive.writestr("report.json", json.dumps(report, ensure_ascii=False, indent=2).encode("utf-8"))
+                archive.writestr(
+                    "report.json", json.dumps(report, ensure_ascii=False, indent=2).encode("utf-8")
+                )
         return Rendered(output.getvalue(), fmt, name + ".zip")
     body = document(db, request, project, job, texts, status, complete, report)
     return Rendered(json.dumps(body, ensure_ascii=False).encode("utf-8"), "json", name + ".json")
@@ -221,4 +236,3 @@ def stored(request: TranslationRequest) -> bytes | None:
 
 def discard(request: TranslationRequest) -> None:
     shutil.rmtree(results_dir(request), ignore_errors=True)
-

@@ -728,9 +728,14 @@ termes recherchés sont transmis à votre instance et à ses moteurs. Le format 
 
 Les instructions envoyées au modèle sont versionnées. La liste montre chaque prompt et sa version (**initiale**
 pour celle livrée avec Libris). Choisissez-en un, modifiez son **Contenu du prompt** puis **Créer une version** :
-elle s’applique aux requêtes suivantes. L’interface ne propose pas de retour en arrière : **Exporter les prompts**
-avant de modifier, et pour revenir à la version d’origine, recopiez le fichier correspondant du dossier `prompts/`
-de Libris dans une nouvelle version.
+elle s’applique aux requêtes suivantes.
+
+L’**Historique des versions**, sous l’éditeur, liste chaque version enregistrée avec sa date, la version
+**initiale** en dernier, et marque **En vigueur** celle qui s’applique ; **Voir le contenu** l’affiche.
+**Restaurer**, après confirmation, en fait une nouvelle version : rien n’est effacé, et les modifications non
+enregistrées de l’éditeur sont perdues. **Revenir au prompt d’origine** rétablit le prompt livré avec Libris ; il
+suit alors ses mises à jour lors des prochaines versions de Libris. **Exporter les prompts** télécharge les
+prompts affichés au format JSON.
 
 ### Utilisateurs
 

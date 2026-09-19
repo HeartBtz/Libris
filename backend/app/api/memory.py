@@ -468,32 +468,99 @@ def rebuild_memory(pid: str, user: CurrentUser, db: DB):
     }
 
 
+def _builtin_prompt(name: str) -> str:
+    """The prompt shipped with Libris (prompts/<name>.txt); 404 for any other name."""
+    path = settings().prompt_dir / f"{name}.txt"
+    if name not in {p.stem for p in settings().prompt_dir.glob("*.txt")}:
+        raise HTTPException(404, "Prompt inconnu.")
+    return path.read_text()
+
+
+def _prompt_view(name: str, latest: Prompt | None, builtin: str) -> dict:
+    # A version with an empty content means "back to the built-in prompt" (see Prompt).
+    custom = bool(latest and latest.content)
+    return {
+        "name": name,
+        "version": latest.version if latest else 0,
+        "content": latest.content if custom else builtin,
+        "builtin": not custom,
+        "updated_at": latest.created_at if latest else None,
+    }
+
+
+def _latest_prompt(db, name: str) -> Prompt | None:
+    return db.scalar(select(Prompt).where(Prompt.name == name).order_by(Prompt.version.desc()).limit(1))
+
+
 @router.get("/prompts")
 def prompts(_admin: Admin, db: DB):
-    result = []
-    for path in sorted(settings().prompt_dir.glob("*.txt")):
-        override = db.scalar(select(Prompt).where(Prompt.name == path.stem).order_by(Prompt.version.desc()))
-        result.append(
-            {
-                "name": path.stem,
-                "version": override.version if override else 0,
-                "content": override.content if override else path.read_text(),
-            }
-        )
-    return result
+    return [
+        _prompt_view(path.stem, _latest_prompt(db, path.stem), path.read_text())
+        for path in sorted(settings().prompt_dir.glob("*.txt"))
+    ]
 
 
 class PromptInput(BaseModel):
     content: str = Field(min_length=20, max_length=20000)
 
 
-@router.put("/prompts/{name}")
-def update_prompt(name: str, body: PromptInput, _admin: Admin, db: DB):
-    allowed = {p.stem for p in settings().prompt_dir.glob("*.txt")}
-    if name not in allowed:
-        raise HTTPException(404, "Prompt inconnu.")
+def _new_prompt_version(db, name: str, content: str) -> Prompt:
     last = db.scalar(select(func.max(Prompt.version)).where(Prompt.name == name)) or 0
-    prompt = Prompt(name=name, version=last + 1, content=body.content)
+    prompt = Prompt(name=name, version=last + 1, content=content)
     db.add(prompt)
     db.commit()
-    return row(prompt)
+    return prompt
+
+
+@router.put("/prompts/{name}")
+def update_prompt(name: str, body: PromptInput, _admin: Admin, db: DB):
+    _builtin_prompt(name)
+    return row(_new_prompt_version(db, name, body.content))
+
+
+@router.get("/prompts/{name}/versions")
+def prompt_versions(name: str, _admin: Admin, db: DB):
+    """Every saved version, newest first, then the built-in prompt as version 0."""
+    builtin = _builtin_prompt(name)
+    saved = db.scalars(select(Prompt).where(Prompt.name == name).order_by(Prompt.version.desc())).all()
+    current = saved[0].version if saved else 0
+    versions = [
+        {
+            "version": prompt.version,
+            "created_at": prompt.created_at,
+            "builtin": not prompt.content,
+            "content": prompt.content or builtin,
+            "current": prompt.version == current,
+        }
+        for prompt in saved
+    ]
+    versions.append(
+        {"version": 0, "created_at": None, "builtin": True, "content": builtin, "current": current == 0}
+    )
+    return versions
+
+
+class PromptRestore(BaseModel):
+    # 0 is the built-in prompt; any other number is a saved version.
+    version: int = Field(ge=0)
+
+
+@router.post("/prompts/{name}/restore")
+def restore_prompt(name: str, body: PromptRestore, _admin: Admin, db: DB):
+    """Makes an earlier version current again by saving it as a new version (history is kept).
+
+    Restoring version 0 saves an empty version, which follows the built-in prompt, including the
+    changes a later Libris release brings to it.
+    """
+    builtin = _builtin_prompt(name)
+    if body.version == 0:
+        content = ""
+    else:
+        source = db.scalar(select(Prompt).where(Prompt.name == name, Prompt.version == body.version))
+        if not source:
+            raise HTTPException(404, "Version de prompt inconnue.")
+        content = source.content
+    latest = _latest_prompt(db, name)
+    if (latest.content if latest else "") != content:
+        latest = _new_prompt_version(db, name, content)
+    return _prompt_view(name, latest, builtin)

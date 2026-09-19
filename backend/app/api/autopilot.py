@@ -61,7 +61,12 @@ def autopilot(
         },
         "report": None
         if last is None
-        else {**last.result["autopilot"], "job_id": last.id, "status": last.status, "finished_at": last.finished_at},
+        else {
+            **last.result["autopilot"],
+            "job_id": last.id,
+            "status": last.status,
+            "finished_at": last.finished_at,
+        },
         "decisions": {
             "items": [row(decision) for decision in decisions],
             "total": total,
@@ -69,4 +74,3 @@ def autopilot(
             "offset": offset,
         },
     }
-

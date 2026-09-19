@@ -32,7 +32,9 @@ def reply(content: dict | str, finish: str = "stop") -> httpx.Response:
     return httpx.Response(200, json={"choices": [{"finish_reason": finish, "message": {"content": body}}]})
 
 
-REFUSAL = httpx.Response(200, json={"choices": [{"finish_reason": "content_filter", "message": {"content": ""}}]})
+REFUSAL = httpx.Response(
+    200, json={"choices": [{"finish_reason": "content_filter", "message": {"content": ""}}]}
+)
 
 
 def section(messages: list[dict], name: str):
@@ -84,17 +86,27 @@ class Book:
                     "events": [],
                     "characters": [],
                     "terms": [
-                        {"source": "Silver Tower", "translation": "Tour d’argent", "category": "lieu",
-                         "description": ""},
-                        {"source": "Moonstone", "translation": "Pierre de lune", "category": "objet",
-                         "description": ""},
+                        {
+                            "source": "Silver Tower",
+                            "translation": "Tour d’argent",
+                            "category": "lieu",
+                            "description": "",
+                        },
+                        {
+                            "source": "Moonstone",
+                            "translation": "Pierre de lune",
+                            "category": "objet",
+                            "description": "",
+                        },
                     ],
                     "style_notes": [],
                     "relationships": [],
                 }
-            )  # fmt: skip
+            )
         if name == "BookOverview":
-            return reply({"summary": "Alice et Bob dans une tour.", **{k: "" for k in ("title", "author", "tone")}})
+            return reply(
+                {"summary": "Alice et Bob dans une tour.", **{k: "" for k in ("title", "author", "tone")}}
+            )
         if name == "TranslationResult":
             units = [{"id": unit["id"], "text": french(unit["text"])} for unit in target]
             return reply({"units": units, "new_terms": [], "events": [], "uncertainties": []})
@@ -108,13 +120,20 @@ class Book:
                 return reply(
                     {
                         "decision": "revise",
-                        "issues": [{"unit_id": unit["id"], "category": "style", "severity": "warning",
-                                    "description": "Verbe faible.", "suggestion": "s’arrêta net"}],
+                        "issues": [
+                            {
+                                "unit_id": unit["id"],
+                                "category": "style",
+                                "severity": "warning",
+                                "description": "Verbe faible.",
+                                "suggestion": "s’arrêta net",
+                            }
+                        ],
                         "uncertainties": [],
                         "explanation": "Une correction est possible.",
                         "search_queries": [],
                     }
-                )  # fmt: skip
+                )
             assert current is not None
             return reply(FinalReviewResult(decision="accept", explanation="Correct.").model_dump())
         if name == "ArbitrationResult":
@@ -129,13 +148,19 @@ class Book:
                             {"id": p["id"], "accept": p["kind"] == "critique", "reason": "Arbitré."}
                             for p in proposals
                         ],
-                        "units": [{"id": unit["id"], "text": unit["text"].replace("stopped", "s’arrêta net")}],
+                        "units": [
+                            {"id": unit["id"], "text": unit["text"].replace("stopped", "s’arrêta net")}
+                        ],
                     }
                 )
             return reply(
-                {"decisions": [{"id": p["id"], "accept": False, "reason": "Sans objet."} for p in proposals],
-                 "units": []}
-            )  # fmt: skip
+                {
+                    "decisions": [
+                        {"id": p["id"], "accept": False, "reason": "Sans objet."} for p in proposals
+                    ],
+                    "units": [],
+                }
+            )
         raise AssertionError(f"unexpected call {name}")
 
 
@@ -199,7 +224,9 @@ async def test_a_hostile_book_reaches_an_output_without_any_human_action(seeded,
     assert report["outcome"] == "completed_with_residuals"
     assert 1 <= report["rounds"] <= settings().autopilot_max_rounds
     with SessionLocal() as db:
-        segments = list(db.scalars(select(Segment).where(Segment.project_id == pid).order_by(Segment.position)))
+        segments = list(
+            db.scalars(select(Segment).where(Segment.project_id == pid).order_by(Segment.position))
+        )
         # Nothing is left for a person: every passage is translated or kept in the original with a reason.
         assert {s.status for s in segments} <= {"ok", "source_retained"}
         assert all(s.translation for s in segments)
@@ -212,8 +239,11 @@ async def test_a_hostile_book_reaches_an_output_without_any_human_action(seeded,
         opening = next(s for s in segments if "stopped" in s.source)
         assert opening.status == "ok" and not opening.retained_source and not opening.critique
         assert "s’arrêta net" in opening.translation
-        assert not db.scalar(select(Issue.id).where(Issue.project_id == pid, Issue.resolved.is_(False),
-                                                    Issue.code != "source_retained"))  # fmt: skip
+        assert not db.scalar(
+            select(Issue.id).where(
+                Issue.project_id == pid, Issue.resolved.is_(False), Issue.code != "source_retained"
+            )
+        )
         # Glossary proposals decided: the term the book uses twice is kept, the imagined one is not.
         terms = {g.source: g.accepted for g in db.scalars(select(Glossary).where(Glossary.project_id == pid))}
         assert terms == {"Silver Tower": True}
@@ -345,21 +375,38 @@ def test_series_identities_and_stale_chapters_are_decided_with_their_thresholds(
         series = Series(owner_id=uid, name="Saga", normalized_name="saga", bible={})
         db.add(series)
         db.flush()
-        near = SeriesEntity(series_id=series.id, name="Robert", category="character", aliases=["Bob"],
-                            data={"gender": "male"})
-        far = SeriesEntity(series_id=series.id, name="Bobby Smith", category="character", aliases=["Bob", "B."],
-                           data={"gender": "female"})
+        near = SeriesEntity(
+            series_id=series.id, name="Robert", category="character", aliases=["Bob"], data={"gender": "male"}
+        )
+        far = SeriesEntity(
+            series_id=series.id,
+            name="Bobby Smith",
+            category="character",
+            aliases=["Bob", "B."],
+            data={"gender": "female"},
+        )
         twin_a = SeriesEntity(series_id=series.id, name="Ann", category="character", aliases=["Annie"])
         twin_b = SeriesEntity(series_id=series.id, name="Anna", category="character", aliases=["Annie"])
-        bob = Entity(project_id=pid, name="Bob", category="character", data={"aliases": ["Robert"], "gender": "male"})
+        bob = Entity(
+            project_id=pid, name="Bob", category="character", data={"aliases": ["Robert"], "gender": "male"}
+        )
         annie = Entity(project_id=pid, name="Annie", category="character", data={})
         db.add_all([near, far, twin_a, twin_b, bob, annie])
         db.flush()
         for entity, candidates in ((bob, (near, far)), (annie, (twin_a, twin_b))):
             for candidate in candidates:
-                db.add(SeriesEntityLink(series_entity_id=candidate.id, entity_id=entity.id, project_id=pid,
-                                        status="proposed", confidence=0.5))
-        chapters = list(db.scalars(select(Chapter).where(Chapter.project_id == pid).order_by(Chapter.position)))
+                db.add(
+                    SeriesEntityLink(
+                        series_entity_id=candidate.id,
+                        entity_id=entity.id,
+                        project_id=pid,
+                        status="proposed",
+                        confidence=0.5,
+                    )
+                )
+        chapters = list(
+            db.scalars(select(Chapter).where(Chapter.project_id == pid).order_by(Chapter.position))
+        )
         chapters[0].context_stale = chapters[1].context_stale = True
         db.commit()
         first_chapter, second_chapter = chapters[0].id, chapters[1].id
@@ -373,17 +420,27 @@ def test_series_identities_and_stale_chapters_are_decided_with_their_thresholds(
     decide_stale_chapters(job, owner)
 
     with SessionLocal() as db:
-        links = {(link.entity_id, link.series_entity_id): link.status for link in db.scalars(select(SeriesEntityLink))}
+        links = {
+            (link.entity_id, link.series_entity_id): link.status
+            for link in db.scalars(select(SeriesEntityLink))
+        }
         assert links[(bob.id, near.id)] == "linked" and links[(bob.id, far.id)] == "rejected"
         # Two identities equally likely: none is chosen, the character stays this volume's own.
         assert links[(annie.id, twin_a.id)] == links[(annie.id, twin_b.id)] == "rejected"
         assert db.get(Chapter, first_chapter).context_stale is False
         assert db.get(Chapter, second_chapter).context_stale is True  # not translated again by this job
-        kinds = [(d.kind, d.action) for d in db.scalars(select(AutopilotDecision).where(AutopilotDecision.job_id == job.id))]
-        assert sorted(kinds) == sorted([
-            ("series_identity", "linked"), ("series_identity", "rejected"),
-            ("context_stale", "cleared"), ("context_stale", "kept"),
-        ])  # fmt: skip
+        kinds = [
+            (d.kind, d.action)
+            for d in db.scalars(select(AutopilotDecision).where(AutopilotDecision.job_id == job.id))
+        ]
+        assert sorted(kinds) == sorted(
+            [
+                ("series_identity", "linked"),
+                ("series_identity", "rejected"),
+                ("context_stale", "cleared"),
+                ("context_stale", "kept"),
+            ]
+        )
         # A later refresh of the series keeps these decisions.
         from app.engines.series.bible import link_characters
 
@@ -429,7 +486,10 @@ async def test_refused_consistency_samples_context_plans_and_reviews_are_skipped
     with SessionLocal() as db:
         done = db.get(Segment, segment.id)
         assert done.stage == "done" and done.translation and done.status in {"ok", "check"}
-        skipped = {d.kind for d in db.scalars(select(AutopilotDecision).where(AutopilotDecision.segment_id == segment.id))}
+        skipped = {
+            d.kind
+            for d in db.scalars(select(AutopilotDecision).where(AutopilotDecision.segment_id == segment.id))
+        }
         assert skipped == {"context_planner", "translation_review"}
 
 

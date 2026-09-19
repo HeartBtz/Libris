@@ -344,6 +344,13 @@ MESSAGES = {
     "Aucune adresse de rappel.": "No callback address.",
     "Le premier chapitre doit précéder le dernier.": "The first chapter must come before the last one.",
     "Aucun chapitre de ce volume dans cet intervalle.": "No chapter of this volume in this range.",
+    # Glossary imports and shared glossaries
+    "Stratégie d’import inconnue : skip, replace ou replace_all.": "Unknown import strategy: skip, replace or replace_all.",
+    "Correspondance de colonnes invalide : un objet {champ: numéro de colonne} est attendu.": "Invalid column mapping: an object {field: column number} is expected.",
+    "Glossaire partagé introuvable.": "Shared glossary not found.",
+    "Le nom du glossaire est requis.": "The glossary name is required.",
+    "Ce terme existe déjà dans le glossaire partagé.": "This term already exists in the shared glossary.",
+    "Les langues de ce glossaire partagé ne correspondent pas à celles de la série.": "The languages of this shared glossary do not match those of the series.",
 }  # fmt: skip
 
 TEMPLATES = {
@@ -425,6 +432,10 @@ TEMPLATES = {
     "L’hôte « {host} » désigne une adresse privée ou réservée : webhook refusé.": "The host “{host}” points to a private or reserved address: webhook refused.",
     "OpenViking n’a pas pu lister ses documents ({reason}). Rien n’a été supprimé.": "OpenViking could not list its documents ({reason}). Nothing was deleted.",
     "Disposition bilingue inconnue : {layout}.": "Unknown bilingual layout: {layout}.",
+    # Glossary imports and shared glossaries
+    "Un glossaire partagé « {name} » existe déjà.": "A shared glossary “{name}” already exists.",
+    "Valeur non reconnue pour {field} : « {value} »": "Unrecognised value for {field}: “{value}”",
+    "Terme invalide : {problem}": "Invalid term: {problem}",
 }  # fmt: skip
 
 

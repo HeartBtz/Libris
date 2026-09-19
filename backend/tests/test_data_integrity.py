@@ -59,7 +59,8 @@ def test_glossary_import_rejects_a_json_object_root(seeded):
     assert refused.status_code == 422 and "liste de termes" in refused.json()["detail"]
     listed = json.dumps([{"source": "Silver Tower", "translation": "Tour d’argent"}]).encode()
     accepted = client.post(f"/api/projects/{pid}/glossary/import", files={"file": ("g.json", io.BytesIO(listed))})
-    assert accepted.status_code == 200 and accepted.json() == {"imported": 1, "skipped": 0}
+    assert accepted.status_code == 200
+    assert (accepted.json()["imported"], accepted.json()["skipped"]) == (1, 0)
 
 
 def test_character_update_validates_names_and_alias_collisions(seeded):

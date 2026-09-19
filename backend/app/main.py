@@ -21,6 +21,7 @@ from app.api import (
     coverage,
     estimates,
     exports,
+    glossaries,
     identity,
     imports,
     memory,
@@ -208,12 +209,14 @@ async def unexpected(request: Request, exc: Exception):
 
 # The automation API first: its paths never fall through to the interface's routes.
 app.include_router(v1.router)
+app.include_router(glossaries.v1_router)
 for module in (
     tokens, identity, providers, recovery, exports, projects, segments, memory, observability, characters, coverage,
     series, imports, autopilot, automation_admin,
 ):  # fmt: skip
     app.include_router(module.router)
 app.include_router(estimates.router)
+app.include_router(glossaries.router)
 app.include_router(monitoring.router)
 app.include_router(openviking_cleanup.router)
 app.include_router(quality_dashboard.router)

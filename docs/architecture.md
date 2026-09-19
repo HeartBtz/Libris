@@ -168,8 +168,10 @@ SQL tables, grouped by purpose. Column types for documents are SQLAlchemy `JSON`
 | `series_entities` | Canonical identities of the series: characters, and places, organizations and objects named by the volumes' bibles. First appearance, aliases, profile, `merged_into_id` after a person's merge. |
 | `series_entity_links` | A volume's character attached to a series identity: `linked`, `proposed` (ambiguous: never merged automatically) or `rejected`; `human` when a person decided. |
 | `series_relations` | Relations between series identities, with evidence and first appearance. |
-| `series_glossary` | Series terms: `origin` is `volume` when aggregated from accepted volume terms, `human` for a person's decision (never rewritten by the aggregation). |
-| `audit_entries` | Merges, splits, link decisions, Series Bible edits, series terms, glossary overrides, API token creation and revocation. Never a secret. |
+| `series_glossary` | Series terms: `origin` is `volume` when aggregated from accepted volume terms, `human` for a person's decision or an imported file (never rewritten by the aggregation). |
+| `shared_glossaries`, `shared_glossary_terms` | Shared glossaries: a named terminology of one account for the series of a universe, with optional languages (a glossary with languages only applies to volumes of the same pair, compared on the primary subtag). |
+| `series_shared_glossaries` | The shared glossary a series follows (at most one per series). |
+| `audit_entries` | Merges, splits, link decisions, Series Bible edits, series terms, glossary overrides and imports, shared glossaries attached or detached, API token creation and revocation. Never a secret. |
 
 ### Jobs and runs
 
@@ -244,7 +246,27 @@ met in earlier volumes, under the names those volumes used). Term priority: expl
 validated human decision > locked volume term (or an audited `series_override`) > locked series term > accepted
 series term > automatic proposal; for one term, a locked choice beats any unlocked one, then the most
 recent volume wins. Locked series terms are checked in the output like the book's locked glossary,
-unless the book locks the same term differently. A validated human correction of a machine
+unless the book locks the same term differently.
+
+**Shared glossary.** A series can follow one shared glossary (the terminology of a universe common to
+several series). Its accepted terms are the broadest level: book > series (a person's series
+decisions, then earlier volumes) > shared glossary. A shared term only applies where the series does not
+decide the term, except that a locked shared term beats an unlocked term an earlier volume proposed; a
+person's series decision and a book term that is locked or marked `series_override` always win. Shared
+terms travel in `SERIES_CONVENTIONS.terms` with `origin: shared_glossary`; the locked ones are enforced
+and checked in the output like locked series terms, and the autopilot withdraws a proposed book term that
+contradicts one of them. `GET /api/projects/{id}/glossary/effective` shows, for each term, the level that
+wins and what it replaces.
+
+**Glossary files.** JSON, CSV and TBX files are read by `engines/memory/glossary_files.py` into the book,
+the series or a shared glossary. CSV: encoding from the byte order mark, then UTF-8, then Windows-1252;
+separator (`;`, `,` or tab) detected outside quoted cells; columns mapped from French or English headers, a
+file without header uses its first two columns, and an explicit column mapping can replace the detection.
+Every import can be previewed first: new terms, unchanged terms, conflicts with the terms in place (matched
+case-insensitively), repeated sources (the first row counts) and invalid rows, with the strategy applied to
+conflicts: `skip` (keep, the default), `replace` (unlocked terms only) or `replace_all`. Applying refuses a
+file with an invalid row unless `skip_invalid` is set. CSV exports can use `;` and a byte order mark for
+spreadsheets; a cell starting with `=`, `+`, `-` or `@` is quoted so that it never becomes a formula. A validated human correction of a machine
 translation records its short replacements and the names in the passage; a later volume that mentions
 those names receives them in `SERIES_CONVENTIONS.human_decisions`.
 

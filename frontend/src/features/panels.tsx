@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
-import { api, date, download, downloadGet, labels, send } from "../api";
+import { api, date, download, labels, send } from "../api";
 import { formatNumber, formatPercent, registerTranslations, useI18n } from "../i18n";
 import type { AutopilotView, Issue, LLMRequest, Project, ProviderSummary, Run, Term, User } from "../types";
+import { GlossaryExport, GlossaryImport, importSummary } from "./GlossaryImport";
+import { EffectiveGlossary } from "./GlossaryLevels";
 import {
   Badge,
   Button,
@@ -11,12 +13,10 @@ import {
   Dialog,
   EmptyState,
   Field,
-  FileButton,
   FormGrid,
   IconButton,
   Input,
   LoadingBlock,
-  Menu,
   SearchInput,
   Select,
   Stat,
@@ -111,7 +111,6 @@ registerTranslations({
   "Importer un glossaire": "Import a glossary",
   Exporter: "Export",
   "Exporter le glossaire": "Export the glossary",
-  "{imported} termes importés, {skipped} ignorés (déjà présents).": "{imported} terms imported, {skipped} skipped (already present).",
   "Rechercher dans le glossaire": "Search glossary",
   "Rechercher un terme…": "Search for a term…",
   Source: "Source",
@@ -800,36 +799,15 @@ export function Glossary({ project, run, tick }: { project: Project; run: Run; t
           </p>
         </div>
         <div className="panel-actions">
-          <FileButton
-            label={t("Importer un glossaire")}
-            accept=".json,.csv,.tbx,.xml,.tsv,.txt"
-            onFiles={([file]) =>
-              void run(async () => {
-                const data = new FormData();
-                data.append("file", file);
-                const result = await api<{ imported: number; skipped: number }>(
-                  `/projects/${project.id}/glossary/import`,
-                  { method: "POST", body: data },
-                );
-                setMessage(t("{imported} termes importés, {skipped} ignorés (déjà présents).", result));
-                await load();
-              })
-            }
+          <GlossaryImport
+            endpoint={`/projects/${project.id}/glossary/import`}
+            run={run}
+            onImported={async (result) => {
+              setMessage(importSummary(t, result));
+              await load();
+            }}
           />
-          <Menu
-            label={t("Exporter le glossaire")}
-            trigger={(props) => (
-              <Button {...props} icon="download" iconAfter="chevronDown">
-                {t("Exporter")}
-              </Button>
-            )}
-            items={(["json", "csv", "tbx"] as const).map((format) => ({
-              label: format.toUpperCase(),
-              icon: "file" as const,
-              onSelect: () =>
-                void run(() => downloadGet(`/projects/${project.id}/glossary/export/${format}`, `glossary.${format}`)),
-            }))}
-          />
+          <GlossaryExport base={`/projects/${project.id}/glossary`} name="glossary" run={run} />
         </div>
       </div>
       {message && (
@@ -998,6 +976,7 @@ export function Glossary({ project, run, tick }: { project: Project; run: Run; t
           </Button>
         </form>
       </Card>
+      {inSeries && <EffectiveGlossary projectId={project.id} run={run} tick={tick} />}
     </section>
   );
 }

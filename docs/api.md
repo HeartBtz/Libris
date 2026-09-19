@@ -27,6 +27,13 @@ The automation API lives under `/api/v1` and is separate from the API used by th
 | `GET /api/v1/providers` | `content:write` | List the providers a request may use |
 | `GET /api/v1/series` | `series:read` | List your series |
 | `GET /api/v1/series/{id}` | `series:read` | One series and its volumes |
+| `GET /api/v1/glossaries` | `series:read` | List your shared glossaries |
+| `POST /api/v1/glossaries` | `content:write` | Create a shared glossary |
+| `GET /api/v1/glossaries/{id}` | `series:read` | One shared glossary and its terms |
+| `GET /api/v1/glossaries/{id}/export/{format}` | `series:read` | Download it as JSON, CSV or TBX |
+| `POST /api/v1/glossaries/{id}/import` | `content:write` | Import a JSON, CSV or TBX file (`?dry_run=true` to preview) |
+| `GET /api/v1/series/{id}/shared-glossary` | `series:read` | The shared glossary a series follows |
+| `PUT /api/v1/series/{id}/shared-glossary` | `content:write` | Attach a series to a shared glossary, or detach it |
 
 Every example on this page uses these shell variables:
 
@@ -720,6 +727,64 @@ volumes, created_at, updated_at`. The detail adds `volume_list`, sorted by volum
 `project_id, title, volume_number, external_id, source_format, project_kind, status, chapters`. Only
 series the token's owner owns are visible; volumes shared with them are not.
 
+## Shared glossaries
+
+A shared glossary is the terminology of a universe common to several of your series (places, titles,
+spells…). Each series follows at most one; its accepted terms reach every volume of the series, after the
+book's and the series' own terms: book > series > shared glossary. A locked shared term is enforced and
+checked in every passage, and beats an unlocked term an earlier volume proposed; a person's series decision
+or a volume's deliberate override always wins. The same glossaries are managed in the interface
+(**Glossaires partagés**).
+
+```bash
+# Create one; languages are optional (with them, it only applies to volumes of the same pair).
+curl -sS "$LIBRIS_URL/api/v1/glossaries" -H "Authorization: Bearer $LIBRIS_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "Glass Road universe", "source_language": "en", "target_language": "fr"}'
+
+# Preview an import, then apply it.
+curl -sS "$LIBRIS_URL/api/v1/glossaries/$GLOSSARY_ID/import?dry_run=true" \
+  -H "Authorization: Bearer $LIBRIS_TOKEN" -F file=@universe.csv -F strategy=replace
+curl -sS "$LIBRIS_URL/api/v1/glossaries/$GLOSSARY_ID/import" \
+  -H "Authorization: Bearer $LIBRIS_TOKEN" -F file=@universe.csv -F strategy=replace
+
+# Make a series follow it (send {"glossary_id": null} to detach).
+curl -sS -X PUT "$LIBRIS_URL/api/v1/series/$SERIES_ID/shared-glossary" \
+  -H "Authorization: Bearer $LIBRIS_TOKEN" -H "Content-Type: application/json" \
+  -d "{\"glossary_id\": \"$GLOSSARY_ID\"}"
+
+# Download it; for spreadsheets: CSV with semicolons and a byte order mark.
+curl -sS "$LIBRIS_URL/api/v1/glossaries/$GLOSSARY_ID/export/csv?delimiter=semicolon&bom=true" \
+  -H "Authorization: Bearer $LIBRIS_TOKEN" -o universe.csv
+```
+
+A glossary gives `id, name, description, source_language, target_language, created_at, updated_at,
+term_count, locked_count, series` (the series that follow it, `id` and `name`) and, for one glossary,
+`terms` with `id, source, translation, category, description, locked, accepted`. Only accepted terms are
+applied.
+
+**Files.** JSON (a list of terms with the fields above), CSV or TBX (v2 and v3). CSV files may carry a byte
+order mark or come from Excel on Windows; the separator (`;`, `,` or tab) is detected, and headers are
+recognised in French or English (`source`, `terme source`, `traduction`, `target`, `catégorie`, `notes`,
+`verrouillé`, `accepté`…); a file without header uses its first two columns. Form fields of an import:
+
+| Field | Values | Default |
+| --- | --- | --- |
+| `file` | The glossary file (2 MB at most) | required |
+| `strategy` | `skip` keeps terms in place; `replace` replaces unlocked terms that differ; `replace_all` replaces locked ones too | `skip` |
+| `delimiter` | `semicolon`, `comma` or `tab` | detected |
+| `mapping` | JSON object from field to column number (from 0), for example `{"source": 0, "translation": 2}` | from the headers |
+| `header` | `true` or `false`: whether the first row holds column names | detected |
+| `skip_invalid` | `true` leaves invalid rows out instead of refusing the file | `false` |
+
+The answer is the import report: `format`, `encoding`, `delimiter`, `columns` (the first row), `header`,
+`mapping`, `strategy`, `counts` (`terms, new, unchanged, conflicts, replaced, kept, duplicates, errors`), the
+lists `new`, `conflicts` (with `existing`, `incoming`, the differing `fields`, `locked` and the `action`
+`replace` or `keep`), `duplicates` (a source repeated in the file: the first row counts) and `errors` (`line`,
+`message`), each cut to 200 items (`truncated`), and `applied`. An applied import adds `imported`,
+`replaced` and `skipped`. Sources are matched case-insensitively. A preview (`dry_run=true`) lists invalid
+rows instead of refusing the file.
+
 ## Errors
 
 Every error has the same shape:
@@ -737,18 +802,20 @@ Validation errors never echo the submitted values, so book text is never sent ba
 | 401 | `unauthorized` | A request with a body but no `Authorization: Bearer` header. |
 | 403 | `insufficient_scope` (with `scope`) | The token lacks a permission. |
 | 403 | `forbidden` | A browser request from another site (see below). |
-| 404 | `request_not_found`, `series_not_found`, `volume_not_found`, `not_found` | Unknown, or owned by someone else. |
+| 404 | `request_not_found`, `series_not_found`, `volume_not_found`, `glossary_not_found`, `not_found` | Unknown, or owned by someone else. |
 | 409 | `idempotency_conflict` (with `request_id`) | Same key or `external_id`, different content. |
 | 409 | `chapter_conflict` (with `conflicts`) | Chapters exist with another text; send `replace_changed_chapters`. |
 | 409 | `conflict` (with `protected_segments`) | A replacement would drop human edits; send `discard_human`. |
 | 409 | `volume_conflict`, `series_archived`, `volume_archived` | The target volume cannot take this content. |
 | 409 | `result_not_ready`, `request_failed`, `request_cancelled`, `format_unavailable` | The result cannot be served (see [Get the result](#get-the-result)). |
 | 409 | `not_started`, `conflict` | Pause, resume or cancel not allowed in the current state. |
-| 413 | `payload_too_large` | The body is above the size limit. |
+| 409 | `glossary_exists`, `language_mismatch` | A shared glossary of that name exists; its languages differ from the series'. |
+| 413 | `payload_too_large`, `glossary_too_large` | The body is above the size limit. |
 | 415 | `unsupported_media_type` | Neither JSON, EPUB nor multipart. |
 | 422 | `invalid_payload` (with `errors: [{loc, msg, type}]`) | The document or the upload is invalid. |
 | 422 | `invalid_request` (with `errors`) | A bad query parameter (for example `format`, `wait`). |
 | 422 | `invalid_idempotency_key`, `unknown_provider`, `provider_required`, `invalid_epub`, `callback_refused`, `delivery_failed` | See the sections above. |
+| 422 | `invalid_glossary`, `invalid_strategy`, `invalid_mapping`, `invalid_name` | The glossary file, its import options or the glossary name (see [Shared glossaries](#shared-glossaries)). |
 | 429 | `rate_limited` | Too many calls for this token (header `Retry-After`). |
 | 500 | `server_error` | Unexpected failure; the message carries a diagnostic reference for the server logs. |
 

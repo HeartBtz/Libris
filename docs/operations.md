@@ -98,6 +98,26 @@ L’archive est validée avant toute écriture : une archive incomplète ou alt�
 
 La liste des projets, rafraîchie toutes les 5 secondes par l’interface, est calculée en un nombre constant de requêtes SQL quel que soit le nombre de livres, et n’inclut plus la Book Bible (la page du livre la charge).
 
+## Réglages d’administration du pilote et des webhooks
+
+Les variables `AUTOPILOT_*` et `API_WEBHOOK_*` fixent les valeurs par défaut ; un administrateur peut les
+remplacer sans redémarrer, depuis *Paramètres › Pilote automatique* et *Paramètres › API d’automatisation*,
+ou par l’API (session administrateur) :
+
+| Route | Effet |
+|---|---|
+| `GET /api/settings/autopilot` | `values` en vigueur, `defaults` (environnement), `saved` (une valeur enregistrée s’applique), `fallback_provider_ids` (fournisseurs existants de la chaîne) |
+| `PUT /api/settings/autopilot` | enregistre `enabled`, `max_rounds` (1–10), `fallback_providers` (identifiants ou noms, enregistrés en identifiants ; un inconnu est refusé), `outage_max_retries` (1–100), `outage_max_wait_seconds` (0–604800), `glossary_min_confidence`, `identity_min_confidence`, `bible_min_coverage`, `stale_min_coverage` (0–1) |
+| `DELETE /api/settings/autopilot` | oublie les valeurs enregistrées : l’environnement s’applique de nouveau |
+| `GET /api/settings/webhooks` | `values` (`hosts`, `private_networks`, `max_attempts`, `timeout_seconds`), `defaults`, `saved`, `secret.configured` et `secret.source` (`saved`, `environment` ou `none`) — jamais le secret |
+| `PUT /api/settings/webhooks` | enregistre les hôtes (nom, `*.domaine` ou adresse IP), les réseaux privés (CIDR), 1–20 tentatives, 1–60 s ; `secret` (32 caractères au moins, chiffré avec `SECRET_KEY`) remplace le secret global, absent il est conservé, `clear_secret: true` l’oublie |
+| `DELETE /api/settings/webhooks` | oublie les valeurs et le secret enregistrés |
+
+Les valeurs sont lues à chaque décision (lancement, chaîne de secours, pannes, tours, seuils, contrôle d’un
+`callback_url`, envoi d’un webhook) : un changement s’applique au prochain passage du worker. Le choix d’un
+livre (`config.autopilot`, `config.fallback_provider_ids`) passe toujours avant. Les erreurs de validation
+sont rendues en français ou en anglais selon `Accept-Language`.
+
 ## Langue des messages d’erreur
 
 Les messages d’erreur de l’API sont en français par défaut. Quand l’interface est en anglais, elle envoie `Accept-Language: en` et reçoit les messages en anglais (`detail`). Le catalogue est `backend/app/i18n.py` ; un test échoue si un message levé dans le code n’y a pas de traduction.

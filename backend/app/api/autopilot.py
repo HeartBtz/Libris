@@ -4,7 +4,7 @@ from fastapi import APIRouter, Query
 from sqlalchemy import func, select
 
 from app.api.common import row
-from app.config import settings
+from app.automation_settings import autopilot_config
 from app.jobs.launch import autopilot_default
 from app.models import AutopilotDecision, Job
 from app.security import DB, CurrentUser, access
@@ -50,14 +50,14 @@ def autopilot(
         select(Job).where(Job.project_id == project_id).order_by(Job.created_at.desc()).limit(20)
     )
     last = next((job for job in jobs if (job.result or {}).get("autopilot")), None)
-    config = settings()
+    config = autopilot_config(db)
     return {
         "enabled": autopilot_default(project),
         "settings": {
-            "max_rounds": config.autopilot_max_rounds,
+            "max_rounds": config["max_rounds"],
             "fallback_provider_ids": project.config.get("fallback_provider_ids") or [],
-            "outage_max_retries": config.autopilot_outage_max_retries,
-            "outage_max_wait_seconds": config.autopilot_outage_max_wait_seconds,
+            "outage_max_retries": config["outage_max_retries"],
+            "outage_max_wait_seconds": config["outage_max_wait_seconds"],
         },
         "report": None
         if last is None

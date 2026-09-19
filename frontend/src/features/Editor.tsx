@@ -30,7 +30,7 @@ import { MarkedText, MarkerTextarea, markers } from "./MarkedText";
 registerTranslations({
   "Filtrer les passages": "Filter passages",
   "Tous les passages": "All passages",
-  "À vérifier": "To review",
+  "Relecture facultative": "Optional review",
   Erreurs: "Errors",
   Incertitudes: "Uncertainties",
   "Refus du provider": "Provider refusals",
@@ -87,8 +87,11 @@ registerTranslations({
     "A new version of this passage arrived while you were typing. Choose which one to keep before saving.",
   "Recharger la version du serveur": "Reload the server version",
   "Conserver ma saisie": "Keep my text",
-  "Original conservé par décision humaine. Ce passage n’est pas compté comme traduit ; utilisez l’export partiel ou saisissez une traduction.":
-    "Source retained by human decision. This passage is not counted as translated; use the partial export or enter a translation.",
+  "Original conservé. Ce passage n’est pas compté comme traduit ; le résultat garde son texte source, ou saisissez une traduction.":
+    "Source retained. This passage is not counted as translated; the result keeps its source text, or enter a translation.",
+  "Original conservé automatiquement": "Source kept automatically",
+  "Le pilote automatique n’a pas pu traduire ce passage : le résultat garde son texte original. Vous pouvez saisir une traduction si vous le souhaitez.":
+    "The autopilot could not translate this passage: the result keeps its original text. You may enter a translation if you wish.",
   "Refus enregistré. Vous pouvez saisir une traduction ou ouvrir l’inspecteur pour ajouter une analyse humaine.":
     "Refusal recorded. You can enter a translation or open the inspector to add a human analysis.",
   "Conserver l’original pour ce passage ?": "Keep the source text for this passage?",
@@ -166,6 +169,8 @@ export function Editor({
   run,
   refresh,
   focusRefusal,
+  focus,
+  residuals,
 }: {
   project: Project;
   chapters: Chapter[];
@@ -175,6 +180,10 @@ export function Editor({
   run: Run;
   refresh: () => void;
   focusRefusal?: string;
+  /** A passage opened from the autopilot log: its filter is shown and it is scrolled into view. */
+  focus?: { segment: string; filter: string } | null;
+  /** Passages the autopilot kept in the original, with its reason. */
+  residuals?: Map<string, string>;
 }) {
   const { t } = useI18n();
   const { confirm, prompt } = useDialogs();
@@ -195,6 +204,11 @@ export function Editor({
     }
   }, [focusRefusal]);
   useEffect(() => {
+    if (!focus) return;
+    setFilter(focus.filter);
+    setOffset(0);
+  }, [focus]);
+  useEffect(() => {
     setOffset(0);
     setSelected(null);
   }, [chapterId]);
@@ -213,6 +227,10 @@ export function Editor({
     };
   }, [project.id, chapterId, filter, offset, tick, run, key]);
   const segments = loaded?.key === key ? loaded.items : null;
+  useEffect(() => {
+    if (focus && segments?.some((segment) => segment.id === focus.segment))
+      document.getElementById(`segment-${focus.segment}`)?.scrollIntoView({ block: "center" });
+  }, [focus, segments]);
   const lastSegments = loaded?.items || [];
   if (!chapter) return null;
   // The server names the metadata section in French; the kind tells the interface what it is.
@@ -299,7 +317,7 @@ export function Editor({
                 }}
               >
                 <option value="">{t("Tous les passages")}</option>
-                <option value="check">{t("À vérifier")}</option>
+                <option value="check">{t("Relecture facultative")}</option>
                 <option value="error">{t("Erreurs")}</option>
                 <option value="uncertain">{t("Incertitudes")}</option>
                 <option value="refused">{t("Refus du provider")}</option>
@@ -384,7 +402,15 @@ export function Editor({
             <SegmentSkeleton label={t("Chargement des passages…")} />
           ) : segments.length ? (
             segments.map((s) => (
-              <SegmentRow key={s.id} segment={s} project={project} run={run} refresh={refresh} inspect={() => setSelected(s)} />
+              <SegmentRow
+                key={s.id}
+                segment={s}
+                project={project}
+                run={run}
+                refresh={refresh}
+                inspect={() => setSelected(s)}
+                residual={residuals?.get(s.id)}
+              />
             ))
           ) : (
             <EmptyState
@@ -487,6 +513,7 @@ export function SegmentRow({
   inspect,
   suggestion,
   hideSource = false,
+  residual,
 }: {
   segment: Segment;
   project: Project;
@@ -495,6 +522,8 @@ export function SegmentRow({
   inspect: () => void;
   suggestion?: SuggestionDraft;
   hideSource?: boolean;
+  /** Why the autopilot kept this passage in the original, when it did. */
+  residual?: string;
 }) {
   const { t, tp } = useI18n();
   const { confirm, prompt } = useDialogs();
@@ -624,7 +653,11 @@ export function SegmentRow({
             label={segment.validated ? t("Validé humainement") : labels[segment.status]}
           />
           <span className="subtle">
-            {segment.human ? t("Correction humaine protégée") : t("Version {revision}", { revision: segment.revision })}
+            {residual !== undefined
+              ? t("Original conservé automatiquement")
+              : segment.human
+                ? t("Correction humaine protégée")
+                : t("Version {revision}", { revision: segment.revision })}
           </span>
           {segment.instructions && (
             <Badge tone="info" title={segment.instructions}>
@@ -693,13 +726,21 @@ export function SegmentRow({
             {segment.error}
           </Callout>
         )}
-        {segment.retained_source && (
-          <Callout tone="neutral" className="segment-callout">
-            {t(
-              "Original conservé par décision humaine. Ce passage n’est pas compté comme traduit ; utilisez l’export partiel ou saisissez une traduction.",
-            )}
-          </Callout>
-        )}
+        {segment.retained_source &&
+          (residual !== undefined ? (
+            <Callout tone="warning" className="segment-callout residual-callout" title={t("Original conservé automatiquement")}>
+              {t(
+                "Le pilote automatique n’a pas pu traduire ce passage : le résultat garde son texte original. Vous pouvez saisir une traduction si vous le souhaitez.",
+              )}
+              {residual && <span className="residual-reason"> {residual}</span>}
+            </Callout>
+          ) : (
+            <Callout tone="neutral" className="segment-callout">
+              {t(
+                "Original conservé. Ce passage n’est pas compté comme traduit ; le résultat garde son texte source, ou saisissez une traduction.",
+              )}
+            </Callout>
+          ))}
         {segment.status === "refused" && (
           <Callout
             tone="warning"

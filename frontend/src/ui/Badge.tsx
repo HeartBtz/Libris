@@ -34,7 +34,6 @@ const statusTones: Record<string, Tone> = {
   cancelled: "neutral",
   interrupted: "neutral",
   abandoned: "neutral",
-  source_retained: "neutral",
   analyzing: "accent",
   translating: "accent",
   reviewing: "accent",
@@ -42,7 +41,10 @@ const statusTones: Record<string, Tone> = {
   running: "accent",
   paused: "warning",
   waiting: "warning",
-  check: "warning",
+  // Open to an optional review: never a blocking state.
+  check: "info",
+  // Kept in the original (by a person or by the autopilot): marked so it is easy to spot.
+  source_retained: "warning",
   warning: "warning",
   blocked: "danger",
   failed: "danger",

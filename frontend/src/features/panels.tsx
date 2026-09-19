@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, date, download, downloadGet, labels, send } from "../api";
 import { formatNumber, formatPercent, registerTranslations, useI18n } from "../i18n";
-import type { Issue, LLMRequest, Project, ProviderSummary, Run, Term, User } from "../types";
+import type { AutopilotView, Issue, LLMRequest, Project, ProviderSummary, Run, Term, User } from "../types";
 import {
   Badge,
   Button,
@@ -30,6 +30,8 @@ import {
 import { RequestDetails } from "./Editor";
 import { MemoryPanel } from "./MemoryPanel";
 import { duration, projectProgress } from "./progress";
+import { fetchAutopilot } from "./Autopilot";
+import { ProviderChain } from "./ProviderChain";
 
 registerTranslations({
   "{words} mots · {sections} sections · {images} images · {size} Mo":
@@ -230,6 +232,31 @@ const metricLabels: Record<string, string> = {
   completion_tokens: "Tokens de sortie",
 };
 registerTranslations({ Requêtes: "Requests", "Tokens d’entrée": "Input tokens", "Tokens de sortie": "Output tokens" });
+registerTranslations({
+  "Pilote automatique": "Autopilot",
+  "Le livre va de l’import au résultat sans intervention ; chaque décision est consignée. Vos corrections restent possibles et protégées.":
+    "The book goes from import to result with no intervention; every decision is logged. Your corrections stay possible and protected.",
+  "Réglage de l’installation ({state})": "Installation setting ({state})",
+  "Réglage de l’installation": "Installation setting",
+  activé: "on",
+  désactivé: "off",
+  Activé: "On",
+  "Désactivé : les décisions attendent une personne": "Off: decisions wait for a person",
+  "Essayés dans cet ordre quand le fournisseur du livre est en panne ou refuse ses identifiants.":
+    "Tried in this order when the book's provider is down or refuses its credentials.",
+  "Aucun fournisseur de secours propre au livre : ceux de l’installation (Paramètres › Pilote automatique) sont essayés.":
+    "No fallback provider of the book's own: the installation's (Settings › Autopilot) are tried.",
+  "Mode de relecture": "Review mode",
+  "Relecture puis révision (deux appels)": "Review then revision (two calls)",
+  "Relecture et révision en un appel": "Review and revision in one call",
+  "Qualité haute et maximale ; un appel au lieu de deux quand la relecture trouve à corriger.":
+    "High and maximum quality; one call instead of two when the review finds something to fix.",
+  "Taille des passages (caractères)": "Passage size (characters)",
+  "Vide : réglage de l’installation. S’applique aux chapitres importés ensuite ; les passages existants ne sont pas redécoupés.":
+    "Empty: installation setting. Applies to chapters imported later; existing passages are not cut again.",
+  "Limites de l’installation (Paramètres › Pilote automatique) : {rounds} tours de convergence au plus, {retries} attentes d’une panne au plus, {minutes} min d’attente au plus.":
+    "Installation limits (Settings › Autopilot): at most {rounds} convergence rounds, at most {retries} waits for an outage, at most {minutes} min of waiting.",
+});
 
 interface Member {
   user_id: string;
@@ -257,9 +284,33 @@ export function ProjectSettings({
   const owner = project.owner_id === user.id;
   // The setting only exists on servers that support it: never send an unknown field.
   const supportsMemory = typeof project.translation_memory === "boolean";
+  const config = project.config;
+  const hasConfig = !!config;
+  // Servers from 0.6 serve the book's settings (`config`) and its autopilot view.
+  const [autopilot, setAutopilot] = useState<AutopilotView | null>(null);
+  const [pilot, setPilot] = useState<"" | "on" | "off">(
+    config?.autopilot === true ? "on" : config?.autopilot === false ? "off" : "",
+  );
+  const [fallbacks, setFallbacks] = useState<string[]>(config?.fallback_provider_ids || []);
+  const [reviewMode, setReviewMode] = useState<"" | "separate" | "fused">(config?.review_mode || "");
+  const [passageChars, setPassageChars] = useState(config?.passage_max_chars ? String(config.passage_max_chars) : "");
   useEffect(() => {
     void run.background(async () => setProviders(await api("/providers")));
   }, [run]);
+  useEffect(() => {
+    if (!hasConfig) return;
+    let active = true;
+    void run.background(async () => {
+      const view = await fetchAutopilot(project.id, { limit: 1 });
+      if (active) setAutopilot(view);
+    });
+    return () => {
+      active = false;
+    };
+  }, [run, project.id, hasConfig]);
+  const touched = () => setSaved("");
+  // The installation's default is what the book gets when it has no choice of its own.
+  const installationDefault = autopilot && config?.autopilot == null ? autopilot.enabled : null;
   const field = <K extends keyof Project>(name: K, next: Project[K]) => {
     setSaved("");
     setValue((current) => ({ ...current, [name]: next }));
@@ -299,6 +350,14 @@ export function ProjectSettings({
                 context_backend,
                 instructions,
                 ...(supportsMemory ? { translation_memory } : {}),
+                ...(config
+                  ? {
+                      autopilot: pilot === "" ? null : pilot === "on",
+                      fallback_provider_ids: fallbacks,
+                      review_mode: reviewMode || null,
+                      passage_max_chars: passageChars ? Number(passageChars) : null,
+                    }
+                  : {}),
               },
               "PUT",
             );
@@ -429,6 +488,97 @@ export function ProjectSettings({
             </Field>
           </div>
         </Card>
+        {config && (
+          <Card
+            title={t("Pilote automatique")}
+            description={t(
+              "Le livre va de l’import au résultat sans intervention ; chaque décision est consignée. Vos corrections restent possibles et protégées.",
+            )}
+          >
+            <div className="stack">
+              <FormGrid columns={3}>
+                <Field label={t("Pilote automatique")}>
+                  <Select
+                    value={pilot}
+                    onChange={(e) => {
+                      touched();
+                      setPilot(e.target.value as typeof pilot);
+                    }}
+                  >
+                    <option value="">
+                      {installationDefault === null
+                        ? t("Réglage de l’installation")
+                        : t("Réglage de l’installation ({state})", {
+                            state: installationDefault ? t("activé") : t("désactivé"),
+                          })}
+                    </option>
+                    <option value="on">{t("Activé")}</option>
+                    <option value="off">{t("Désactivé : les décisions attendent une personne")}</option>
+                  </Select>
+                </Field>
+                <Field
+                  label={t("Mode de relecture")}
+                  hint={t("Qualité haute et maximale ; un appel au lieu de deux quand la relecture trouve à corriger.")}
+                >
+                  <Select
+                    value={reviewMode}
+                    onChange={(e) => {
+                      touched();
+                      setReviewMode(e.target.value as typeof reviewMode);
+                    }}
+                  >
+                    <option value="">{t("Réglage de l’installation")}</option>
+                    <option value="separate">{t("Relecture puis révision (deux appels)")}</option>
+                    <option value="fused">{t("Relecture et révision en un appel")}</option>
+                  </Select>
+                </Field>
+                <Field
+                  label={t("Taille des passages (caractères)")}
+                  hint={t(
+                    "Vide : réglage de l’installation. S’applique aux chapitres importés ensuite ; les passages existants ne sont pas redécoupés.",
+                  )}
+                >
+                  <Input
+                    type="number"
+                    min="500"
+                    max="20000"
+                    step="100"
+                    inputMode="numeric"
+                    value={passageChars}
+                    placeholder="3500"
+                    onChange={(e) => {
+                      touched();
+                      setPassageChars(e.target.value);
+                    }}
+                  />
+                </Field>
+              </FormGrid>
+              <ProviderChain
+                value={fallbacks}
+                onChange={(next) => {
+                  touched();
+                  setFallbacks(next);
+                }}
+                providers={providers}
+                exclude={value.provider_id ? [value.provider_id] : []}
+                hint={t("Essayés dans cet ordre quand le fournisseur du livre est en panne ou refuse ses identifiants.")}
+                empty={t("Aucun fournisseur de secours propre au livre : ceux de l’installation (Paramètres › Pilote automatique) sont essayés.")}
+              />
+              {autopilot && (
+                <p className="subtle">
+                  {t(
+                    "Limites de l’installation (Paramètres › Pilote automatique) : {rounds} tours de convergence au plus, {retries} attentes d’une panne au plus, {minutes} min d’attente au plus.",
+                    {
+                      rounds: autopilot.settings.max_rounds,
+                      retries: autopilot.settings.outage_max_retries,
+                      minutes: Math.round(autopilot.settings.outage_max_wait_seconds / 60),
+                    },
+                  )}
+                </p>
+              )}
+            </div>
+          </Card>
+        )}
         <div className="form-actions sticky-actions">
           <Button type="submit" variant="primary" loading={busy}>
             {t("Enregistrer les réglages")}

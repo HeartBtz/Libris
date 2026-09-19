@@ -9,7 +9,7 @@ from collections import defaultdict
 
 from sqlalchemy import func, select
 
-from app.config import settings
+from app.automation_settings import autopilot_config
 from app.db import SessionLocal
 from app.engines.autopilot.decisions import record
 from app.engines.memory.identities import names, normalized
@@ -45,7 +45,7 @@ def term_confidence(occurrences: int) -> float:
 
 
 def decide_glossary(job: Job, owner: str) -> None:
-    threshold = settings().autopilot_glossary_min_confidence
+    threshold = autopilot_config()["glossary_min_confidence"]
     with job_lock(job.id), SessionLocal() as db:
         fence(db, job.id, owner)
         pending = list(
@@ -92,7 +92,7 @@ def identity_confidence(entity: Entity, candidate: SeriesEntity) -> float:
 
 def decide_identities(job: Job, owner: str) -> None:
     """Ambiguous series links: the clearly best candidate is linked; on doubt none is (never a merge)."""
-    threshold = settings().autopilot_identity_min_confidence
+    threshold = autopilot_config()["identity_min_confidence"]
     with job_lock(job.id), SessionLocal() as db:
         fence(db, job.id, owner)
         proposed = list(
@@ -150,7 +150,7 @@ def decide_identities(job: Job, owner: str) -> None:
 
 def decide_bible(job: Job, owner: str) -> None:
     """The Book Bible is validated once enough of the book was analysed to build it."""
-    threshold = settings().autopilot_bible_min_coverage
+    threshold = autopilot_config()["bible_min_coverage"]
     with job_lock(job.id), SessionLocal() as db:
         fence(db, job.id, owner)
         project = db.get(Project, job.project_id)
@@ -179,7 +179,7 @@ def decide_bible(job: Job, owner: str) -> None:
 
 def decide_stale_chapters(job: Job, owner: str) -> None:
     """A chapter flagged for an outdated context is cleared once this job translated or reviewed it again."""
-    threshold = settings().autopilot_stale_min_coverage
+    threshold = autopilot_config()["stale_min_coverage"]
     with job_lock(job.id), SessionLocal() as db:
         fence(db, job.id, owner)
         stale = list(

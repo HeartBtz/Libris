@@ -24,7 +24,7 @@ from urllib.parse import urlsplit
 import httpx
 from sqlalchemy import select
 
-from app.config import settings
+from app.automation_settings import webhook_config, webhook_secret
 from app.db import SessionLocal
 from app.models import ApiToken, Job, Project, TranslationRequest
 from app.security import SecretUnreadable, decrypt
@@ -42,14 +42,14 @@ class WebhookRefused(ValueError):
 def allowed_hosts() -> list[str]:
     return [
         item.strip().casefold().rstrip(".")
-        for item in settings().api_webhook_hosts.split(",")
+        for item in webhook_config()["hosts"]
         if item.strip()
     ]
 
 
 def private_networks() -> list[ipaddress.IPv4Network | ipaddress.IPv6Network]:
     networks = []
-    for item in settings().api_webhook_private_networks.split(","):
+    for item in webhook_config()["private_networks"]:
         if item.strip():
             networks.append(ipaddress.ip_network(item.strip(), strict=False))
     return networks
@@ -107,11 +107,11 @@ def signing_secret(db, request: TranslationRequest) -> str:
             return decrypt(token.webhook_secret)
         except SecretUnreadable:
             logger.warning("request=%s webhook=token_secret_unreadable", request.id)
-    return settings().api_webhook_secret
+    return webhook_secret(db)
 
 
 def require_signing(token: ApiToken) -> None:
-    if not token.webhook_secret and not settings().api_webhook_secret:
+    if not token.webhook_secret and not webhook_secret():
         raise WebhookRefused(
             "Aucun secret de signature : créez le jeton avec un secret de webhook, ou définissez API_WEBHOOK_SECRET."
         )
@@ -154,7 +154,7 @@ def send(url: str, body: bytes, headers: dict) -> int:
     literal = f"[{address}]" if ":" in address else address
     target = parts._replace(netloc=f"{literal}:{port}").geturl()
     with httpx.Client(
-        timeout=settings().api_webhook_timeout_seconds, follow_redirects=False, trust_env=False
+        timeout=webhook_config()["timeout_seconds"], follow_redirects=False, trust_env=False
     ) as client:
         response = client.post(
             target,
@@ -205,7 +205,7 @@ def deliver_one(request_id: str, now: float | None = None) -> str | None:
         request.webhook_attempts += 1
         if not error:
             request.webhook_state, request.webhook_error = "delivered", ""
-        elif request.webhook_attempts >= settings().api_webhook_max_attempts:
+        elif request.webhook_attempts >= webhook_config(db)["max_attempts"]:
             request.webhook_state, request.webhook_error = "failed", error[:500]
         else:
             request.webhook_error = error[:500]

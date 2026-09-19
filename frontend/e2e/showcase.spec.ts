@@ -263,6 +263,76 @@ test("capture public Libris showcase", async ({ page }) => {
       { human: true, validated: true, revision: 2 },
     ),
   ];
+  // The autopilot of "Atlas for Tomorrow": a finished run, its report and its decision log.
+  const decision = (id: string, stage: string, kind: string, action: string, reason: string, extra: object = {}) => ({
+    id,
+    project_id: "demo-3",
+    job_id: "job-atlas",
+    segment_id: null as string | null,
+    stage,
+    kind,
+    action,
+    reason,
+    provider: "Local model",
+    model: "zeta-model",
+    created_at: 1789254000 - Number(id.slice(1)) * 60,
+    ...extra,
+  });
+  const decisions = [
+    decision("d1", "report", "convergence", "stable", "Converged in 2 rounds: 23 passages translated, 1 kept in the original."),
+    decision("d2", "arbitration", "critique", "applied", "“Lantern” is the lighthouse light: “feu” chosen over “lanterne”, as in the glossary.", {
+      segment_id: "segment-0",
+    }),
+    decision("d3", "recovery", "failed_passage", "source_retained", "Refused twice by every provider: the original sentence is kept.", {
+      segment_id: "segment-7",
+    }),
+    decision("d4", "provider", "outage", "fallback_provider", "“Local model” unavailable after 5 waits: “Backup model” takes over.", {
+      provider: "Backup model",
+      model: "omega-model",
+    }),
+    decision("d5", "memory", "glossary", "accepted", "“Keeper” → “gardien”: used 9 times in the book."),
+    decision("d6", "review", "doubt", "left_unvalidated", "Stylistic doubt with no clear improvement: translation kept."),
+  ];
+  const autopilotView = {
+    enabled: true,
+    settings: { max_rounds: 3, fallback_provider_ids: ["backup"], outage_max_retries: 5, outage_max_wait_seconds: 3600 },
+    report: {
+      outcome: "completed_with_residuals",
+      rounds: 2,
+      residuals: [{ segment_id: "segment-7", chapter_id: "chapter-3", reason: "Refused twice by every provider: the original sentence is kept." }],
+      job_id: "job-atlas",
+      status: "completed",
+      finished_at: 1789254000,
+    },
+  };
+  const finishedJob = {
+    id: "job-atlas",
+    status: "completed",
+    operation: "translate",
+    error: "",
+    stop_reason: "",
+    next_attempt: 0,
+    outage_count: 0,
+    attempts: 1,
+    options: { autopilot: true },
+    checkpoint: {},
+    created_at: 1789240000,
+    finished_at: 1789254000,
+  };
+  const autopilotValues = {
+    enabled: true,
+    max_rounds: 3,
+    fallback_providers: ["backup"],
+    outage_max_retries: 5,
+    outage_max_wait_seconds: 3600,
+    glossary_min_confidence: 0.75,
+    identity_min_confidence: 0.8,
+    bible_min_coverage: 0.8,
+    stale_min_coverage: 0.5,
+  };
+  const autopilotSettings = { values: autopilotValues, defaults: autopilotValues, saved: true, fallback_provider_ids: ["backup"] };
+  const hooks = { hosts: ["hooks.example.org", "*.example.net"], private_networks: [], max_attempts: 6, timeout_seconds: 10 };
+  const webhookSettings = { values: hooks, defaults: hooks, saved: true, secret: { configured: true, source: "saved" } };
   const errors: string[] = [];
   let exportedProjects: string[] = [];
   const languages = new Set<string>();
@@ -292,8 +362,23 @@ test("capture public Libris showcase", async ({ page }) => {
       await route.fulfill({ contentType: "application/epub+zip", body: "synthetic epub" });
       return;
     }
+    if (path === "/api/settings/autopilot") {
+      await route.fulfill({ json: autopilotSettings });
+      return;
+    }
+    if (path === "/api/settings/webhooks") {
+      await route.fulfill({ json: webhookSettings });
+      return;
+    }
     let data: unknown = [];
-    if (path.endsWith("/auth/me")) data = { id: "demo-user", username: "Démo", admin: true };
+    if (path === "/api/projects/demo-3") data = books[2];
+    else if (path === "/api/projects/demo-3/jobs") data = [finishedJob];
+    else if (path === "/api/projects/demo-3/autopilot") {
+      const stage = url.searchParams.get("stage");
+      const segment = url.searchParams.get("segment_id");
+      const items = decisions.filter((item) => (!stage || item.stage === stage) && (!segment || item.segment_id === segment));
+      data = { ...autopilotView, decisions: { items, total: items.length, limit: 25, offset: 0 } };
+    } else if (path.endsWith("/auth/me")) data = { id: "demo-user", username: "Démo", admin: true };
     else if (path === "/api/projects") data = books;
     else if (path === "/api/series") data = [tide];
     else if (path === "/api/series/tide") data = { ...tide, bible: {}, volume_list: books.slice(0, 2) };
@@ -307,7 +392,11 @@ test("capture public Libris showcase", async ({ page }) => {
           : url.searchParams.get("status")
             ? []
             : segments();
-    else if (path === "/api/providers") data = [{ id: "local", kind: "openai", name: "Local model", model: "zeta-model" }];
+    else if (path === "/api/providers")
+      data = [
+        { id: "local", kind: "openai", name: "Local model", model: "zeta-model" },
+        { id: "backup", kind: "openai", name: "Backup model", model: "omega-model" },
+      ];
     else if (path.endsWith("/final-review"))
       data = {
         automatic: true,
@@ -363,7 +452,7 @@ test("capture public Libris showcase", async ({ page }) => {
   const seriesSection = page.getByRole("region", { name: /^Series/ });
   await expect(seriesSection.getByRole("link", { name: "Tide Chronicles" })).toBeVisible();
   await expect(seriesSection).toContainText("2 volumes · 8 chapters");
-  await expect(seriesSection).toContainText("1 to review");
+  await expect(seriesSection).toContainText("1 open");
   await expect(page.getByRole("progressbar", { name: "Translation of Tide Chronicles" })).toHaveAttribute("value", "38");
   await expect(page.getByRole("progressbar", { name: "Export for Atlas for Tomorrow" })).toHaveAttribute("value", "100");
 
@@ -477,8 +566,8 @@ test("capture public Libris showcase", async ({ page }) => {
   await expect(mobilePreview).toBeVisible();
   expect((await mobilePreview.boundingBox())?.width).toBeLessThanOrEqual(390);
   await mobilePreview.getByRole("button", { name: "Close" }).click();
-  await tabs.getByRole("tab", { name: /Validations/ }).click();
-  await expect(page.getByRole("heading", { name: "Translation validations" })).toBeVisible();
+  await tabs.getByRole("tab", { name: /Review log/ }).click();
+  await expect(page.getByRole("heading", { name: "Review log" })).toBeVisible();
   await tabs.getByRole("tab", { name: "Translation" }).click();
   await expect(mobileTranslation).toBeVisible();
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
@@ -489,8 +578,8 @@ test("capture public Libris showcase", async ({ page }) => {
     ["Stage 1: Import", "EPUB imported and structure loaded."],
     ["Stage 2: Analysis & memory", "24/24 passages analyzed · 4/4 sections synthesized."],
     ["Stage 3: Translation", "18/24 passages translated · 0 retained in the original."],
-    ["Stage 4: Review", "16/24 passages reviewed · 0 resolved · 1 to review."],
-    ["Stage 5: Export", "Resolve the remaining alerts before the final export."],
+    ["Stage 4: Review", "16/24 passages reviewed · 0 resolved · 1 open."],
+    ["Stage 5: Export", "The result will be ready when the automatic work ends; exporting stays possible at any time."],
   ]) {
     await page.getByRole("button", { name: button, exact: true }).click();
     await expect(page.getByText(detail, { exact: true })).toBeVisible();
@@ -508,12 +597,12 @@ test("capture public Libris showcase", async ({ page }) => {
   await expect(inspectorTrigger).toBeFocused();
 
   await chooseTheme(page, "Dark");
-  await page.getByRole("tab", { name: /Validations/ }).click();
+  await page.getByRole("tab", { name: /Review log/ }).click();
   await expect(page.getByText("AI opinion", { exact: true })).toBeVisible();
   await page.screenshot({ path: resolve(output, "validations.png"), fullPage: true });
   await page.setViewportSize({ width: 390, height: 844 });
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
-  await expect(page.getByRole("tab", { name: /Validations/ })).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByRole("tab", { name: /Review log/ })).toHaveAttribute("aria-selected", "true");
   await page.screenshot({ path: resolve(output, "validations-mobile.png"), fullPage: true });
   await page.setViewportSize({ width: 1440, height: 1040 });
   await chooseTheme(page, "Light");
@@ -524,7 +613,27 @@ test("capture public Libris showcase", async ({ page }) => {
   await page.getByRole("menuitem", { name: "Translated EPUB", exact: true }).click();
   await download;
   await expect(page.getByText("File received; download sent to the browser.")).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Translation validations" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Review log" })).toBeVisible();
+  // The autopilot: a finished book, its report, the passage kept in the original and the decision log.
+  await page.goto(`${base}/#project/demo-3`);
+  const status = page.locator(".autopilot-status");
+  await expect(status).toContainText("Autopilot finished");
+  await expect(status.getByRole("button", { name: "Download the EPUB" })).toBeVisible();
+  await status.getByRole("button", { name: "See the report" }).click();
+  await expect(page.getByRole("heading", { name: "Autopilot", level: 2 })).toBeVisible();
+  await expect(page.locator(".decision-log")).toContainText("“Backup model” takes over.");
+  await page.screenshot({ path: resolve(output, "autopilot.png"), fullPage: true });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
+  await page.screenshot({ path: resolve(output, "autopilot-mobile.png"), fullPage: true });
+  await page.setViewportSize({ width: 1440, height: 1040 });
+
+  await page.goto(`${base}/#settings`);
+  await page.getByRole("tab", { name: "Autopilot", exact: true }).click();
+  await expect(page.getByRole("form", { name: "Installation autopilot" }).locator(".fallback-list li")).toHaveText([
+    /Backup model/,
+  ]);
+  await page.screenshot({ path: resolve(output, "settings-autopilot.png"), fullPage: true });
   expect([...languages]).toEqual(["en"]);
   expect(errors).toEqual([]);
 });

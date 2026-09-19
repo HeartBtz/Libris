@@ -44,6 +44,7 @@ MESSAGES = {
     "Mettez le travail en pause avant de modifier sa configuration.": "Pause the job before changing its configuration.",
     "Provider inconnu.": "Unknown provider.",
     "Fournisseur de secours inconnu.": "Unknown fallback provider.",
+    "Le secret des webhooks doit contenir au moins 32 caractères.": "The webhook secret must contain at least 32 characters.",
     "Annulez le travail actif avant de supprimer le projet.": "Cancel the active job before deleting the project.",
     "Terminez ou annulez le travail avant d’archiver ce projet.": "Finish or cancel the job before archiving this project.",
     "Restaurez ce projet avant de lancer un travail.": "Restore this project before starting a job.",
@@ -325,6 +326,8 @@ MESSAGES = {
 }  # fmt: skip
 
 TEMPLATES = {
+    "Hôte de webhook invalide : {value}": "Invalid webhook host: {value}",
+    "Réseau privé invalide (notation CIDR attendue) : {value}": "Invalid private network (CIDR notation expected): {value}",
     "Cet EPUB est déjà importé dans « {title} ».": "This EPUB is already imported in “{title}”.",
     "Cet EPUB est déjà importé dans le projet archivé « {title} ». Restaurez-le depuis les archives.": "This EPUB is already imported in the archived project “{title}”. Restore it from the archives.",
     "Le fichier EPUB d’origine de « {title} » est introuvable sur le serveur : l’EPUB, l’archive de projet et l’aperçu sont indisponibles. Les exports TXT, Markdown et Book Bible restent possibles ; restaurez le dossier des livres (DATA_DIR/books) pour retrouver les autres.": "The original EPUB file of “{title}” cannot be found on the server: the EPUB, the project archive and the preview are unavailable. TXT, Markdown and Book Bible exports remain possible; restore the books folder (DATA_DIR/books) to get the others back.",

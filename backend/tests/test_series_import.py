@@ -155,6 +155,12 @@ def test_without_confirmation_a_missing_volume_number_is_decided_and_explained(c
     ]
 
 
+def test_the_session_says_whether_low_confidence_numbers_need_a_confirmation(client, monkeypatch):
+    assert upload(client, "epub", [])["confirm_low_confidence"] is False
+    monkeypatch.setattr(settings(), "import_confirm_low_confidence", True)
+    assert upload(client, "txt", [])["confirm_low_confidence"] is True
+
+
 def test_duplicate_volume_numbers_are_blocking(client):
     session = upload(client, "epub", [("A 1.epub", volume(1)), ("A 2.epub", volume(2))])
     items = [{"index": 0, "volume_number": 1}, {"index": 1, "volume_number": 1}]

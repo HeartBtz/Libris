@@ -7,7 +7,7 @@ registerTranslations({
   "{done}/{total} passages · {sections}/{chapters} sections": "{done}/{total} passages · {sections}/{chapters} sections",
   "{done}/{total} passages traduits": "{done}/{total} passages translated",
   "{done}/{total} propositions IA": "{done}/{total} AI proposals",
-  "{done}/{total} examinés · {remaining} à vérifier": "{done}/{total} reviewed · {remaining} to review",
+  "{done}/{total} examinés · {remaining} ouverts": "{done}/{total} reviewed · {remaining} open",
   "Livre prêt à exporter": "Book ready to export",
   "EPUB importé": "EPUB imported",
   "Chapitres importés": "Chapters imported",
@@ -34,7 +34,7 @@ export function BookProgress({ project, compact = false }: { project: Project; c
         : stage.key === "review"
           ? progress.operation === "accept_critiques" && progress.state !== "completed"
             ? t("{done}/{total} propositions IA", { done: stage.done, total: stage.total })
-            : t("{done}/{total} examinés · {remaining} à vérifier", {
+            : t("{done}/{total} examinés · {remaining} ouverts", {
                 done: stage.done,
                 total: stage.total,
                 remaining: progress.review.remaining,

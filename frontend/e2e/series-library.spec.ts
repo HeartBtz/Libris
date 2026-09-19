@@ -91,7 +91,10 @@ function seriesView(id: string, name: string, kind: Series["kind"], volumes: Pro
   };
 }
 
-async function mockApi(page: Page, options: { rejectFirstCommit?: boolean } = {}) {
+// `confirmLowConfidence`: the server asks the person to confirm uncertain numbers
+// (IMPORT_CONFIRM_LOW_CONFIDENCE); by default it applies its guesses and records them.
+async function mockApi(page: Page, options: { rejectFirstCommit?: boolean; confirmLowConfidence?: boolean } = {}) {
+  const confirm = { confirm_low_confidence: !!options.confirmLowConfidence };
   const projects: Project[] = [];
   const series: { id: string; name: string; kind: Series["kind"] }[] = [];
   const chapters: SeriesChapter[] = [];
@@ -176,7 +179,7 @@ async function mockApi(page: Page, options: { rejectFirstCommit?: boolean } = {}
       const id = `session-${++counter}`;
       const format = request.postDataJSON().format;
       sessions.set(id, { format, files: [], result: null });
-      return route.fulfill({ status: 201, json: { id, format, files: [], expires_at: 1789999999, result: null } });
+      return route.fulfill({ status: 201, json: { id, format, files: [], expires_at: 1789999999, result: null, ...confirm } });
     }
     if (parts[1] === "imports") {
       const session = sessions.get(parts[2])!;
@@ -267,7 +270,7 @@ async function mockApi(page: Page, options: { rejectFirstCommit?: boolean } = {}
         deleted.push(parts[2]);
         return route.fulfill({ json: { ok: true } });
       }
-      return route.fulfill({ json: { id: parts[2], format: session.format, files: session.files, expires_at: 1789999999, result: session.result, proposal: proposal(session.format, session.files) } });
+      return route.fulfill({ json: { id: parts[2], format: session.format, files: session.files, expires_at: 1789999999, result: session.result, proposal: proposal(session.format, session.files), ...confirm } });
     }
     return route.fulfill({ json: [] });
   });
@@ -335,8 +338,10 @@ test("EPUB volumes of one series: the pre-analysis is corrected before the impor
   await expect(dialog.getByRole("textbox", { name: "Series name" })).toHaveValue("Saga");
   await expect(dialog.getByText("A new series will be created.")).toBeVisible();
   await expect(dialog.getByRole("textbox", { name: "Volume number of Saga - Tome 1.epub" })).toHaveValue("1");
-  await expect(dialog.getByText("1 blocking issue to fix before continuing.")).toBeVisible();
-  await expect(dialog.getByRole("button", { name: "Continue" })).toBeDisabled();
+  // No confirmation is asked: the unnumbered file gets the next volume unless someone decides otherwise.
+  await expect(dialog.getByText("No number: it will automatically get the series' next volume.")).toBeVisible();
+  await expect(dialog.getByText(/blocking issue/)).toHaveCount(0);
+  await expect(dialog.getByRole("button", { name: "Continue" })).toBeEnabled();
   const bonus = dialog.getByRole("textbox", { name: "Volume number of Saga - bonus.epub" });
   await bonus.fill("2");
   await expect(dialog.getByText("Duplicate number in this batch.")).toHaveCount(2);
@@ -378,8 +383,8 @@ test("EPUB volumes of one series: the pre-analysis is corrected before the impor
   await expect(page.getByText("Series memory is not available on this server.")).toBeVisible();
 });
 
-test("webnovel TXT chapters need a series and keep the order chosen before the import", async ({ page }) => {
-  const api = await mockApi(page);
+test("webnovel TXT chapters need a series and keep the order chosen before the import (confirmations required)", async ({ page }) => {
+  const api = await mockApi(page, { confirmLowConfidence: true });
   await page.goto(process.env.SHOWCASE_URL || "http://127.0.0.1:4173");
   await page.getByRole("button", { name: "Add content" }).first().click();
   const dialog = page.getByRole("dialog", { name: "Add content" });

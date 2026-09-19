@@ -56,8 +56,23 @@ export interface Project {
   project_kind?: "volume" | "serial";
   external_id?: string | null;
   import_meta?: Record<string, unknown>;
+  /** Settings kept with the book: autopilot, fallback providers, review mode, passage size… */
+  config?: ProjectSettingsConfig;
 }
-export type SourceFormat = "epub" | "txt" | "json";
+export interface ProjectSettingsConfig {
+  /** Absent: the installation's AUTOPILOT_ENABLED decides. */
+  autopilot?: boolean | null;
+  /** Tried in this order when the book's provider is down, after the job's own provider. */
+  fallback_provider_ids?: string[] | null;
+  /** Absent: REVIEW_MODE. */
+  review_mode?: "separate" | "fused" | null;
+  /** Absent: PASSAGE_MAX_CHARS; only chapters imported later are cut with it. */
+  passage_max_chars?: number | null;
+  translation_memory?: boolean;
+}
+export type SourceFormat = "epub" | "txt" | "json" | "md" | "html" | "docx";
+/** Formats the import assistant sends to `/api/imports`; every one but EPUB is one chapter per file. */
+export type ImportFormat = "epub" | "txt" | "md" | "html" | "docx";
 export type Quality = "fast" | "normal" | "high" | "maximum";
 export type ContextBackend = "internal" | "openviking" | "hybrid";
 export interface Series {
@@ -207,7 +222,7 @@ export interface FileInspection {
     | null
     | { kind: "batch"; index: number; name: string }
     | { kind: "library"; project_id: string; title: string };
-  format: "epub" | "txt";
+  format: ImportFormat;
   title: string;
   author: string;
   language: string;
@@ -256,14 +271,25 @@ export interface ImportResult {
   jobs: { project_id: string; job_id: string }[];
   warnings: string[];
   views?: Project[];
+  /** Numbers the server decided instead of asking a person, each with its reason. */
+  decisions?: ImportDecision[];
+}
+export interface ImportDecision {
+  index: number;
+  name: string;
+  volume_number?: number | null;
+  chapter_number?: number | null;
+  reason: string;
 }
 export interface ImportSession {
   id: string;
-  format: "epub" | "txt";
+  format: ImportFormat;
   files: FileInspection[];
   expires_at: number;
   result: ImportResult | null;
   proposal?: Proposal;
+  /** True when the server refuses an unconfirmed low-confidence number (IMPORT_CONFIRM_LOW_CONFIDENCE). */
+  confirm_low_confidence?: boolean;
 }
 export interface ProgressStage {
   key: "import" | "analysis" | "translation" | "review" | "export";
@@ -371,6 +397,12 @@ export interface Segment {
   critique: Critique[];
 }
 export interface Job {
+  /** Absent on servers before 0.6. */
+  provider_id?: string | null;
+  options?: Record<string, unknown>;
+  result?: { autopilot?: AutopilotResult } & Record<string, unknown>;
+  created_at?: number;
+  finished_at?: number | null;
   next_attempt: number;
   outage_count: number;
   stop_reason: string;
@@ -431,3 +463,41 @@ type Task = () => Promise<void>;
 export type Run = ((task: Task) => Promise<void>) & {
   background: (task: Task) => Promise<void>;
 };
+export type AutopilotOutcome = "completed" | "completed_with_residuals" | "failed";
+export interface AutopilotResidual {
+  segment_id: string;
+  chapter_id: string;
+  reason: string;
+}
+/** `job.result.autopilot`: how a whole-book autopilot run ended. */
+export interface AutopilotResult {
+  outcome: AutopilotOutcome;
+  rounds: number;
+  residuals: AutopilotResidual[];
+  reason: string | null;
+}
+export interface AutopilotDecision {
+  id: string;
+  project_id: string;
+  job_id: string | null;
+  segment_id: string | null;
+  stage: string;
+  kind: string;
+  action: string;
+  reason: string;
+  provider: string;
+  model: string;
+  created_at: number;
+}
+/** `GET /api/projects/{id}/autopilot`. */
+export interface AutopilotView {
+  enabled: boolean;
+  settings: {
+    max_rounds: number;
+    fallback_provider_ids: string[];
+    outage_max_retries: number;
+    outage_max_wait_seconds: number;
+  };
+  report: (AutopilotResult & { job_id: string; status: string; finished_at: number | null }) | null;
+  decisions: { items: AutopilotDecision[]; total: number; limit: number; offset: number };
+}

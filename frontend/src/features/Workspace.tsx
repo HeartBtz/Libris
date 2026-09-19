@@ -1,7 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { api, date, downloadGet, send } from "../api";
 import { formatPercent, getLocale, registerTranslations, useI18n } from "../i18n";
-import type { Chapter, Job, Project, Run, Segment, User } from "../types";
+import type { AutopilotView, Chapter, Job, Project, Run, Segment, User } from "../types";
 import { useLeaveGuard } from "../unsaved";
 import {
   Badge,
@@ -30,6 +30,7 @@ import { duration, projectProgress } from "./progress";
 import { Bible, Glossary, Observability, ProjectSettings, Quality } from "./panels";
 import { ExportMenu, exportFormats, exportName, exportPath } from "./ExportMenu";
 import type { ExportFormat, ExportOptions } from "./ExportMenu";
+import { AutopilotPanel, AutopilotStatus, autopilotOutcome, fetchAutopilot, phaseLabel } from "./Autopilot";
 
 const CharacterGraph = lazy(() => import("./CharacterGraph"));
 
@@ -75,7 +76,14 @@ registerTranslations({
   Lancer: "Start",
   "Récupérer {count} passage": "Recover {count} passage",
   "Récupérer {count} passages": "Recover {count} passages",
-  "Relire ({count})": "Review ({count})",
+  "Lancer le pilote automatique": "Start the autopilot",
+  "Lancer le pilote automatique ?": "Start the autopilot?",
+  "Libris analyse, traduit, relit et arbitre seul chaque passage jusqu’au résultat, dans les limites de l’installation. Les corrections humaines sont protégées ; aucune validation ne vous sera demandée.":
+    "Libris analyzes, translates, reviews and arbitrates every passage on its own until the result, within the installation's limits. Human corrections are protected; no validation will be asked of you.",
+  "Télécharger l’EPUB": "Download the EPUB",
+  "Télécharger les chapitres": "Download the chapters",
+  "Pilote automatique": "Autopilot",
+  "Journal des relectures": "Review log",
   "Exporter l’EPUB": "Export EPUB",
   "Exporter les chapitres": "Export the chapters",
   "Configurer le livre": "Configure the book",
@@ -105,8 +113,8 @@ registerTranslations({
   Réglages: "Settings",
   Observabilité: "Observability",
   "Chargement du graphe…": "Loading graph…",
-  "{validated} validés · {flagged} à vérifier · {errors} erreurs · mémoire {memory}":
-    "{validated} validated · {flagged} to review · {errors} errors · {memory} memory",
+  "{validated} validés · {flagged} ouverts à une relecture facultative · {errors} erreurs · mémoire {memory}":
+    "{validated} validated · {flagged} open to optional review · {errors} errors · {memory} memory",
   "{count} conservé en original": "{count} retained in the original",
   "{count} conservés en original": "{count} retained in the original",
   "Progression globale": "Overall progress",
@@ -148,18 +156,24 @@ export function Workspace({ id, user, run }: { id: string; user: User; run: Run 
   const [refreshing, setRefreshing] = useState(false);
   const [refreshedAt, setRefreshedAt] = useState("");
   const [streamState, setStreamState] = useState<"connecting" | "connected" | "reconnecting">("connecting");
+  const [autopilot, setAutopilot] = useState<AutopilotView | null>(null);
+  const [focus, setFocus] = useState<{ segment: string; filter: string } | null>(null);
   const loadSequence = useRef(0);
   const load = useCallback(async () => {
     // Loads overlap while a job emits events: only the most recent request may update the screen.
     const sequence = ++loadSequence.current;
     setRefreshing(true);
     try {
-      const [p, c, j] = await Promise.all([
+      const [p, c, j, a] = await Promise.all([
         api<Project>(`/projects/${id}`),
         api<Chapter[]>(`/projects/${id}/chapters`),
         api<Job[]>(`/projects/${id}/jobs`),
+        // The provider decisions name the fallback provider a run switched to; the view also
+        // carries the last report. Absent on servers before 0.6: the 0.5 screens are kept.
+        fetchAutopilot(id, { stage: "provider", limit: 5 }),
       ]);
       if (sequence !== loadSequence.current) return;
+      setAutopilot(a);
       setProject(p);
       setChapters(c);
       setJobs(j);
@@ -228,6 +242,19 @@ export function Workspace({ id, user, run }: { id: string; user: User; run: Run 
   const canTranslate = !!project.provider_id && !!Object.keys(project.bible || {}).length;
   const recoverable = stats.errors + stats.refused;
   const progress = projectProgress(project);
+  // Without the autopilot (opted out, or a server before 0.6) the 0.5 actions are kept.
+  const automatic = !!autopilot?.enabled;
+  const outcome = autopilotOutcome(autopilot, job);
+  const unfinished = !analysisReady || stats.translated + stats.retained_source < stats.total || recoverable > 0;
+  const residuals = new Map((autopilot?.report?.residuals || []).map((item) => [item.segment_id, item.reason]));
+  const openPassage = (segmentId: string) =>
+    void run(async () => {
+      const segment = await api<Segment>(`/segments/${segmentId}`);
+      if (!(await confirmLeave())) return;
+      setChapter(segment.chapter_id);
+      setFocus({ segment: segment.id, filter: segment.retained_source ? "source_retained" : "" });
+      setTab("editor");
+    });
   const openTab = async (next: string) => {
     if (next === tab || !(await confirmLeave())) return;
     setTab(next);
@@ -269,6 +296,25 @@ export function Workspace({ id, user, run }: { id: string; user: User; run: Run 
       refresh();
     });
   }
+  async function launchAutopilot() {
+    const accepted = await confirm({
+      title: t("Lancer le pilote automatique ?"),
+      message: t(
+        "Libris analyse, traduit, relit et arbitre seul chaque passage jusqu’au résultat, dans les limites de l’installation. Les corrections humaines sont protégées ; aucune validation ne vous sera demandée.",
+      ),
+      details: <EstimateNote projectId={id} operation={analysisReady ? "translate" : "analyze"} />,
+      confirmLabel: t("Lancer"),
+    });
+    if (!accepted) return;
+    await run(async () => {
+      // A book not analysed yet runs the whole pipeline; the server adds the autopilot options.
+      await send(
+        `/projects/${id}/jobs`,
+        analysisReady ? { operation: "translate" } : { operation: "analyze", continue_pipeline: true },
+      );
+      refresh();
+    });
+  }
   async function exportFile(format: ExportFormat, options: ExportOptions = {}) {
     if (exportState === "running") return;
     setExportState("running");
@@ -285,10 +331,30 @@ export function Workspace({ id, user, run }: { id: string; user: User; run: Run 
       await send(`/projects/${id}/jobs/${job!.id}/${action}`);
       refresh();
     });
+  const primaryFormat = exportFormats(project)[0];
+  const downloadButton = (variant: "primary" | "secondary", size?: "sm") => (
+    <Button
+      variant={variant}
+      size={size}
+      icon="download"
+      loading={exportState === "running"}
+      onClick={() => void run(() => exportFile(primaryFormat))}
+    >
+      {primaryFormat === "epub" ? t("Télécharger l’EPUB") : t("Télécharger les chapitres")}
+    </Button>
+  );
   const primary = job ? null : !project.provider_id ? (
     <Button variant="primary" icon="settings" onClick={() => void openTab("config")}>
       {t("Configurer le livre")}
     </Button>
+  ) : automatic ? (
+    unfinished && outcome !== "completed" && outcome !== "completed_with_residuals" ? (
+      <Button variant="primary" icon="sparkles" onClick={() => void launchAutopilot()}>
+        {t("Lancer le pilote automatique")}
+      </Button>
+    ) : (
+      downloadButton("primary")
+    )
   ) : !analysisReady ? (
     <Button variant="primary" icon="sparkles" onClick={() => void launch("analyze")}>
       {t("Analyser le livre")}
@@ -301,19 +367,9 @@ export function Workspace({ id, user, run }: { id: string; user: User; run: Run 
     <Button variant="primary" icon="languages" disabled={!canTranslate} onClick={() => void launch("translate")}>
       {t("Traduire")}
     </Button>
-  ) : stats.flagged ? (
-    <Button variant="primary" icon="check" onClick={() => void openTab("validations")}>
-      {t("Relire ({count})", { count: stats.flagged })}
-    </Button>
   ) : (
-    <Button
-      variant="primary"
-      icon="download"
-      loading={exportState === "running"}
-      onClick={() => void run(() => exportFile(exportFormats(project)[0]))}
-    >
-      {exportFormats(project)[0] === "epub" ? t("Exporter l’EPUB") : t("Exporter les chapitres")}
-    </Button>
+    // Passages open to an optional review never hold the result back.
+    downloadButton("primary")
   );
   const moreItems: MenuEntry[] = [
     ...(analysisReady
@@ -324,10 +380,10 @@ export function Workspace({ id, user, run }: { id: string; user: User; run: Run 
     { label: t("Réglages"), icon: "settings", onSelect: () => void openTab("config") },
     { label: t("Observabilité"), icon: "chart", onSelect: () => void openTab("requests") },
   ];
-  const validationCount = stats.flagged + stats.refused;
   const tabs = [
     { id: "editor", label: t("Traduction") },
-    { id: "validations", label: t("Validations"), count: validationCount },
+    ...(autopilot ? [{ id: "autopilot", label: t("Pilote automatique") }] : []),
+    { id: "validations", label: t("Journal des relectures") },
     { id: "completion", label: t("Bilan & récupération") },
     { id: "quality", label: t("Qualité") },
     { id: "bible", label: "Book Bible", groupStart: true },
@@ -338,7 +394,11 @@ export function Workspace({ id, user, run }: { id: string; user: User; run: Run 
   ];
   const checkpoint = job?.checkpoint || {};
   const liveDetail = [
-    checkpoint.step ? t(stageLabels[String(checkpoint.step)] || String(checkpoint.step)) : "",
+    checkpoint.step === "autopilot"
+      ? `${t("Pilote automatique")} · ${t(phaseLabel(checkpoint.autopilot_phase))}`
+      : checkpoint.step
+        ? t(stageLabels[String(checkpoint.step)] || String(checkpoint.step))
+        : "",
     checkpoint.current ? `${String(checkpoint.current)} / ${String(checkpoint.total)}` : "",
     checkpoint.step === "book_bible" && checkpoint.batch_current
       ? t("lot {current}/{total}", { current: String(checkpoint.batch_current), total: String(checkpoint.batch_total) })
@@ -459,7 +519,7 @@ export function Workspace({ id, user, run }: { id: string; user: User; run: Run 
         }
         counters={
         <span className="workspace-counters">
-          {t("{validated} validés · {flagged} à vérifier · {errors} erreurs · mémoire {memory}", {
+          {t("{validated} validés · {flagged} ouverts à une relecture facultative · {errors} erreurs · mémoire {memory}", {
             validated: stats.validated,
             flagged: stats.flagged,
             errors: stats.errors,
@@ -471,6 +531,13 @@ export function Workspace({ id, user, run }: { id: string; user: User; run: Run 
         }
       />
       <div className="workspace-notices">
+        <AutopilotStatus
+          project={project}
+          job={job}
+          view={autopilot}
+          onOpen={() => void openTab("autopilot")}
+          download={downloadButton("secondary", "sm")}
+        />
         {!project.provider_id && (
           <Callout
             tone="warning"
@@ -574,6 +641,8 @@ export function Workspace({ id, user, run }: { id: string; user: User; run: Run 
             run={run}
             refresh={refresh}
             focusRefusal={focusRefusal}
+            focus={focus}
+            residuals={residuals}
           />
         ) : tab === "characters" ? (
           <Suspense fallback={<LoadingBlock label={t("Chargement du graphe…")} />}>
@@ -587,8 +656,27 @@ export function Workspace({ id, user, run }: { id: string; user: User; run: Run 
           <Quality project={project} run={run} tick={tick} />
         ) : tab === "completion" ? (
           <CompletionPanel project={project} run={run} refresh={refresh} tick={tick} />
+        ) : tab === "autopilot" ? (
+          <AutopilotPanel
+            project={project}
+            chapters={chapters}
+            job={job}
+            run={run}
+            tick={tick}
+            download={downloadButton("primary")}
+            onOpenPassage={openPassage}
+            onSettings={() => void openTab("config")}
+          />
         ) : tab === "validations" ? (
-          <ValidationPanel project={project} chapters={chapters} run={run} refresh={refresh} tick={tick} />
+          <ValidationPanel
+            project={project}
+            chapters={chapters}
+            run={run}
+            refresh={refresh}
+            tick={tick}
+            automatic={automatic}
+            onOpenPassage={openPassage}
+          />
         ) : tab === "requests" ? (
           <Observability project={project} run={run} tick={tick} />
         ) : (

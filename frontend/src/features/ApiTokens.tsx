@@ -48,10 +48,22 @@ registerTranslations({
   "Documentation de l’API": "API documentation",
   "Référence complète dans le dépôt : {path} (exemples curl, codes d’erreur, limites, idempotence).":
     "Full reference in the repository: {path} (curl examples, error codes, limits, idempotency).",
-  "Envoyer une requête de traduction (JSON ou fichier .json)": "Send a translation request (JSON or .json file)",
-  "Suivre l’état, l’étape et la progression": "Follow status, stage and progress",
+  "Envoyer un EPUB, des chapitres TXT ou une requête JSON ; le pipeline complet démarre seul":
+    "Send an EPUB, TXT chapters or a JSON request; the whole pipeline starts on its own",
+  "Suivre l’état, l’étape, la progression et le rapport (attente longue avec ?wait=)":
+    "Follow status, stage, progress and report (long poll with ?wait=)",
   "Mettre en pause, reprendre ou annuler": "Pause, resume or cancel",
-  "Récupérer le résultat (json, txt, txt-zip)": "Fetch the result (json, txt, txt-zip)",
+  "Récupérer le résultat (EPUB traduit, json, txt, txt-zip)": "Fetch the result (translated EPUB, json, txt, txt-zip)",
+  "Signer les webhooks avec un secret propre à ce jeton": "Sign webhooks with a secret of this token",
+  "Les requêtes qui nomment un callback_url préviennent votre serveur à leur fin, signées en HMAC-SHA256 (X-Libris-Signature). Le secret est affiché une seule fois, avec le jeton.":
+    "Requests naming a callback_url notify your server when they end, signed with HMAC-SHA256 (X-Libris-Signature). The secret is shown once, with the token.",
+  "Secret de signature des webhooks": "Webhook signing secret",
+  "Copier le secret du jeton": "Copy the token secret",
+  "Copier le secret des webhooks": "Copy the webhook secret",
+  "Webhooks signés": "Signed webhooks",
+  "Ces secrets ne seront plus jamais affichés. Conservez-les dans le gestionnaire de secrets de votre client.":
+    "These secrets will never be shown again. Keep them in your client's secret manager.",
+  "J’ai copié les secrets": "I have copied the secrets",
   "Lister et lire les séries": "List and read series",
   "Exemple": "Example",
 });
@@ -66,6 +78,8 @@ interface ApiToken {
   revoked_at: number | null;
   last_used_at: number | null;
   state: "active" | "expired" | "revoked";
+  /** Whether webhooks of this token's requests are signed with its own secret (0.6). */
+  webhook_secret?: boolean;
 }
 
 const SCOPES: [string, string][] = [
@@ -82,17 +96,23 @@ const STATES: Record<ApiToken["state"], [string, Tone]> = {
   revoked: ["Révoqué", "neutral"],
 };
 const ENDPOINTS: [string, string][] = [
-  ["POST /api/v1/translation-requests", "Envoyer une requête de traduction (JSON ou fichier .json)"],
-  ["GET /api/v1/translation-requests/{id}", "Suivre l’état, l’étape et la progression"],
+  ["POST /api/v1/translation-requests", "Envoyer un EPUB, des chapitres TXT ou une requête JSON ; le pipeline complet démarre seul"],
+  ["GET /api/v1/translation-requests/{id}?wait=60", "Suivre l’état, l’étape, la progression et le rapport (attente longue avec ?wait=)"],
   ["POST /api/v1/translation-requests/{id}/pause|resume|cancel", "Mettre en pause, reprendre ou annuler"],
-  ["GET /api/v1/translation-requests/{id}/result?format=json|txt|txt-zip", "Récupérer le résultat (json, txt, txt-zip)"],
+  [
+    "GET /api/v1/translation-requests/{id}/result?format=epub|json|txt|txt-zip",
+    "Récupérer le résultat (EPUB traduit, json, txt, txt-zip)",
+  ],
   ["GET /api/v1/series, /api/v1/series/{id}", "Lister et lire les séries"],
 ];
 const EXAMPLE = `curl -X POST "$LIBRIS_URL/api/v1/translation-requests" \\
   -H "Authorization: Bearer $LIBRIS_TOKEN" \\
   -H "Idempotency-Key: volume-12-run-1" \\
-  -H "Content-Type: application/json" \\
-  --data @request.json`;
+  -F "file=@volume-12.epub;type=application/epub+zip" \\
+  -F target_language=fr
+
+curl "$LIBRIS_URL/api/v1/translation-requests/$ID/result?wait=60" \\
+  -H "Authorization: Bearer $LIBRIS_TOKEN" -o volume-12.fr.epub`;
 
 export function ApiTokens({ run }: { run: Run }) {
   const { t } = useI18n();
@@ -102,6 +122,8 @@ export function ApiTokens({ run }: { run: Run }) {
   const [scopes, setScopes] = useState<string[]>(["jobs:read", "results:read"]);
   const [days, setDays] = useState("90");
   const [secret, setSecret] = useState("");
+  const [signing, setSigning] = useState("");
+  const [withWebhookSecret, setWithWebhookSecret] = useState(false);
   const [copied, setCopied] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -158,6 +180,7 @@ export function ApiTokens({ run }: { run: Run }) {
                       {token.scopes.map((scope) => (
                         <Badge key={scope}>{scope}</Badge>
                       ))}
+                      {token.webhook_secret && <Badge tone="info">{t("Webhooks signés")}</Badge>}
                     </span>
                     <small className="subtle">
                       {[
@@ -197,27 +220,43 @@ export function ApiTokens({ run }: { run: Run }) {
           role="status"
           title={t("Jeton créé : copiez-le maintenant")}
           actions={
-            <Button onClick={() => setSecret("")} variant="primary">
-              {t("J’ai copié le jeton")}
+            <Button
+              onClick={() => {
+                setSecret("");
+                setSigning("");
+              }}
+              variant="primary"
+            >
+              {signing ? t("J’ai copié les secrets") : t("J’ai copié le jeton")}
             </Button>
           }
         >
-          <p>{t("Ce secret ne sera plus jamais affiché. Conservez-le dans le gestionnaire de secrets de votre client.")}</p>
-          <div className="inline-form">
-            <Field label={t("Secret du jeton")}>
-              <Input readOnly value={secret} spellCheck={false} onFocus={(event) => event.target.select()} />
-            </Field>
-            <Button
-              onClick={() => {
-                navigator.clipboard
-                  .writeText(secret)
-                  .then(() => setCopied(t("Copié")))
-                  .catch(() => setCopied(t("Copie impossible : sélectionnez le texte et copiez-le.")));
-              }}
-            >
-              {t("Copier")}
-            </Button>
-          </div>
+          <p>
+            {signing
+              ? t("Ces secrets ne seront plus jamais affichés. Conservez-les dans le gestionnaire de secrets de votre client.")
+              : t("Ce secret ne sera plus jamais affiché. Conservez-le dans le gestionnaire de secrets de votre client.")}
+          </p>
+          {[
+            [t("Secret du jeton"), secret, t("Copier le secret du jeton")],
+            ...(signing ? [[t("Secret de signature des webhooks"), signing, t("Copier le secret des webhooks")]] : []),
+          ].map(([label, value, copyLabel]) => (
+            <div className="inline-form" key={label}>
+              <Field label={label}>
+                <Input readOnly value={value} spellCheck={false} onFocus={(event) => event.target.select()} />
+              </Field>
+              <Button
+                aria-label={copyLabel}
+                onClick={() => {
+                  navigator.clipboard
+                    .writeText(value)
+                    .then(() => setCopied(t("Copié")))
+                    .catch(() => setCopied(t("Copie impossible : sélectionnez le texte et copiez-le.")));
+                }}
+              >
+                {t("Copier")}
+              </Button>
+            </div>
+          ))}
           {copied && <p className="form-status">{copied}</p>}
         </Callout>
       )}
@@ -233,12 +272,19 @@ export function ApiTokens({ run }: { run: Run }) {
             setError("");
             setBusy(true);
             void run(async () => {
-              const created = await send<ApiToken & { token: string }>("/tokens", {
-                name: name.trim(),
-                scopes,
-                expires_in_days: days ? Number(days) : null,
-              });
+              const created = await send<Omit<ApiToken, "webhook_secret"> & { token: string; webhook_secret?: string | boolean }>(
+                "/tokens",
+                {
+                  name: name.trim(),
+                  scopes,
+                  expires_in_days: days ? Number(days) : null,
+                  // Only sent when asked: servers before 0.6 refuse unknown fields.
+                  ...(withWebhookSecret ? { webhook_secret: true } : {}),
+                },
+              );
               setSecret(created.token);
+              setSigning(typeof created.webhook_secret === "string" ? created.webhook_secret : "");
+              setWithWebhookSecret(false);
               setCopied("");
               setName("");
               setTokens(await api("/tokens"));
@@ -276,6 +322,14 @@ export function ApiTokens({ run }: { run: Run }) {
               />
             ))}
           </fieldset>
+          <Checkbox
+            label={t("Signer les webhooks avec un secret propre à ce jeton")}
+            description={t(
+              "Les requêtes qui nomment un callback_url préviennent votre serveur à leur fin, signées en HMAC-SHA256 (X-Libris-Signature). Le secret est affiché une seule fois, avec le jeton.",
+            )}
+            checked={withWebhookSecret}
+            onChange={(event) => setWithWebhookSecret(event.target.checked)}
+          />
           {error && (
             <p role="alert" className="form-status tone-text-danger">
               {error}

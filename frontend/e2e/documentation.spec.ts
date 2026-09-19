@@ -139,9 +139,9 @@ test("capture API-backed public documentation @integration", async ({ page }) =>
     });
     await page.getByRole("button", { name: /Account menu/ }).click();
     await page.getByRole("menuitemradio", { name: "Dark" }).click();
-    await page.getByRole("tab", { name: /Validations/ }).click();
+    await page.getByRole("tab", { name: /Review log/ }).click();
     await expect(
-      page.getByRole("heading", { name: "Translation validations" }),
+      page.getByRole("heading", { name: "Review log" }),
     ).toBeVisible();
     await page.screenshot({
       path: resolve(output, "validations.png"),

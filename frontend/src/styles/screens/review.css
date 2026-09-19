@@ -246,3 +246,105 @@
     flex: 1 1 100%;
   }
 }
+
+/* Autopilot: live status, report, residual passages and the decision log. */
+.autopilot-status .row {
+  flex-wrap: wrap;
+}
+
+.autopilot-details {
+  font-variant-numeric: tabular-nums;
+}
+
+.autopilot-result {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-top: var(--space-4);
+}
+
+.autopilot-limits {
+  margin: var(--space-3) 0 0;
+  font-size: var(--text-sm);
+}
+
+.decision-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.decision-toolbar .field {
+  min-width: 0;
+}
+
+.decision-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-2);
+  min-width: 0;
+}
+
+.decision-kind {
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+  overflow-wrap: anywhere;
+}
+
+.decision-reason {
+  font-size: var(--text-sm);
+  overflow-wrap: anywhere;
+}
+
+.residual-reason {
+  overflow-wrap: anywhere;
+}
+
+.fallback-providers {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.fallback-list {
+  display: grid;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.fallback-list li {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+
+.fallback-name {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 640px) {
+  .autopilot-result > .btn {
+    flex: 1 1 100%;
+  }
+
+  .decision-toolbar .field {
+    flex: 1 1 100%;
+  }
+}

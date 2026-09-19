@@ -288,6 +288,9 @@ def session_view(db, session: ImportSession, user=None, series_id=None, project_
         "files": session.files,
         "expires_at": session.expires_at,
         "result": session.result,
+        # Whether low-confidence numbers must be confirmed (IMPORT_CONFIRM_LOW_CONFIDENCE): the interface
+        # only asks a person when the server would refuse the guess.
+        "confirm_low_confidence": settings().import_confirm_low_confidence,
     }
     if user is not None:
         view["proposal"] = proposal(db, session, user, series_id, project_id)

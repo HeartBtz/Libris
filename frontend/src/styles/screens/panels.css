@@ -660,3 +660,11 @@
 .endpoint-list code {
   overflow-wrap: anywhere;
 }
+
+/* Global signing secret of the webhooks (Settings › Automation API). */
+.webhook-secret {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}

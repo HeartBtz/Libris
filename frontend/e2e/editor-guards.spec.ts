@@ -127,7 +127,7 @@ test("formatting codes reach the API unchanged and drafts are never lost silentl
   await box.fill("Elle monta les ⟦t0⟧cent douze⟦/t0⟧ marches.⟦x1⟧");
 
   // Leaving the editor with a draft asks first; "Stay" keeps the text.
-  await page.getByRole("tab", { name: /Validations/ }).click();
+  await page.getByRole("tab", { name: /Review log/ }).click();
   const leave = page.getByRole("dialog", { name: "Unsaved changes" });
   await expect(leave).toBeVisible();
   await leave.getByRole("button", { name: "Stay" }).click();
@@ -156,15 +156,15 @@ test("formatting codes reach the API unchanged and drafts are never lost silentl
   expect(beforeUnload).toBe(true);
 
   // "Leave without saving" discards the draft and opens the tab.
-  await page.getByRole("tab", { name: /Validations/ }).click();
+  await page.getByRole("tab", { name: /Review log/ }).click();
   await page.getByRole("dialog", { name: "Unsaved changes" }).getByRole("button", { name: "Leave without saving" }).click();
-  await expect(page.getByRole("heading", { name: "Translation validations" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Review log" })).toBeVisible();
 });
 
 test("review decisions and paid operations ask for confirmation", async ({ page }) => {
   const calls: { method: string; path: string; body: unknown }[] = [];
   await open(page, calls);
-  await page.getByRole("tab", { name: /Validations/ }).click();
+  await page.getByRole("tab", { name: /Review log/ }).click();
 
   // "Accept all" is no longer applied on a single click.
   await page.getByRole("button", { name: "Accept all" }).click();

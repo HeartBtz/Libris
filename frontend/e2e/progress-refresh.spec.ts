@@ -62,13 +62,13 @@ test("library shows active-stage progress and refresh reloads metrics @integrati
   expect(Number(await progress.getAttribute("value"))).toBe(expected.value);
   await page.screenshot({ path: "/tmp/libris/epub-library-progress.png" });
   await page.goto(`${base}/#project/${project.id}`);
-  await page.getByRole("tab", { name: /Validations/ }).click();
+  await page.getByRole("tab", { name: /Journal des relectures/ }).click();
   await expect(
     page.getByRole("button", { name: "Lancer la revue IA", exact: true }),
   ).toBeVisible();
   await expect(
     page.getByRole("heading", {
-      name: "Validations de traduction",
+      name: "Journal des relectures",
       exact: true,
     }),
   ).toBeVisible();

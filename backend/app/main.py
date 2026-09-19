@@ -14,6 +14,7 @@ from sqlalchemy.exc import IntegrityError
 from starlette.exceptions import HTTPException
 
 from app import __version__, throttle
+from app.api import automation as automation_admin
 from app.api import (
     autopilot,
     characters,
@@ -207,7 +208,7 @@ async def unexpected(request: Request, exc: Exception):
 app.include_router(v1.router)
 for module in (
     tokens, identity, providers, recovery, exports, projects, segments, memory, observability, characters, coverage,
-    series, imports, autopilot,
+    series, imports, autopilot, automation_admin,
 ):  # fmt: skip
     app.include_router(module.router)
 app.include_router(estimates.router)

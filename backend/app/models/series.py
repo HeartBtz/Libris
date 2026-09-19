@@ -161,9 +161,12 @@ class ApiToken(Identified, Base):
     expires_at: Mapped[float | None] = mapped_column(Float)
     revoked_at: Mapped[float | None] = mapped_column(Float)
     last_used_at: Mapped[float | None] = mapped_column(Float)
+    # Signs the webhooks of this token's requests (HMAC-SHA256), encrypted with SECRET_KEY; shown once.
+    webhook_secret: Mapped[str | None] = mapped_column(Text)
 
 
 LIVE_REQUEST = "status IN ('queued','running')"
+PENDING_WEBHOOK = "webhook_state = 'pending'"
 
 
 class TranslationRequest(Identified, Base):
@@ -179,6 +182,12 @@ class TranslationRequest(Identified, Base):
             postgresql_where=text(LIVE_REQUEST),
             sqlite_where=text(LIVE_REQUEST),
         ),
+        Index(
+            "ix_translation_requests_webhook",
+            "webhook_next_attempt",
+            postgresql_where=text(PENDING_WEBHOOK),
+            sqlite_where=text(PENDING_WEBHOOK),
+        ),
     )
     owner_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     token_id: Mapped[str | None] = mapped_column(ForeignKey("api_tokens.id", ondelete="SET NULL"))
@@ -188,12 +197,23 @@ class TranslationRequest(Identified, Base):
     series_id: Mapped[str | None] = mapped_column(ForeignKey("series.id", ondelete="SET NULL"), index=True)
     project_id: Mapped[str | None] = mapped_column(ForeignKey("projects.id", ondelete="SET NULL"), index=True)
     job_id: Mapped[str | None] = mapped_column(ForeignKey("jobs.id", ondelete="SET NULL"))
-    # queued (waits for the volume to be free) | running | completed | failed | cancelled | imported
+    # queued (waits for the volume to be free) | running | imported | completed | completed_with_residuals
+    # | failed | cancelled
     status: Mapped[str] = mapped_column(String(30), default="queued")
     options: Mapped[dict] = mapped_column(JSON, default=dict)
     chapter_ids: Mapped[list] = mapped_column(JSON, default=list)
     error: Mapped[str] = mapped_column(Text, default="")
     updated_at: Mapped[float] = mapped_column(Float, default=time.time, onupdate=time.time)
+    finished_at: Mapped[float | None] = mapped_column(Float)
+    # Completion report and stored result (app.engines.delivery), written when the request ends.
+    report: Mapped[dict | None] = mapped_column(JSON)
+    artifact: Mapped[dict | None] = mapped_column(JSON)
+    # Webhook: "" (none) | pending | delivered | failed; sent by the worker, never by the API.
+    callback_url: Mapped[str | None] = mapped_column(String(2000))
+    webhook_state: Mapped[str] = mapped_column(String(20), default="", server_default="")
+    webhook_attempts: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    webhook_next_attempt: Mapped[float] = mapped_column(Float, default=0, server_default="0")
+    webhook_error: Mapped[str] = mapped_column(Text, default="", server_default="")
 
 
 class ImportSession(Identified, Base):

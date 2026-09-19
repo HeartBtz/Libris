@@ -23,7 +23,7 @@ from app.config import settings
 from app.engines.series.audit import audit
 from app.models import ApiToken, User
 from app.schemas import StrictModel
-from app.security import DB, CurrentUser
+from app.security import DB, CurrentUser, encrypt
 
 router = APIRouter(prefix="/api/tokens")
 
@@ -65,6 +65,7 @@ def token_view(token: ApiToken) -> dict:
         "revoked_at": token.revoked_at,
         "last_used_at": token.last_used_at,
         "state": state(token),
+        "webhook_secret": bool(token.webhook_secret),
     }
 
 
@@ -72,6 +73,8 @@ class TokenInput(StrictModel):
     name: str = Field(min_length=1, max_length=100)
     scopes: list[Scope] = Field(min_length=1, max_length=len(SCOPES))
     expires_in_days: int | None = Field(default=None, ge=1, le=3650)
+    # A secret of its own to sign the webhooks of this token's requests, shown once like the token.
+    webhook_secret: bool = False
 
 
 @router.get("")
@@ -91,6 +94,7 @@ def create_token(body: TokenInput, user: CurrentUser, db: DB):
     if live >= MAX_TOKENS:
         raise HTTPException(409, f"Au plus {MAX_TOKENS} jetons non révoqués par compte : révoquez-en un.")
     secret, prefix = new_token()
+    signing = secrets.token_urlsafe(32) if body.webhook_secret else ""
     token = ApiToken(
         owner_id=user.id,
         name=name,
@@ -98,6 +102,7 @@ def create_token(body: TokenInput, user: CurrentUser, db: DB):
         prefix=prefix,
         scopes=[scope for scope in SCOPES if scope in body.scopes],
         expires_at=time.time() + body.expires_in_days * 86400 if body.expires_in_days else None,
+        webhook_secret=encrypt(signing) if signing else None,
     )
     db.add(token)
     db.flush()
@@ -106,8 +111,8 @@ def create_token(body: TokenInput, user: CurrentUser, db: DB):
         token_id=token.id, name=token.name, prefix=prefix, scopes=token.scopes, expires_at=token.expires_at,
     )  # fmt: skip
     db.commit()
-    # The only answer that ever carries the secret.
-    return {**token_view(token), "token": secret}
+    # The only answer that ever carries the secret (and the webhook signing secret).
+    return {**token_view(token), "token": secret, **({"webhook_secret": signing} if signing else {})}
 
 
 @router.delete("/{token_id}")

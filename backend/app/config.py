@@ -28,6 +28,25 @@ class Settings(BaseSettings):
     api_max_payload_mb: int | None = Field(default=None, ge=1, le=4096)
     api_max_chapters: int = Field(default=2000, ge=1, le=100_000)
     api_rate_limit_per_minute: int = Field(default=120, ge=0, le=100_000)
+    # Delivery of automation requests (app.engines.delivery). Longest `?wait=` a client may ask for.
+    api_result_max_wait_seconds: int = Field(default=60, ge=0, le=600)
+    # A request whose job stays paused, blocked or waiting this long fails (with the reason), and so
+    # does one still unfinished after api_request_max_hours: no request stays `running` forever.
+    api_request_stall_minutes: int = Field(default=360, ge=1, le=60 * 24 * 30)
+    api_request_max_hours: int = Field(default=168, ge=1, le=24 * 365)
+    # EPUBCheck failures of a delivered EPUB: rounds of automatic repair before the request fails.
+    delivery_repair_attempts: int = Field(default=3, ge=1, le=10)
+    # Webhooks: hosts a callback_url may name (comma-separated, `*.example.org` allowed; empty:
+    # webhooks refused), private networks allowed anyway (CIDRs), global HMAC secret (a token's own
+    # secret wins), attempts and timeout of each call.
+    api_webhook_hosts: str = ""
+    api_webhook_private_networks: str = ""
+    api_webhook_secret: str = ""
+    api_webhook_max_attempts: int = Field(default=6, ge=1, le=20)
+    api_webhook_timeout_seconds: int = Field(default=10, ge=1, le=60)
+    # Two-phase imports: a volume or chapter number guessed with low confidence is accepted (and the
+    # reason recorded) unless this asks the person to confirm it.
+    import_confirm_low_confidence: bool = False
     max_unpacked_mb: int = 300
     max_entries: int = 5000
     # Whole-archive compression ratio above which an EPUB is refused as a possible zip bomb.
@@ -80,6 +99,7 @@ class Settings(BaseSettings):
     retention_outbox_sent_days: int = Field(default=7, ge=0)
     retention_bible_revisions: int = Field(default=20, ge=0)
     retention_job_state_days: int = Field(default=30, ge=0)
+    retention_results_days: int = Field(default=30, ge=0)
     # Empty: GET /metrics does not exist. Set: Prometheus must send it as a Bearer token.
     metrics_token: str = ""
 
@@ -88,10 +108,12 @@ class Settings(BaseSettings):
         return self.api_max_payload_mb or self.max_upload_mb
 
     def prepare(self) -> None:
-        for name in ("books", "projects", "exports", "sources", "staging"):
+        for name in ("books", "projects", "exports", "sources", "staging", "results"):
             (self.data_dir / name).mkdir(parents=True, exist_ok=True)
         if len(self.secret_key) < 32:
             raise RuntimeError("SECRET_KEY doit contenir au moins 32 caractères (voir .env.example).")
+        if self.api_webhook_secret and len(self.api_webhook_secret) < 32:
+            raise RuntimeError("API_WEBHOOK_SECRET doit contenir au moins 32 caractères, ou rester vide.")
         if self.metrics_token and len(self.metrics_token) < 24:
             raise RuntimeError("METRICS_TOKEN doit contenir au moins 24 caractères, ou rester vide.")
 

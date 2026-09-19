@@ -86,7 +86,10 @@ if args[:2] == ["image", "ls"]:
             lines.append(f"{name} <none> {reference.split('@')[1]} {img['id']}")
         else:
             lines.append(f"{reference} {img['id']}")
-    done("\n".join(lines))
+    # A listing writes nothing: the script reads it through a process substitution, so it can still be
+    # running while the loop removes images, and saving here would overwrite those removals.
+    print("\n".join(lines))
+    sys.exit(0)
 if args[0] == "ps":
     done("\n".join(state["containers"]))
 if args[0] == "inspect":

@@ -290,6 +290,30 @@ MESSAGES = {
     "Archive de projet invalide : des chapitres en feuilleton appartiennent à une série.": "Invalid project archive: serialized chapters belong to a series.",
     "Structure du projet incompatible avec ses fichiers sources.": "Project structure incompatible with its source files.",
     "Le texte source du projet ne correspond pas à ses fichiers sources.": "The project's source text does not match its source files.",
+    # Delivery of automation requests (files, results, webhooks)
+    "Envoyez application/json, application/epub+zip, ou des fichiers (.json, .epub ou .txt) en multipart/form-data.": "Send application/json, application/epub+zip, or files (.json, .epub or .txt) as multipart/form-data.",
+    "Cette requête n’a pas abouti : aucun résultat complet. Demandez un résultat partiel (partial=true) pour obtenir ce qui a été traduit.": "This request did not succeed: no complete result. Ask for a partial result (partial=true) to get what was translated.",
+    "Le format EPUB n’est disponible que pour un EPUB envoyé.": "The EPUB format is only available for an uploaded EPUB.",
+    "Indiquez la série par son nom ou par son identifiant, pas les deux.": "Give the series by its name or by its identifier, not both.",
+    "Envoyez les fichiers dans le champ « file » (ou « files »).": "Send the files in the “file” (or “files”) field.",
+    "Envoyez un fichier JSON, un EPUB, ou des chapitres .txt (un seul type par requête).": "Send a JSON file, an EPUB, or .txt chapters (a single kind per request).",
+    "Envoyez un seul fichier JSON ou EPUB par requête.": "Send a single JSON or EPUB file per request.",
+    "Indiquez le numéro du volume (champ « volume »).": "Give the volume number (“volume” field).",
+    "Indiquez la langue source et la langue cible.": "Give the source language and the target language.",
+    "L’adresse de rappel ne peut pas être résolue.": "The callback address cannot be resolved.",
+    "Les webhooks ne sont pas activés sur ce serveur (API_WEBHOOK_HOSTS).": "Webhooks are not enabled on this server (API_WEBHOOK_HOSTS).",
+    "Adresse de rappel invalide.": "Invalid callback address.",
+    "Adresse de rappel invalide : une URL HTTP(S) sans identifiants est requise.": "Invalid callback address: an HTTP(S) URL without credentials is required.",
+    "Adresse de rappel trop longue.": "Callback address too long.",
+    "Aucun secret de signature : créez le jeton avec un secret de webhook, ou définissez API_WEBHOOK_SECRET.": "No signing secret: create the token with a webhook secret, or set API_WEBHOOK_SECRET.",
+    "Aucun secret de signature disponible.": "No signing secret available.",
+    "Le travail de cette requête a échoué.": "The job of this request failed.",
+    "L’autopilote a échoué.": "The autopilot failed.",
+    "Travail annulé.": "Job cancelled.",
+    "Requête annulée.": "Request cancelled.",
+    "Impossible de reconstruire l’EPUB traduit.": "The translated EPUB cannot be rebuilt.",
+    "EPUBCheck refuse l’EPUB traduit, même après réparation automatique.": "EPUBCheck rejects the translated EPUB, even after automatic repair.",
+    "Le fichier EPUB d’origine de ce volume est introuvable sur le serveur.": "The original EPUB file of this volume cannot be found on the server.",
 }  # fmt: skip
 
 TEMPLATES = {
@@ -358,6 +382,12 @@ TEMPLATES = {
     "La série « {name} » a déjà ses chapitres en feuilleton : cette archive ne peut pas y être restaurée.": "The series “{name}” already has its serialized chapters: this archive cannot be restored into it.",
     "La série « {name} » contient déjà le volume d’identifiant « {id} ».": "The series “{name}” already contains the volume with identifier “{id}”.",
     "Le texte source du chapitre « {title} » est illisible : {error}": "The source text of chapter “{title}” cannot be read: {error}",
+    "Le volume {number} de cette série existe déjà avec un autre contenu.": "Volume {number} of this series already exists with another content.",
+    "Cet EPUB ne peut pas être lu : {error}": "This EPUB cannot be read: {error}",
+    "Travail resté « {state} » plus de {minutes} min sans reprendre : {detail}": "Job left “{state}” for more than {minutes} min without resuming: {detail}",
+    "Requête toujours inachevée après {hours} h : délai maximal dépassé.": "Request still unfinished after {hours} h: maximum delay exceeded.",
+    "L’hôte « {host} » n’est pas dans la liste des webhooks autorisés.": "The host “{host}” is not in the list of allowed webhooks.",
+    "L’hôte « {host} » désigne une adresse privée ou réservée : webhook refusé.": "The host “{host}” points to a private or reserved address: webhook refused.",
 }  # fmt: skip
 
 

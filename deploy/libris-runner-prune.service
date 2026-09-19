@@ -1,6 +1,6 @@
 [Unit]
 Description=Libris CI: remove volumes and networks left by jobs on the shell runner
-Documentation=https://git.hbtz.fr/dev/libris/-/blob/main/docs/ci-cd.md
+Documentation=https://github.com/HeartBtz/Libris/blob/main/docs/development.md#ci-runner-hygiene
 Wants=docker.service
 After=docker.service
 

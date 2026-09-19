@@ -1,6 +1,6 @@
 [Unit]
 Description=Libris backup: PostgreSQL dump and books volume, verified, with rotation
-Documentation=https://git.hbtz.fr/dev/libris/-/blob/main/docs/backup.md
+Documentation=https://github.com/HeartBtz/Libris/blob/main/docs/backup.md
 Wants=docker.service network-online.target
 After=docker.service network-online.target
 

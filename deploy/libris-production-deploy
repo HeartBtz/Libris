@@ -192,7 +192,7 @@ target_revision="$(docker run --rm --entrypoint sh "$app_image" -lc "alembic hea
 [[ -n "$current_revision" && -n "$target_revision" ]] || { echo "Could not resolve database revisions" >&2; exit 65; }
 if [[ "$mode" == rollback && "$current_revision" != "$target_revision" ]]; then
 	echo "The database schema ($current_revision) is not the one $version expects ($target_revision): the images alone cannot be rolled back." >&2
-	echo "Nothing was changed. Restore the pre-deployment dump instead (docs/release.md, Rollback)." >&2
+	echo "Nothing was changed. Restore the pre-deployment dump instead (docs/development.md, Rollback)." >&2
 	exit 65
 fi
 check_health() {

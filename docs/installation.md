@@ -22,6 +22,8 @@ Run `python3 scripts/setup.py` in the repository root. It generates independent 
 | `MAX_UPLOAD_MB`, `MAX_UNPACKED_MB`, `MAX_ENTRIES` | Largest EPUB or project archive accepted (`60`), its unpacked size (`300`) and file count (`5000`). A project archive that would exceed them is refused at export, with the setting to raise |
 | `IMPORT_MAX_FILES`, `IMPORT_MAX_SESSION_MB`, `IMPORT_SESSION_HOURS` | Guided import: files per import (`500`), total size of one import (`2048`), and how long uploaded files wait for confirmation under `DATA_DIR/staging` (`24`) |
 | `TEXT_CHAPTER_MAX_CHARS` | Longest TXT or JSON chapter accepted, in characters after decoding; `2000000` |
+| `PASSAGE_MAX_CHARS` | Longest passage (the text of one model call) for what is imported from now on; `3500` (500–20000). A volume can choose its own; existing books keep their cut — see the operations guide, "Coût par passage" |
+| `REVIEW_MODE` | `separate` (default): at high and maximum quality a review call, then a revision call when it finds something; `fused`: one call does both. A volume can choose its own |
 | `API_MAX_PAYLOAD_MB`, `API_MAX_CHAPTERS`, `API_RATE_LIMIT_PER_MINUTE` | Automation API (`/api/v1`, see [the API reference](api.md)): largest JSON request accepted with a Bearer token (defaults to `MAX_UPLOAD_MB`), chapters per request (`2000`) and calls per token and per minute in each API process (`120`, `0` disables the limit) |
 | `MAX_COMPRESSION_RATIO`                    | Whole-archive compression ratio above which an EPUB of more than 8 MiB unpacked is refused as a possible zip bomb; `100` |
 | `EVENT_STREAMS_PER_USER`, `EVENT_STREAMS_TOTAL` | Live progress connections held open at once per account (`4`) and per API process (`100`); beyond them the API answers 429 |
@@ -32,7 +34,7 @@ Run `python3 scripts/setup.py` in the repository root. It generates independent 
 | `WORKER_BOOK_PARALLELISM`                  | Passages of one book translated or reviewed at once; `0` (default) follows the provider's `max_concurrency`, shared between the books using it, `1` processes one passage at a time (0–16) |
 | `MEMORY_CATALOG_INTERVAL_SECONDS`          | Interval of the external-memory catalogue refresh; `60` (10–86400)       |
 | `PROVIDER_RECOVERY_BASE_SECONDS`, `PROVIDER_RECOVERY_MAX_SECONDS` | First and longest wait before retrying an unavailable provider; `60` and `3600` |
-| `RETENTION_REQUEST_BODIES_DAYS`, `RETENTION_EVENTS_DAYS`, `RETENTION_OUTBOX_SENT_DAYS`, `RETENTION_BIBLE_REVISIONS`, `RETENTION_JOB_STATE_DAYS` | Automatic clean-up of diagnostic data (`30`, `7`, `7`, `20`, `30`; `0` disables a rule) — see the operations guide |
+| `RETENTION_REQUEST_BODIES_DAYS`, `RETENTION_EVENTS_DAYS`, `RETENTION_OUTBOX_SENT_DAYS`, `RETENTION_BIBLE_REVISIONS`, `RETENTION_JOB_STATE_DAYS`, `RETENTION_REQUEST_ROWS_DAYS` | Automatic clean-up of diagnostic data (`30`, `7`, `7`, `20`, `30`, `0`; `0` disables a rule) — see the operations guide |
 | `METRICS_TOKEN`                            | Empty by default: `GET /metrics` answers 404. Set a random value of at least 24 characters (`openssl rand -hex 32`) to let Prometheus scrape it with `Authorization: Bearer <token>` — see the operations guide |
 
 Changing bootstrap credentials does not reset an existing account. Changing the database password in `.env` does not change an initialized PostgreSQL role's password.

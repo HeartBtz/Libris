@@ -16,7 +16,7 @@
 
 ## Modèle SQL
 
-Entités normalisées (détail : [modèle de données](data-model.md)) : users, login_sessions, memberships, series, projects (volumes, flux continus de webnovel), source_assets, import_sessions, chapters, segments, translation_versions, entities, glossary, memories, bible_revisions, memory_outbox, prompts, jobs, job_segment_state, events, llm_requests, quality_issues, app_settings, series_entities, series_entity_links, series_relations, series_glossary, audit_entries, api_tokens, translation_requests.
+Entités normalisées (détail : [modèle de données](data-model.md)) : users, login_sessions, memberships, series, projects (volumes, flux continus de webnovel), source_assets, import_sessions, chapters, segments, translation_versions, entities, glossary, memories, bible_revisions, memory_outbox, prompts, jobs, job_segment_state, events, llm_requests, usage_daily, quality_issues, app_settings, series_entities, series_entity_links, series_relations, series_glossary, audit_entries, api_tokens, translation_requests.
 
 Les documents XHTML/NCX sont des sections de travail ; les subdivisions sémantiques sont conservées dans les unités et `Segment.section`. Le `spine` original est stocké explicitement et ne dépend jamais d’un ordre de noms de fichiers. Les ancres sont déterministes : ressource + XPath + type de champ. Les paragraphes longs peuvent être fragmentés à des frontières linguistiques, puis réassemblés avant réinjection.
 
@@ -29,6 +29,18 @@ Unités : un bloc feuille (`p`, `li`, `td`…) forme une unité ; dans un parent
 La découpe est versionnée (`book_info.segmentation`, 2 depuis la v0.5). Les livres importés avant gardent leurs unités ; une archive de projet sans ce champ est réimportée avec la découpe 1 (`extract_units_v1`), faute de quoi ses passages ne correspondraient plus.
 
 `Segment.source_key` (SHA-256 des unités normalisées NFKC, espaces réduits, marqueurs compris) indexe la mémoire de traduction.
+
+Taille des passages (0.6) : un passage (groupe d’unités) est l’unité de chaque appel au modèle. Sa longueur maximale se choisit à l’import — `PASSAGE_MAX_CHARS` (3 500 par défaut, la valeur de toutes les versions précédentes), `config.passage_max_chars` d’un volume pour ses chapitres ajoutés ensuite, ou `settings.passage_max_chars` d’un import — et elle est enregistrée avec la source (`book_info.passage_max_chars` d’un EPUB, `import_meta.passage_max_chars` d’un chapitre texte) : une archive de projet est redécoupée avec la taille de son import, jamais avec le réglage courant (une archive antérieure reprend 3 500). Changer le réglage ne redécoupe aucun livre existant.
+
+### Colonnes `JSON` plutôt que `JSONB` (étude I-13, 0.6)
+
+Les colonnes de documents (`projects.bible`, `jobs.checkpoint`, `llm_requests.messages`, `segments.units`…) sont du type SQLAlchemy `JSON`, soit `json` sous PostgreSQL. Décision : ne pas les convertir en `jsonb` pour l’instant.
+
+- Aucune requête de l’application ne filtre ni n’indexe l’intérieur d’un document : tout est lu par ligne puis exploité en Python. Les atouts de `jsonb` (opérateurs `?`, `@>`, index GIN) ne serviraient à rien aujourd’hui. L’erreur `operator does not exist: json ? unknown` rencontrée en production venait d’une requête d’audit écrite à la main : dans ce cas, écrire `colonne::jsonb ? 'clé'`.
+- `jsonb` réordonne les clés des objets. Des objets relus de la base (Book Bible, résumés de chapitre, états narratifs) sont resérialisés dans les prompts : l’ordre changerait les octets du prompt, donc l’empreinte du cache de réponses et le préfixe réutilisable par les fournisseurs, et toutes les requêtes des livres en cours seraient repayées une fois.
+- La conversion (`ALTER TABLE … TYPE jsonb USING …::jsonb`) réécrit chaque table sous verrou exclusif, `llm_requests` comprise (plusieurs Go avant compaction) : une interruption de service longue pour un gain nul.
+
+À reconsidérer colonne par colonne le jour où une fonctionnalité doit interroger l’intérieur d’un document (par exemple filtrer les travaux par option) : type `JSON().with_variant(JSONB(), "postgresql")` sur cette seule colonne, migration dédiée et index GIN, SQLite inchangé.
 
 ## Transactions importantes
 
@@ -57,6 +69,10 @@ Ce qu’un job a réglé passage par passage vit dans `job_segment_state` (clé 
 | `bible`, `consistency` | lots de synthèse de la Book Bible et échantillons de cohérence déjà traités (`segment_id` vide) |
 
 La progression (`project.progress`, `stats`) lit ces lignes. Une fois un job fini depuis `RETENTION_JOB_STATE_DAYS`, seules ses lignes `reviewed` sont gardées (voir le guide d’exploitation). L’archive de projet emporte ces lignes avec les jobs, et une archive exportée avant la 0.5 est convertie à la restauration. La migration `b856c2e068f8` a converti les anciens checkpoints (listes `finished_ids`, `final_review_*`, `repair`…) : un job en pause au moment de la mise à jour reprend sans retraduire ; le retour arrière reconstruit les listes.
+
+### Baux sur l’horloge de la base (R-13, 0.6)
+
+Le bail d’un job (`jobs.lease_until`, 60 s) est écrit et comparé avec l’horloge du serveur de base de données, lue dans la même requête (`app/jobs/clock.py` : `clock_timestamp()` sous PostgreSQL, l’horloge de l’hôte sous SQLite) : `claim`, `checkpoint` et `fence` ne dépendent plus de `time.time()` de chaque processus. Un worker dont l’horloge saute (pas NTP, reprise de VM) ou dérive ne vole plus un job vivant et ne se croit plus évincé du sien. Les durées mesurées dans un processus (délai de grâce du heartbeat, délais d’appel) restent sur `time.monotonic()`.
 
 ### Boucle du worker
 
@@ -89,6 +105,10 @@ Mémoire de traduction (`memory.py`) : avant l’appel du modèle pour une premi
 
 Prompts : le contenu des sections échappe `<` et `>` (échappements JSON), si bien qu’un texte du livre ne peut pas fermer une section. `load_prompt` ajoute à chaque prompt, surcharges en base comprises, une clause « données non fiables » et, pour les opérations qui écrivent ou relisent, une règle de registre (tu/vous…) et la typographie de la langue cible ; les langues sont nommées (« French (fr) »). Version : `file-v3` (connaissances de série depuis 0.6) ou `db-vN`, suffixée de `+rules-v1`. Le schéma JSON voyage une seule fois : dans `response_format` en mode structuré, sinon dans un message système.
 
+Ordre des sections (0.6, `context/prefix.py`) : les fournisseurs à cache de préfixe (OpenAI et serveurs compatibles automatiquement à partir de 1 024 tokens, par blocs de 128 ; vLLM, llama.cpp, DeepSeek) ne refacturent ou ne recalculent que ce qui suit le premier octet différent d’une requête antérieure. Le message utilisateur est donc écrit du plus stable au plus variable : contexte du livre (`EDITORIAL_BOOK_CONTEXT`, registre des personnages), puis ce qui vaut pour le chapitre ou le job (`USER_RULES`, contexte du chapitre), puis ce que sélectionnent les noms cités (glossaires, identités, fiches, relations, conventions de série), puis la mémoire retrouvée et l’état du chapitre, les voisins, le matériau de l’opération (`CURRENT_TRANSLATION`, `REVIEW`…) et enfin `TARGET_TEXT`, toujours en dernier. Les sections et leur contenu sont inchangés ; seul leur ordre l’est (le prompt nomme chaque section). Mesure sur le fournisseur fictif (`scripts/measure_prompt_cost.py`) : aucun préfixe réutilisable avant (le voisinage suivait directement le prompt système), environ 2 400 tokens par appel ensuite, soit −24 % d’entrée non mise en cache par passage à qualité haute. Les réponses mises en cache par Libris lui-même (empreinte exacte de la requête) ne sont concernées qu’une fois : l’ordre change les octets du prompt, donc les requêtes des livres en cours sont refaites à la première reprise après la mise à jour.
+
+Relecture et révision (0.6, `translation/fused_review.py`) : une révision ne suit une relecture que si celle-ci signale un problème (déjà le cas avant). Avec `REVIEW_MODE=fused` (ou `config.review_mode` d’un volume), à qualité haute ou maximale, un seul appel `review_revision` rend les problèmes et, s’il y en a, les unités corrigées : un contexte complet au lieu de deux pour un passage signalé. Seulement pour la première relecture d’une traduction automatique (jamais sur un texte humain ni dans un job de relecture seule) ; une fenêtre trop petite ou des réponses invalides répétées reviennent aux deux appels séparés, avec la raison journalisée. Le passage finit `check` avec sa critique, comme après une révision séparée.
+
 Le voisinage est servi en premier afin qu’un passage ne devienne pas isolé, mais il ne reçoit au plus que 60 % du budget de contexte optionnel (dont deux tiers pour ce qui précède) dès que d’autres éléments — fiches de personnages, glossaire, état du chapitre, mémoire — sont candidats ; un voisin trop long est réduit à un extrait (fin du passage précédent, début du suivant) plutôt que retiré. Les instructions et le glossaire obligatoire ne sont jamais retirés pour masquer un dépassement de budget. Les éléments supprimés et la raison de leur exclusion sont enregistrés.
 
 Pour OpenViking (voir [le guide](openviking.md)) : un volume d’une série vit dans `<racine>/<propriétaire>/series/<série>/volumes/<volume>`, un volume unique dans `<racine>/<propriétaire>/standalone/<volume>`. `target_uri` borne la recherche (répertoire de la série) ; une seconde barrière compare les URI retournées à la liste exacte des événements admis par SQL, calculée depuis la table `memories` : passages antérieurs du volume et volumes antérieurs de la série. Les résultats inattendus, les synthèses globales de répertoire, les catalogues, les chapitres et volumes futurs ne sont pas injectés. Le contenu L2 est comparé à l’événement canonique, recalculé depuis SQL. La mémoire interne lit les volumes antérieurs de la même façon.
@@ -97,7 +117,7 @@ L’état narratif n’est pas assimilé à la connaissance éditoriale du roman
 
 ## Exports et archives multiformat
 
-Un volume vient d’un EPUB, de fichiers TXT (un par chapitre) ou d’un payload JSON ; ses fichiers sources sont des lignes `SourceAsset` (`storage_path` relatif à `DATA_DIR` : `books/<projet>.epub`, `sources/<projet>/<asset>.<ext>`). `Project.original_path`/`original_hash` ne restent renseignés que pour les EPUB, et l’EPUB d’origine est lu par sa ligne `SourceAsset` puis, pour les livres antérieurs à 0.6, par ces anciens champs et `DATA_DIR/books/<id>.epub`.
+Un volume vient d’un EPUB, de fichiers TXT, Markdown, HTML ou DOCX (un par chapitre) ou d’un payload JSON ; ses fichiers sources sont des lignes `SourceAsset` (`storage_path` relatif à `DATA_DIR` : `books/<projet>.epub`, `sources/<projet>/<asset>.<ext>`). `Project.original_path`/`original_hash` ne restent renseignés que pour les EPUB, et l’EPUB d’origine est lu par sa ligne `SourceAsset` puis, pour les livres antérieurs à 0.6, par ces anciens champs et `DATA_DIR/books/<id>.epub`.
 
 `GET /api/projects/{pid}/export/{format}` :
 
@@ -110,6 +130,8 @@ Un volume vient d’un EPUB, de fichiers TXT (un par chapitre) ou d’un payload
 | `bible`, `project` | toutes | Book Bible JSON ; archive de projet (ci-dessous) |
 
 `allow_source=true` exporte une traduction inachevée (originaux conservés) en EPUB comme en texte ; sans lui, un export texte incomplet répond 409. `POST /api/exports/text {project_ids, allow_source, consolidated}` exporte plusieurs volumes (une série) : un dossier `NN - Titre/` par volume avec ses chapitres et son manifeste. Le rendu texte (`engines/exports/text.py`) suit `Chapter.import_meta["layout"]` pour TXT/JSON (lignes, lignes vides, indentation, séparateurs de scène) et donne un paragraphe par unité pour un EPUB, sans `<title>` ni attributs ; le titre d’un chapitre EPUB est la traduction de l’unité d’où il a été lu. Aucun marqueur `⟦…⟧` n’est écrit. L’aperçu d’un chapitre TXT/JSON est un HTML simple construit depuis le layout, texte échappé, même CSP que l’aperçu EPUB, sans lire d’EPUB.
+
+Markdown, HTML et DOCX (0.6, `engines/ingestion/{markdown,html,docx,document}.py`) : un fichier est un chapitre, lu en blocs (titres, paragraphes, éléments de liste, citations ; code, tableaux Markdown, `<pre>`, règles horizontales et séparateurs gardés tels quels, non traduits), puis transformé exactement comme un chapitre TXT (unités, passages, layout). Le balisage de bloc à restituer dans les exports texte (`## `, `- `, `> `) voyage dans l’`indent` du layout, jamais dans le texte traduit ; la mise en forme en ligne d’un fichier Markdown (`*italique*`, liens) reste dans le texte, celle du HTML et du DOCX est aplatie. HTML : analyseur lxml sans réseau, commentaires, scripts, styles, `<nav>` et formulaires ignorés, déclarations d’entités refusées. DOCX : ZIP et XML lus avec les contrôles de l’import EPUB (`unpack_archive` : tailles, ratios, chemins, entrées dupliquées ; `xml` : pas d’entités), titres d’après le style de paragraphe (`Title`, `heading N` ou niveau hiérarchique), paragraphes des tableaux et zones de texte compris, révisions supprimées et copies de repli (`mc:Fallback`) ignorées ; métadonnées de `docProps/core.xml`. Aucune dépendance ajoutée. L’API d’automatisation (`/api/v1`) accepte toujours du texte brut : les formats structurés passent par `/api/imports`.
 
 ### Archive de projet, version 3
 
@@ -133,6 +155,8 @@ Restauration (`POST /api/projects/import`) : seuls `project.json`, `original.epu
 - Bibliothèques privées et contrôle d’accès par projet, y compris pour les logs, SSE, versions et exports.
 - Cookies HttpOnly/SameSite, contrôle d’origine, limitation des tentatives de connexion.
 - Paramètres Docker persistants, migrations séparées, processus non-root.
+- Conteneurs (0.6) : `no-new-privileges` et `cap_drop: [ALL]` partout (la base garde les cinq capacités dont son point d’entrée a besoin pour posséder ses données puis passer à l’utilisateur `postgres`), systèmes de fichiers racine en lecture seule, `/tmp` en mémoire et fichiers temporaires volumineux sur le volume de données (`TMPDIR=/data/tmp`).
+- Dépendances Python installées avec `--require-hashes` depuis des verrous hachés (`backend/requirements.lock`, `codex_bridge/requirements.lock`, `scripts/hash_lock.py`) : un fichier publié modifié ou substitué est refusé à la construction de l’image.
 
 ## Évolutions prévues
 

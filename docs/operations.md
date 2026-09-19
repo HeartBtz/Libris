@@ -117,6 +117,30 @@ Les jobs terminés avant la 0.5 comptent à partir de leur création. `0` désac
 
 PostgreSQL réutilise l'espace libéré mais ne le rend au système qu'après `VACUUM (FULL, ANALYZE) llm_requests;`, qui verrouille la table : arrêtez le worker avant, et prévoyez autant d'espace disque libre que la taille utile de la table.
 
+### Agrégats d'usage (`usage_daily`, 0.6)
+
+Les statistiques (`/api/projects/{id}/metrics`, `/api/statistics/models`, `/metrics`, coût dépensé de la progression d'un livre) ne parcourent plus toutes les requêtes. La même passe horaire du worker, en premier, replie les requêtes de plus de deux heures (leur issue, leurs tokens et leur durée sont alors définitifs) dans `usage_daily` : une ligne par jour (UTC), livre, fournisseur, opération, modèle, issue et indicateur de cache, avec le coût au prix enregistré avec chaque requête. Un filigrane (`app_settings["usage_rollup"]`) indique jusqu'où ; les statistiques additionnent les agrégats et les quelques heures de requêtes créées depuis (index `ix_llm_requests_created_at`). Les chiffres sont les mêmes qu'avant, à ceci près que le coût dépensé affiché dans la progression d'un livre utilise désormais, comme `/metrics`, le prix enregistré avec chaque requête plutôt que le prix actuel du fournisseur (les livres restaurés d'une archive gardent donc leur coût passé).
+
+| Variable | Défaut | Effet |
+|---|---|---|
+| `RETENTION_REQUEST_ROWS_DAYS` | `0` (désactivé) | supprime les lignes entières des requêtes plus anciennes, une fois comptées dans `usage_daily`. Les statistiques restent justes ; le cache de réponses et l'inspecteur de requêtes perdent ces lignes. `180` est une valeur raisonnable. |
+
+Premier passage après la mise à jour : tout l'historique est replié, un jour par transaction (quelques secondes pour des dizaines de milliers de requêtes). Pour le faire à la main ou mesurer : `docker compose exec api python -m app.maintenance.usage [--dry-run]`. Une archive de projet restaurée ajoute directement ses requêtes datées aux agrégats. Supprimer un livre supprime ses agrégats.
+
+## Coût par passage
+
+Chaque appel au modèle (traduction, relecture, révision, polissage, revue finale) porte le même contexte fixe — consignes, glossaire, Book Bible, fiches, voisins — quelle que soit la longueur du passage. Trois réglages le réduisent :
+
+- **Taille des passages** : `PASSAGE_MAX_CHARS` (défaut 3 500 caractères, de 500 à 20 000) pour ce qui est importé ensuite ; un volume peut fixer la sienne (`passage_max_chars` dans `PUT /api/projects/{id}`, appliquée aux chapitres ajoutés ensuite) et un import la sienne (`settings.passage_max_chars` de la confirmation). Des passages plus longs partagent le contexte fixe entre plus de texte ; au-delà de 8 000 à 10 000 caractères, la réponse attendue approche la sortie maximale de bien des fournisseurs (`max_output_tokens`) et une réponse tronquée coûte plus qu'elle n'économise. Les livres déjà importés gardent leur découpe.
+- **Relecture fusionnée** : `REVIEW_MODE=fused` (ou `review_mode` d'un volume) fait relire et corriger un passage en un appel à qualité haute ou maximale (voir l'architecture). Défaut `separate` : le comportement antérieur.
+- **Préfixe stable** : automatique ; les sections du prompt vont du plus stable au plus variable pour que les fournisseurs à cache de préfixe servent la partie commune.
+
+Mesure sur un livre synthétique et un fournisseur fictif (aucun appel réel) : `python scripts/measure_prompt_cost.py [--quality high] [--passage-chars 3500] [--review-mode fused] [--review-issues 0.5] [--json]` rapporte appels et tokens par passage, la part réutilisable par un cache de préfixe et, pour chaque opération, la section où les requêtes successives commencent à différer. Les chiffres comparent des réglages du même code ; ils ne prédisent pas la facture d'un vrai livre.
+
+## Comparer des fournisseurs
+
+`docker compose exec api python -m app.maintenance.compare_providers --project <id> --providers <id>,<id> [--sample 5] [--output rapport.json]` fait traduire le même échantillon de passages du livre (répartis sur ses chapitres narratifs) par chaque fournisseur, avec le prompt et le contexte que le pipeline construirait pour lui, sans cache. Rien n'est écrit dans le livre. Le tableau affiché donne par fournisseur les passages traduits et en échec, les secondes par passage, les tokens, le coût au prix enregistré et les constats des contrôles automatiques (glossaire verrouillé, marqueurs, texte non traduit…) ; le JSON ajoute les raisons des échecs, le rapport de longueur et les traductions côte à côte. Les appels sont réels et facturés ; ils sont enregistrés sous l'opération `provider_comparison` (visibles dans les statistiques, hors des étapes de traduction du livre).
+
 ## Supervision (Prometheus)
 
 `GET /metrics` expose l'état de l'instance au format texte Prometheus 0.0.4. L'adresse est désactivée par défaut (réponse 404) ; elle s'active en définissant `METRICS_TOKEN` (24 caractères au moins, par exemple `openssl rand -hex 32`) dans `.env`, puis `docker compose up -d`. Chaque collecte doit présenter ce jeton en `Authorization: Bearer …` ; une session de navigateur ne suffit pas (401). Le jeton est comparé en temps constant.
@@ -134,7 +158,7 @@ PostgreSQL réutilise l'espace libéré mais ne le rend au système qu'après `V
 | `libris_segments{status}` | gauge | passages de tous les livres par état |
 | `libris_memory_outbox_pending` | gauge | mises à jour OpenViking pas encore transmises |
 
-Les compteurs sont lus dans la base, où chaque appel laisse une ligne : ils sont cumulés depuis l'installation, identiques pour tous les processus et insensibles aux redémarrages. La rétention ne supprime pas ces lignes (elle vide seulement les corps) ; supprimer un livre supprime ses requêtes, ce que Prometheus traite comme une remise à zéro du compteur. Utilisez `rate()`/`increase()` pour une fenêtre (« tokens par heure »). Aucune étiquette ne contient de titre, de texte, d'identifiant de livre ni d'URL. Le résultat est gardé 10 secondes : un intervalle de collecte de 30 s à 1 min suffit.
+Les compteurs sont lus dans la base (agrégats journaliers `usage_daily` et requêtes récentes, voir ci-dessus) : ils sont cumulés depuis l'installation, identiques pour tous les processus et insensibles aux redémarrages, y compris quand `RETENTION_REQUEST_ROWS_DAYS` supprime les anciennes requêtes ; supprimer un livre supprime ses requêtes, ce que Prometheus traite comme une remise à zéro du compteur. Utilisez `rate()`/`increase()` pour une fenêtre (« tokens par heure »). Aucune étiquette ne contient de titre, de texte, d'identifiant de livre ni d'URL. Le résultat est gardé 10 secondes : un intervalle de collecte de 30 s à 1 min suffit.
 
 ```yaml
 scrape_configs:

@@ -34,12 +34,15 @@ def test_counts_match_a_mixed_book(seeded):
         db.add(Issue(project_id=pid, segment_id=second.id, severity="warning", code="length", message="x"))
         db.add(Issue(project_id=pid, segment_id=second.id, severity="warning", code="length", message="y", resolved=True))
         db.commit()
-        total, stuck = len(segments), len(rest)
+        total, stuck, third_id = len(segments), len(rest), third.id
     data = report(pid)
     assert (data["total"], data["translated"], data["retained"], data["missing"]) == (total, 2, 1, total - 3)
     assert (data["flagged"], data["issues"], data["protected"]) == (1, 1, 1)
     assert data["coverage_complete"] is False and data["processing"] is False and data["last_job_status"] == "none"
-    assert data["recovery_total"] == stuck == len(data["recovery"])
+    # The passage kept in the original is listed and selectable: another provider may translate it.
+    assert data["recovery_total"] == stuck + 1 == len(data["recovery"])
+    retained = next(item for item in data["recovery"] if item["status"] == "source_retained")
+    assert retained["id"] == third_id and retained["eligible"]
     refused = next(item for item in data["recovery"] if item["status"] == "refused")
     assert refused["error"] == "Refus du fournisseur." and refused["eligible"] and len(refused["excerpt"]) <= 260
     assert [item["position"] for item in data["recovery"]] == sorted(item["position"] for item in data["recovery"])

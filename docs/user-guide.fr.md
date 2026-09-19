@@ -456,10 +456,11 @@ L’onglet **Bilan & récupération** dit si la **Traduction complète** est att
 **Traduits**, **Manquants**, **Conservés en original**, **Ouverts**, les **Alertes non résolues** et les **Choix
 humains protégés**, ainsi que le **Résultat de la revue finale**.
 
-La liste **Passages à récupérer** se filtre (**Tous**, **Erreurs**, **Refus**, **Non commencés**, **Bloqués**).
-Cochez des passages (200 au plus à la fois), choisissez éventuellement un **Provider de récupération**, puis
-**Relancer la sélection** : seuls ces passages sont retraités. Un passage portant un choix humain protégé n’est
-jamais relancé automatiquement.
+La liste **Passages à récupérer** se filtre (**Tous**, **Erreurs**, **Refus**, **Non commencés**, **Bloqués**) ;
+elle comprend aussi les passages conservés en original. Cochez des passages (200 au plus à la fois), choisissez
+éventuellement un **Provider de récupération**, puis **Relancer la sélection** : seuls ces passages sont
+retraités, et une traduction réussie remplace l’original conservé. Un passage portant un choix humain protégé
+(correction ou validation) ne peut pas être sélectionné.
 
 ### Qualité
 
@@ -834,8 +835,9 @@ corrigez seulement ce qui vous importe ; vos corrections sont protégées.
 
 **Le livre est « Terminé » mais certains passages sont restés en langue source. Pourquoi ?**
 Aucun provider n’a pu les traduire (refus répétés, réponses invalides). Ils sont listés avec leur raison dans
-l’onglet **Pilote automatique**. Pour réessayer avec un autre modèle, utilisez **Bilan & récupération** ou
-**Retraduire les passages refusés** dans le **Journal des relectures**.
+l’onglet **Pilote automatique**. Pour réessayer, éventuellement avec un autre modèle, sélectionnez-les dans
+**Bilan & récupération** ou utilisez **Retraduire…** sur le passage : une traduction réussie remplace l’original.
+Un passage conservé en original n’est pas une correction humaine et n’est pas protégé.
 
 **Le provider est en panne. Vais-je perdre le travail fait ?**
 Non. Chaque passage terminé est enregistré. Le travail attend et reprend seul (« Service indisponible · reprise

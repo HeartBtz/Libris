@@ -432,8 +432,10 @@ def start_job(project_id: str, body: JobInput, user: CurrentUser, db: DB):
                                                          Segment.id.in_(body.segment_ids))))
         if len(selected) != len(set(body.segment_ids)):
             raise HTTPException(422, "La sélection contient un passage inconnu de ce livre.")
-        if any(s.human or s.validated or s.retained_source or
-               (s.translation and s.status not in {"refused", "error", "blocked"}) for s in selected):
+        # Passages kept in the original may be selected: a successful translation replaces the original.
+        if any(s.human or s.validated or
+               (s.translation and not s.retained_source and s.status not in {"refused", "error", "blocked"})
+               for s in selected):
             raise HTTPException(409, "Un passage sélectionné est protégé ou n’a plus besoin de récupération.")
         body.force = True
     if body.operation == "translate" and not project.bible:

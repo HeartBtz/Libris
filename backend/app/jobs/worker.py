@@ -185,7 +185,9 @@ async def execute(job_id: str, owner: str) -> None:
                 if sid:
                     segment = db.get(Segment, sid)
                     if segment and not segment.human:
-                        segment.status, segment.error = "refused", str(exc)
+                        if not segment.retained_source:
+                            segment.status = "refused"
+                        segment.error = str(exc)
                 db.add(
                     Issue(
                         project_id=job.project_id,

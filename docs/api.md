@@ -71,8 +71,9 @@ export PROVIDER_ID=...                      # a provider id, see "Choosing a pro
    **Settings › Automation API**).
 2. Under **Create a token**, give it a name, tick the permissions it needs and choose an expiration
    (30, 90 or 365 days, or never).
-3. Optionally tick **Sign webhooks with a secret of this token** (see [Webhooks](#webhooks)), and
-   give it a **Token budget** (see [Token budget](#token-budget)).
+3. Optionally tick **Sign webhooks with a secret of this token** (see [Webhooks](#webhooks)), set its
+   **Queue** limits (see [Queue priority and quotas](#queue-priority-and-quotas)) and give it a **Token
+   budget** (see [Token budget](#token-budget)).
 4. Copy the secret now: it is displayed **once** and never again.
 
 A token acts on behalf of its owner: it only sees the owner's series and requests, and it stops

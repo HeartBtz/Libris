@@ -323,6 +323,7 @@ MESSAGES = {
     "Requête annulée.": "Request cancelled.",
     "Impossible de reconstruire l’EPUB traduit.": "The translated EPUB cannot be rebuilt.",
     "EPUBCheck refuse l’EPUB traduit, même après réparation automatique.": "EPUBCheck rejects the translated EPUB, even after automatic repair.",
+    "EPUBCheck refuse l’EPUB bilingue de ce volume.": "EPUBCheck rejects the bilingual EPUB of this volume.",
     "Le fichier EPUB d’origine de ce volume est introuvable sur le serveur.": "The original EPUB file of this volume cannot be found on the server.",
     # Problems recorded on passages (GET /api/projects/{id}/issues)
     "Traduction refusée deux fois ; passage ignoré.": "Translation refused twice; passage skipped.",

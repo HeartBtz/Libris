@@ -77,7 +77,7 @@ class PipelineOptions(StrictModel):
 
 
 class OutputOptions(StrictModel):
-    format: Literal["json", "txt", "txt-zip"] = "json"
+    format: Literal["json", "txt", "txt-zip", "epub-bilingual"] = "json"
 
 
 class TranslationPayload(StrictModel):

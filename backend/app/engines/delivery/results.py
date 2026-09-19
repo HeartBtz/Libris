@@ -16,20 +16,22 @@ from dataclasses import dataclass
 from sqlalchemy import select
 
 from app.config import settings
-from app.engines.delivery.epub import DeliveryFailed, deliver_epub
+from app.engines.delivery.epub import DeliveryFailed, check, deliver_epub, describe, failures
+from app.engines.exports.bilingual import bilingual_filename, build_bilingual_epub, volume_pairs
 from app.engines.exports.text import ChapterText, consolidated, safe_filename, volume_texts, write_chapters
 from app.engines.ingestion.payload import SCHEMA_VERSION
 from app.engines.ingestion.store import data_path, primary_asset, read_asset
 from app.models import Issue, Job, Project, Provider, Segment, Series, TranslationRequest
 
-FORMATS = ("json", "txt", "txt-zip", "epub")
+FORMATS = ("json", "txt", "txt-zip", "epub", "epub-bilingual")
 MEDIA_TYPES = {
     "json": "application/json",
     "txt": "text/plain; charset=utf-8",
     "txt-zip": "application/zip",
     "epub": "application/epub+zip",
+    "epub-bilingual": "application/epub+zip",
 }
-EXTENSIONS = {"json": "json", "txt": "txt", "txt-zip": "zip", "epub": "epub"}
+EXTENSIONS = {"json": "json", "txt": "txt", "txt-zip": "zip", "epub": "epub", "epub-bilingual": "epub"}
 FLAGGED = ("check", "error", "refused")
 
 
@@ -176,13 +178,29 @@ def render_epub(db, project: Project) -> Rendered:
     )
 
 
+def render_bilingual(db, request: TranslationRequest, project: Project, layout: str) -> Rendered:
+    """Source and translation paragraph by paragraph, for the chapters of the request; a passage
+    still untranslated (partial result) is marked empty."""
+    wanted = None if request.options.get("input") == "epub" else set(request.chapter_ids or [])
+    content = build_bilingual_epub(project, volume_pairs(db, project, wanted), layout)
+    blocking = failures(check(content))
+    if blocking:
+        raise DeliveryFailed(
+            "EPUBCheck refuse l’EPUB bilingue de ce volume.", [describe(message) for message in blocking[:5]]
+        )
+    return Rendered(content, "epub-bilingual", bilingual_filename(project.title))
+
+
 def render(
     db, request: TranslationRequest, project: Project, job: Job | None, fmt: str, status: str, report: dict | None,
-    bundle_report: bool = False,
+    bundle_report: bool = False, layout: str = "interleaved",
 ) -> Rendered:  # fmt: skip
-    """`bundle_report` adds report.json to a ZIP of chapters (the stored artifact carries its report)."""
+    """`bundle_report` adds report.json to a ZIP of chapters (the stored artifact carries its report);
+    `layout` only applies to the bilingual EPUB."""
     if fmt == "epub":
         return render_epub(db, project)
+    if fmt == "epub-bilingual":
+        return render_bilingual(db, request, project, layout)
     texts = request_texts(db, request, project)
     complete = (
         bool(texts) and all(item.complete for item in texts) and not (report or {}).get("residual_total")

@@ -32,6 +32,7 @@ from app.engines.epub import inspect_archive, rebuild
 from app.engines.epub.archive import relative_resource, xml
 from app.engines.epub.check import epubcheck
 from app.engines.epub.text import tag
+from app.engines.exports.bilingual import LAYOUTS, build_bilingual_epub, volume_pairs
 from app.engines.exports.text import (
     ChapterText,
     chapters_zip,
@@ -138,6 +139,14 @@ def translated_epub(db, project, segments: list[Segment]) -> bytes:
     return validated_epub(content, project.title)
 
 
+def bilingual_epub(db, project, allow_source: bool, layout: str) -> bytes:
+    """The bilingual proofreading copy; unfinished passages only with `allow_source`."""
+    chapters = volume_pairs(db, project)
+    if not allow_source and not all(item.complete for item in chapters):
+        raise HTTPException(409, "La traduction n’est pas encore complète.")
+    return validated_epub(build_bilingual_epub(project, chapters, layout), project.title)
+
+
 def unique_epub_name(title: str, used: set[str]) -> str:
     base = re.sub(r"[^\w .()#-]", "_", title, flags=re.UNICODE).strip(" .")[:180] or "livre"
     name, number = f"{base}.epub", 2
@@ -232,17 +241,26 @@ def export_texts(body: TextBatchExportInput, user: CurrentUser, db: DB):
 @router.get("/projects/{pid}/export/{format}")
 def export(
     pid: str,
-    format: Literal["epub", "txt", "txt-zip", "md", "bible", "project"],
+    format: Literal["epub", "epub-bilingual", "txt", "txt-zip", "md", "bible", "project"],
     user: CurrentUser,
     db: DB,
     allow_source: bool = False,
     consolidated_text: bool = Query(False, alias="consolidated"),
+    layout: Literal[LAYOUTS] = "interleaved",
 ):
     """`txt`: every chapter under its heading in one file; `txt-zip`: one UTF-8 file per chapter and
     a manifest with checksums (plus the single file with `consolidated=true`); `md`: Markdown with a
-    `##` heading per chapter. `allow_source=true` exports an unfinished translation, originals kept."""
+    `##` heading per chapter; `epub-bilingual`: source and translation paragraph by paragraph
+    (`layout=interleaved` or `side-by-side`), for any volume. `allow_source=true` exports an
+    unfinished translation, originals kept."""
     project = access(db, pid, user)
-    if format == "bible":
+    if format == "epub-bilingual":
+        content, mime, filename = (
+            bilingual_epub(db, project, allow_source, layout),
+            "application/epub+zip",
+            "bilingual.epub",
+        )
+    elif format == "bible":
         content, mime, filename = (
             json.dumps(canonical_bible(db, project), ensure_ascii=False, indent=2),
             "application/json",

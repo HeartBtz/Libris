@@ -35,6 +35,7 @@ from app.engines.delivery.intake import UploadOptions, epub_digest, text_payload
 from app.engines.delivery.lifecycle import ENDED, SUCCESS, finalize, refresh, settle
 from app.engines.delivery.results import FORMATS, MEDIA_TYPES, default_format, render, request_texts, stored
 from app.engines.delivery.webhooks import WebhookRefused, checked_url, require_signing
+from app.engines.exports.bilingual import LAYOUTS
 from app.engines.exports.text import TEXT_KINDS
 from app.engines.ingestion.naming import volume_from_name
 from app.engines.ingestion.payload import (
@@ -820,7 +821,10 @@ def not_ready(status: str, incomplete: list[str], error: str) -> HTTPException:
     )
 
 
-def result_response(db, request_id: str, caller: Caller, requested: str | None, partial: bool, accept: str):
+def result_response(
+    db, request_id: str, caller: Caller, requested: str | None, partial: bool, accept: str,
+    layout: str = "interleaved",
+):  # fmt: skip
     found = owned_request(db, request_id, caller)
     refresh(db, found.id)
     project = db.get(Project, found.project_id) if found.project_id else None
@@ -844,12 +848,14 @@ def result_response(db, request_id: str, caller: Caller, requested: str | None, 
         complete = status == "imported" and bool(wanted) and not incomplete and len(texts) == len(wanted)
         if not complete and not partial:
             raise not_ready(status, incomplete, found.error)
-    content = stored(found) if (found.artifact or {}).get("format") == fmt else None
+    # The stored bilingual EPUB is interleaved; the other layout is rendered on demand.
+    stored_layout = fmt != "epub-bilingual" or layout == "interleaved"
+    content = stored(found) if (found.artifact or {}).get("format") == fmt and stored_layout else None
     if content is not None:
         filename = found.artifact.get("filename") or f"result.{fmt}"
     else:
         try:
-            rendered = render(db, found, project, job, fmt, status, found.report)
+            rendered = render(db, found, project, job, fmt, status, found.report, layout=layout)
         except DeliveryFailed as exc:
             raise HTTPException(
                 422, {"code": "delivery_failed", "message": exc.reason, "errors": exc.details}
@@ -874,11 +880,12 @@ async def translation_result(
     format: Literal[FORMATS] | None = None,  # noqa: A002 - the documented query parameter
     partial: bool = Query(default=False),
     wait: int = Query(default=0, ge=0, le=API_RESULT_WAIT_CEILING),
+    layout: Literal[LAYOUTS] = "interleaved",
 ):
     if wait:
         await wait_for_end(db, request_id, caller, wait)
     accept = http.headers.get("accept", "")
-    return await run_in_threadpool(result_response, db, request_id, caller, format, partial, accept)
+    return await run_in_threadpool(result_response, db, request_id, caller, format, partial, accept, layout)
 
 
 def series_summary(db, series: Series) -> dict:

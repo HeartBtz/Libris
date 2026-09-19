@@ -93,7 +93,7 @@ abruptly, another start picks the job up after the lease expires.
 
 The worker also sends memory updates to OpenViking and, when the [cleanup](openviking.md#cleanup-of-deleted-volumes-and-series)
 is on, removes the OpenViking documents of deleted volumes and series. A removal holds a 5-minute lease too;
-a waiting or failed one is visible, with its error, in **Settings › Memory · OpenViking › Cleanup log**.
+a waiting one is visible, with its last error, in **Settings › Memory · OpenViking › Cleanup log**.
 
 ## Monitoring
 

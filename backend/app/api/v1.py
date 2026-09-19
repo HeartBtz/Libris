@@ -604,8 +604,8 @@ async def read_multipart(request: Request, limit: int) -> Submission:
         else:
             values[key] = value
     kinds = {extension(upload.filename or "") for upload in uploads}
-    if not uploads or len(kinds) != 1 or not kinds <= {"json", "epub", "txt"}:
-        raise invalid("Envoyez un fichier JSON, un EPUB, ou des chapitres .txt (un seul type par requête).")
+    if not uploads or len(kinds) != 1 or not kinds <= {"json", "epub", "txt", "docx"}:
+        raise invalid("Envoyez un fichier JSON, un EPUB, ou des chapitres .txt ou .docx (un seul type par requête).")
     kind = kinds.pop()
     if kind in {"json", "epub"} and len(uploads) != 1:
         raise invalid("Envoyez un seul fichier JSON ou EPUB par requête.")
@@ -617,6 +617,8 @@ async def read_multipart(request: Request, limit: int) -> Submission:
         options = upload_options(values)
     except PayloadRejected as exc:
         raise rejected(exc) from None
+    if kind == "epub" and options.split != "none":
+        raise invalid("Le découpage par titres s’applique aux fichiers TXT et DOCX, pas à un EPUB.")
     if kind == "epub":
         data = await read_upload(uploads[0], limit)
         return Submission(epub=data, name=safe_display_name(uploads[0].filename or "book.epub"), options=options,
@@ -632,7 +634,7 @@ async def read_multipart(request: Request, limit: int) -> Submission:
         payload, decisions = text_payload(files, options, settings().api_max_chapters)
     except PayloadRejected as exc:
         raise rejected(exc) from None
-    return Submission(payload=payload, decisions=decisions, kind="txt")
+    return Submission(payload=payload, decisions=decisions, kind=kind)
 
 
 def parse(data: bytes) -> TranslationPayload:
@@ -659,6 +661,8 @@ async def read_input(request: Request) -> Submission:
             options = upload_options(values)
         except PayloadRejected as exc:
             raise rejected(exc) from None
+        if options.split != "none":
+            raise invalid("Le découpage par titres s’applique aux fichiers TXT et DOCX, pas à un EPUB.")
         data = await request.body()
         if len(data) > limit:
             raise too_large()

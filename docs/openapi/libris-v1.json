@@ -41,9 +41,716 @@
     {
       "name": "Providers",
       "description": "The model providers a request may name."
+    },
+    {
+      "name": "Glossaries"
     }
   ],
   "paths": {
+    "/api/v1/glossaries": {
+      "get": {
+        "operationId": "v1ListGlossaries",
+        "tags": [
+          "Glossaries"
+        ],
+        "summary": "The caller's shared glossaries, with their term counts and the series that follow them",
+        "description": "**Scope:** `series:read`.",
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "A missing, unknown, revoked or expired token, or a disabled account (header `WWW-Authenticate: Bearer`). Codes: `missing_token`, `invalid_token`, `revoked_token`, `expired_token`, `inactive_account`, `unauthorized`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "missing_token": {
+                    "value": {
+                      "detail": {
+                        "code": "missing_token",
+                        "message": "Jeton d’API manquant : envoyez « Authorization: Bearer <jeton> »."
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "`Bearer realm=\"libris\"`",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The token lacks the scope (`scope` names it), or a browser page from another site. Codes: `insufficient_scope`, `forbidden`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "insufficient_scope": {
+                    "value": {
+                      "detail": {
+                        "code": "insufficient_scope",
+                        "message": "Ce jeton n’a pas la permission « jobs:read »."
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many calls for this token; retry after `Retry-After` seconds. Codes: `rate_limited`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "rate_limited": {
+                    "value": {
+                      "detail": {
+                        "code": "rate_limited",
+                        "message": "Trop de requêtes pour ce jeton : réessayez plus tard."
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait.",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unexpected failure; the message carries a diagnostic reference for the server logs. Codes: `server_error`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerToken": []
+          }
+        ],
+        "x-libris-scopes": [
+          "series:read"
+        ]
+      },
+      "post": {
+        "operationId": "v1AddGlossary",
+        "tags": [
+          "Glossaries"
+        ],
+        "summary": "V1 add glossary",
+        "description": "**Scope:** `content:write`.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SharedGlossaryInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "A missing, unknown, revoked or expired token, or a disabled account (header `WWW-Authenticate: Bearer`). Codes: `missing_token`, `invalid_token`, `revoked_token`, `expired_token`, `inactive_account`, `unauthorized`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "missing_token": {
+                    "value": {
+                      "detail": {
+                        "code": "missing_token",
+                        "message": "Jeton d’API manquant : envoyez « Authorization: Bearer <jeton> »."
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "`Bearer realm=\"libris\"`",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The token lacks the scope (`scope` names it), or a browser page from another site. Codes: `insufficient_scope`, `forbidden`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "insufficient_scope": {
+                    "value": {
+                      "detail": {
+                        "code": "insufficient_scope",
+                        "message": "Ce jeton n’a pas la permission « jobs:read »."
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many calls for this token; retry after `Retry-After` seconds. Codes: `rate_limited`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "rate_limited": {
+                    "value": {
+                      "detail": {
+                        "code": "rate_limited",
+                        "message": "Trop de requêtes pour ce jeton : réessayez plus tard."
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait.",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unexpected failure; the message carries a diagnostic reference for the server logs. Codes: `server_error`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerToken": []
+          }
+        ],
+        "x-libris-scopes": [
+          "content:write"
+        ]
+      }
+    },
+    "/api/v1/glossaries/{glossary_id}": {
+      "get": {
+        "operationId": "v1GetGlossary",
+        "tags": [
+          "Glossaries"
+        ],
+        "summary": "V1 get glossary",
+        "description": "**Scope:** `series:read`.",
+        "parameters": [
+          {
+            "name": "glossary_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "A missing, unknown, revoked or expired token, or a disabled account (header `WWW-Authenticate: Bearer`). Codes: `missing_token`, `invalid_token`, `revoked_token`, `expired_token`, `inactive_account`, `unauthorized`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "missing_token": {
+                    "value": {
+                      "detail": {
+                        "code": "missing_token",
+                        "message": "Jeton d’API manquant : envoyez « Authorization: Bearer <jeton> »."
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "`Bearer realm=\"libris\"`",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The token lacks the scope (`scope` names it), or a browser page from another site. Codes: `insufficient_scope`, `forbidden`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "insufficient_scope": {
+                    "value": {
+                      "detail": {
+                        "code": "insufficient_scope",
+                        "message": "Ce jeton n’a pas la permission « jobs:read »."
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many calls for this token; retry after `Retry-After` seconds. Codes: `rate_limited`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "rate_limited": {
+                    "value": {
+                      "detail": {
+                        "code": "rate_limited",
+                        "message": "Trop de requêtes pour ce jeton : réessayez plus tard."
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait.",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unexpected failure; the message carries a diagnostic reference for the server logs. Codes: `server_error`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerToken": []
+          }
+        ],
+        "x-libris-scopes": [
+          "series:read"
+        ]
+      }
+    },
+    "/api/v1/glossaries/{glossary_id}/export/{format}": {
+      "get": {
+        "operationId": "v1ExportGlossary",
+        "tags": [
+          "Glossaries"
+        ],
+        "summary": "V1 export glossary",
+        "description": "**Scope:** `series:read`.",
+        "parameters": [
+          {
+            "name": "glossary_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "format",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "enum": [
+                "json",
+                "csv",
+                "tbx"
+              ],
+              "type": "string"
+            },
+            "description": "Result format; wins over the `Accept` header. Default: the request's own format (EPUB for an EPUB)."
+          },
+          {
+            "name": "delimiter",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "comma",
+                "semicolon",
+                "tab"
+              ],
+              "type": "string",
+              "default": "comma"
+            }
+          },
+          {
+            "name": "bom",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "A missing, unknown, revoked or expired token, or a disabled account (header `WWW-Authenticate: Bearer`). Codes: `missing_token`, `invalid_token`, `revoked_token`, `expired_token`, `inactive_account`, `unauthorized`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "missing_token": {
+                    "value": {
+                      "detail": {
+                        "code": "missing_token",
+                        "message": "Jeton d’API manquant : envoyez « Authorization: Bearer <jeton> »."
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "`Bearer realm=\"libris\"`",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The token lacks the scope (`scope` names it), or a browser page from another site. Codes: `insufficient_scope`, `forbidden`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "insufficient_scope": {
+                    "value": {
+                      "detail": {
+                        "code": "insufficient_scope",
+                        "message": "Ce jeton n’a pas la permission « jobs:read »."
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A bad parameter. Codes: `invalid_request`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "invalid_request": {
+                    "value": {
+                      "detail": {
+                        "code": "invalid_request",
+                        "message": "Requête invalide."
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many calls for this token; retry after `Retry-After` seconds. Codes: `rate_limited`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "rate_limited": {
+                    "value": {
+                      "detail": {
+                        "code": "rate_limited",
+                        "message": "Trop de requêtes pour ce jeton : réessayez plus tard."
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait.",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unexpected failure; the message carries a diagnostic reference for the server logs. Codes: `server_error`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerToken": []
+          }
+        ],
+        "x-libris-scopes": [
+          "series:read"
+        ]
+      }
+    },
+    "/api/v1/glossaries/{glossary_id}/import": {
+      "post": {
+        "operationId": "v1ImportGlossary",
+        "tags": [
+          "Glossaries"
+        ],
+        "summary": "Imports a JSON, CSV or TBX file; `?dry_run=true` answers the preview without changing anything",
+        "description": "**Scope:** `content:write`.",
+        "parameters": [
+          {
+            "name": "glossary_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "dry_run",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_v1_import_glossary_api_v1_glossaries__glossary_id__import_post"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "A missing, unknown, revoked or expired token, or a disabled account (header `WWW-Authenticate: Bearer`). Codes: `missing_token`, `invalid_token`, `revoked_token`, `expired_token`, `inactive_account`, `unauthorized`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "missing_token": {
+                    "value": {
+                      "detail": {
+                        "code": "missing_token",
+                        "message": "Jeton d’API manquant : envoyez « Authorization: Bearer <jeton> »."
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "`Bearer realm=\"libris\"`",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The token lacks the scope (`scope` names it), or a browser page from another site. Codes: `insufficient_scope`, `forbidden`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "insufficient_scope": {
+                    "value": {
+                      "detail": {
+                        "code": "insufficient_scope",
+                        "message": "Ce jeton n’a pas la permission « jobs:read »."
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A bad parameter. Codes: `invalid_request`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "invalid_request": {
+                    "value": {
+                      "detail": {
+                        "code": "invalid_request",
+                        "message": "Requête invalide."
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many calls for this token; retry after `Retry-After` seconds. Codes: `rate_limited`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "rate_limited": {
+                    "value": {
+                      "detail": {
+                        "code": "rate_limited",
+                        "message": "Trop de requêtes pour ce jeton : réessayez plus tard."
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait.",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unexpected failure; the message carries a diagnostic reference for the server logs. Codes: `server_error`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerToken": []
+          }
+        ],
+        "x-libris-scopes": [
+          "content:write"
+        ]
+      }
+    },
     "/api/v1/providers": {
       "get": {
         "operationId": "listProviders",
@@ -429,6 +1136,264 @@
         ]
       }
     },
+    "/api/v1/series/{series_id}/shared-glossary": {
+      "get": {
+        "operationId": "v1SeriesSharedGlossary",
+        "tags": [
+          "Series"
+        ],
+        "summary": "V1 series shared glossary",
+        "description": "**Scope:** `series:read`.",
+        "parameters": [
+          {
+            "name": "series_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The series' `id`."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "A missing, unknown, revoked or expired token, or a disabled account (header `WWW-Authenticate: Bearer`). Codes: `missing_token`, `invalid_token`, `revoked_token`, `expired_token`, `inactive_account`, `unauthorized`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "missing_token": {
+                    "value": {
+                      "detail": {
+                        "code": "missing_token",
+                        "message": "Jeton d’API manquant : envoyez « Authorization: Bearer <jeton> »."
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "`Bearer realm=\"libris\"`",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The token lacks the scope (`scope` names it), or a browser page from another site. Codes: `insufficient_scope`, `forbidden`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "insufficient_scope": {
+                    "value": {
+                      "detail": {
+                        "code": "insufficient_scope",
+                        "message": "Ce jeton n’a pas la permission « jobs:read »."
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many calls for this token; retry after `Retry-After` seconds. Codes: `rate_limited`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "rate_limited": {
+                    "value": {
+                      "detail": {
+                        "code": "rate_limited",
+                        "message": "Trop de requêtes pour ce jeton : réessayez plus tard."
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait.",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unexpected failure; the message carries a diagnostic reference for the server logs. Codes: `server_error`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerToken": []
+          }
+        ],
+        "x-libris-scopes": [
+          "series:read"
+        ]
+      },
+      "put": {
+        "operationId": "v1AttachSharedGlossary",
+        "tags": [
+          "Series"
+        ],
+        "summary": "V1 attach shared glossary",
+        "description": "**Scope:** `content:write`.",
+        "parameters": [
+          {
+            "name": "series_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The series' `id`."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/app__api__glossaries__AttachInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "A missing, unknown, revoked or expired token, or a disabled account (header `WWW-Authenticate: Bearer`). Codes: `missing_token`, `invalid_token`, `revoked_token`, `expired_token`, `inactive_account`, `unauthorized`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "missing_token": {
+                    "value": {
+                      "detail": {
+                        "code": "missing_token",
+                        "message": "Jeton d’API manquant : envoyez « Authorization: Bearer <jeton> »."
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "`Bearer realm=\"libris\"`",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The token lacks the scope (`scope` names it), or a browser page from another site. Codes: `insufficient_scope`, `forbidden`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "insufficient_scope": {
+                    "value": {
+                      "detail": {
+                        "code": "insufficient_scope",
+                        "message": "Ce jeton n’a pas la permission « jobs:read »."
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many calls for this token; retry after `Retry-After` seconds. Codes: `rate_limited`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "rate_limited": {
+                    "value": {
+                      "detail": {
+                        "code": "rate_limited",
+                        "message": "Trop de requêtes pour ce jeton : réessayez plus tard."
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait.",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unexpected failure; the message carries a diagnostic reference for the server logs. Codes: `server_error`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerToken": []
+          }
+        ],
+        "x-libris-scopes": [
+          "content:write"
+        ]
+      }
+    },
     "/api/v1/translation-requests": {
       "post": {
         "operationId": "createTranslationRequest",
@@ -436,7 +1401,7 @@
           "Translation requests"
         ],
         "summary": "Send a translation request",
-        "description": "Send **an EPUB** (multipart field `file`, or the raw file as `application/epub+zip` with its options in the query string), **TXT chapters** (multipart, one or more `.txt` files in `file` or `files`, one chapter each) or **a JSON document**. One request carries one kind of file.\n\nThe request is stored before the answer and its pipeline starts in the worker: `202 Accepted` with a `Location` header. The same content sent again with the same `Idempotency-Key` or `external_id` answers `200` with the original request and `Idempotent-Replayed: true`.\n\nWithout the `pipeline:start` scope, send `start=false` to import only.\n\n**Scope:** `content:write`, and `pipeline:start` to start the pipeline.",
+        "description": "Send **an EPUB** (multipart field `file`, or the raw file as `application/epub+zip` with its options in the query string), **TXT or DOCX chapters** (multipart, one or more `.txt` or `.docx` files in `file` or `files`, one chapter each, or one file split at its chapter headings with `split=headings`) or **a JSON document**. One request carries one kind of file.\n\nThe request is stored before the answer and its pipeline starts in the worker: `202 Accepted` with a `Location` header. The same content sent again with the same `Idempotency-Key` or `external_id` answers `200` with the original request and `Idempotent-Replayed: true`.\n\nWithout the `pipeline:start` scope, send `start=false` to import only.\n\n**Scope:** `content:write`, and `pipeline:start` to start the pipeline.",
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -496,9 +1461,20 @@
             "required": false,
             "description": "Raw EPUB body only (`Content-Type: application/epub+zip`). Volume number, 1–10000. Required for TXT; for an EPUB in a series, taken from the file name when free, otherwise the next number.",
             "schema": {
-              "maximum": 10000,
-              "minimum": 1,
-              "type": "integer"
+              "anyOf": [
+                {
+                  "maximum": 10000,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "const": "latest",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
             },
             "x-libris-raw-epub-only": true
           },
@@ -633,7 +1609,8 @@
                 "json",
                 "txt",
                 "txt-zip",
-                "epub"
+                "epub",
+                "epub-bilingual"
               ],
               "type": "string"
             },
@@ -646,6 +1623,18 @@
             "description": "Raw EPUB body only (`Content-Type: application/epub+zip`). Webhook called when the request ends; its host must be allowed by an administrator.",
             "schema": {
               "maxLength": 2000,
+              "type": "string"
+            },
+            "x-libris-raw-epub-only": true
+          },
+          {
+            "name": "callback_events",
+            "in": "query",
+            "required": false,
+            "description": "Raw EPUB body only (`Content-Type: application/epub+zip`).",
+            "schema": {
+              "default": "",
+              "maxLength": 200,
               "type": "string"
             },
             "x-libris-raw-epub-only": true
@@ -669,6 +1658,36 @@
             "schema": {
               "default": false,
               "type": "boolean"
+            },
+            "x-libris-raw-epub-only": true
+          },
+          {
+            "name": "priority",
+            "in": "query",
+            "required": false,
+            "description": "Raw EPUB body only (`Content-Type: application/epub+zip`).",
+            "schema": {
+              "enum": [
+                "low",
+                "normal",
+                "high"
+              ],
+              "type": "string"
+            },
+            "x-libris-raw-epub-only": true
+          },
+          {
+            "name": "split",
+            "in": "query",
+            "required": false,
+            "description": "Raw EPUB body only (`Content-Type: application/epub+zip`). TXT or DOCX: `headings` splits one file holding many chapters at its chapter headings (numbers and titles from the headings, the split recorded in `report.decisions.intake`); `none` (default) keeps each file as one chapter. Refused for an EPUB.",
+            "schema": {
+              "default": "none",
+              "enum": [
+                "none",
+                "headings"
+              ],
+              "type": "string"
             },
             "x-libris-raw-epub-only": true
           }
@@ -718,12 +1737,12 @@
             "multipart/form-data": {
               "schema": {
                 "additionalProperties": false,
-                "description": "An EPUB (one file in `file`), TXT chapters (one or more `.txt` files in `file` or `files`; `series` or `series_id`, `volume`, `source_language` and `target_language` required) or one `.json` document in `file` with no other field. Empty fields count as not given; unknown fields are refused.",
+                "description": "An EPUB (one file in `file`), TXT or DOCX chapters (one or more `.txt` or `.docx` files in `file` or `files`; `series` or `series_id`, `volume`, `source_language` and `target_language` required) or one `.json` document in `file` with no other field. Empty fields count as not given; unknown fields are refused.",
                 "properties": {
                   "file": {
                     "type": "string",
                     "format": "binary",
-                    "description": "The EPUB, the JSON document or a TXT chapter."
+                    "description": "The EPUB, the JSON document or a TXT or DOCX chapter."
                   },
                   "files": {
                     "type": "array",
@@ -731,7 +1750,7 @@
                       "type": "string",
                       "format": "binary"
                     },
-                    "description": "TXT chapters, one file each, numbered from their names."
+                    "description": "TXT or DOCX chapters, one file each, numbered from their names."
                   },
                   "external_id": {
                     "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]{0,199}$",
@@ -749,9 +1768,20 @@
                     "description": "The series by id (not with `series`)."
                   },
                   "volume": {
-                    "maximum": 10000,
-                    "minimum": 1,
-                    "type": "integer",
+                    "anyOf": [
+                      {
+                        "maximum": 10000,
+                        "minimum": 1,
+                        "type": "integer"
+                      },
+                      {
+                        "const": "latest",
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
                     "description": "Volume number, 1–10000. Required for TXT; for an EPUB in a series, taken from the file name when free, otherwise the next number."
                   },
                   "volume_external_id": {
@@ -818,7 +1848,8 @@
                       "json",
                       "txt",
                       "txt-zip",
-                      "epub"
+                      "epub",
+                      "epub-bilingual"
                     ],
                     "type": "string",
                     "description": "Default format of the result; `epub` only for an EPUB (and its default)."
@@ -827,6 +1858,11 @@
                     "maxLength": 2000,
                     "type": "string",
                     "description": "Webhook called when the request ends; its host must be allowed by an administrator."
+                  },
+                  "callback_events": {
+                    "default": "",
+                    "maxLength": 200,
+                    "type": "string"
                   },
                   "replace_changed_chapters": {
                     "default": false,
@@ -837,16 +1873,33 @@
                     "default": false,
                     "type": "boolean",
                     "description": "With `replace_changed_chapters`: allow dropping passages a person edited or validated (otherwise `409 conflict`)."
+                  },
+                  "priority": {
+                    "enum": [
+                      "low",
+                      "normal",
+                      "high"
+                    ],
+                    "type": "string"
+                  },
+                  "split": {
+                    "default": "none",
+                    "enum": [
+                      "none",
+                      "headings"
+                    ],
+                    "type": "string",
+                    "description": "TXT or DOCX: `headings` splits one file holding many chapters at its chapter headings (numbers and titles from the headings, the split recorded in `report.decisions.intake`); `none` (default) keeps each file as one chapter. Refused for an EPUB."
                   }
                 },
                 "type": "object"
               },
               "encoding": {
                 "file": {
-                  "contentType": "application/epub+zip, application/json, text/plain"
+                  "contentType": "application/epub+zip, application/json, text/plain, application/vnd.openxmlformats-officedocument.wordprocessingml.document"
                 },
                 "files": {
-                  "contentType": "text/plain"
+                  "contentType": "text/plain, application/vnd.openxmlformats-officedocument.wordprocessingml.document"
                 }
               }
             },
@@ -1370,7 +2423,8 @@
                 "json",
                 "txt",
                 "txt-zip",
-                "epub"
+                "epub",
+                "epub-bilingual"
               ],
               "type": "string"
             },
@@ -1397,6 +2451,33 @@
               "default": 0
             },
             "description": "Long poll: answer as soon as the request ends, or after this many seconds (bounded by the server's `API_RESULT_MAX_WAIT_SECONDS`, 60 by default)."
+          },
+          {
+            "name": "layout",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "interleaved",
+                "side-by-side"
+              ],
+              "type": "string",
+              "default": "interleaved"
+            }
+          },
+          {
+            "name": "scope",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "request",
+                "new",
+                "volume"
+              ],
+              "type": "string",
+              "default": "request"
+            }
           }
         ],
         "responses": {
@@ -1852,6 +2933,63 @@
   },
   "components": {
     "schemas": {
+      "Body_v1_import_glossary_api_v1_glossaries__glossary_id__import_post": {
+        "properties": {
+          "file": {
+            "type": "string",
+            "contentMediaType": "application/octet-stream",
+            "title": "File"
+          },
+          "strategy": {
+            "type": "string",
+            "title": "Strategy",
+            "default": "skip"
+          },
+          "delimiter": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Delimiter"
+          },
+          "mapping": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mapping"
+          },
+          "header": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Header"
+          },
+          "skip_invalid": {
+            "type": "boolean",
+            "title": "Skip Invalid",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "file"
+        ],
+        "title": "Body_v1_import_glossary_api_v1_glossaries__glossary_id__import_post"
+      },
       "ChapterCounts": {
         "type": "object",
         "description": "How many chapters the request created, found unchanged or replaced, and each chapter's progress.",
@@ -2330,7 +3468,8 @@
             "enum": [
               "json",
               "txt",
-              "txt-zip"
+              "txt-zip",
+              "epub-bilingual"
             ],
             "type": "string"
           }
@@ -2383,6 +3522,18 @@
             "default": true,
             "type": "boolean",
             "description": "Run the final review (never when the server disables it)."
+          },
+          "priority": {
+            "enum": [
+              "low",
+              "normal",
+              "high"
+            ],
+            "type": [
+              "string",
+              "null"
+            ],
+            "default": null
           }
         },
         "type": "object"
@@ -2496,6 +3647,7 @@
             "enum": [
               "epub",
               "txt",
+              "docx",
               "json"
             ],
             "description": "What was sent."
@@ -2704,6 +3856,7 @@
             "enum": [
               "epub",
               "txt",
+              "docx",
               "json"
             ],
             "description": "What was sent."
@@ -3016,6 +4169,52 @@
         ],
         "additionalProperties": true
       },
+      "SharedGlossaryInput": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 4000,
+            "title": "Description",
+            "default": ""
+          },
+          "source_language": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 80
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Language"
+          },
+          "target_language": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 80
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Language"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "title": "SharedGlossaryInput"
+      },
       "StageProgress": {
         "type": "object",
         "properties": {
@@ -3150,6 +4349,14 @@
             ],
             "default": null,
             "description": "Webhook called when the request ends; its host must be allowed by an administrator."
+          },
+          "callback_events": {
+            "items": {
+              "const": "chapters.translated",
+              "type": "string"
+            },
+            "maxItems": 5,
+            "type": "array"
           }
         },
         "required": [
@@ -3266,10 +4473,18 @@
             "default": null,
             "description": "Your identifier of the volume."
           },
+          "latest": {
+            "default": false,
+            "type": "boolean"
+          },
           "number": {
             "maximum": 10000,
             "minimum": 1,
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
+            "default": null,
             "description": "Volume number, 1–10000."
           },
           "title": {
@@ -3279,9 +4494,6 @@
             "description": "Title of a new volume (default: “Series — number”)."
           }
         },
-        "required": [
-          "number"
-        ],
         "type": "object"
       },
       "VolumeSummary": {
@@ -3462,6 +4674,24 @@
           "attempts",
           "error"
         ]
+      },
+      "app__api__glossaries__AttachInput": {
+        "properties": {
+          "glossary_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Glossary Id"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "AttachInput"
       }
     },
     "securitySchemes": {

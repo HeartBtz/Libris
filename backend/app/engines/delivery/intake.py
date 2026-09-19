@@ -1,9 +1,11 @@
-"""Files sent to the automation API: an EPUB, or TXT chapters turned into the JSON request they mean.
+"""Files sent to the automation API: an EPUB, or TXT/DOCX chapters turned into the JSON request they mean.
 
-TXT chapters become a `TranslationPayload`, so they follow exactly the path of JSON chapters
+TXT and DOCX chapters become a `TranslationPayload`, so they follow exactly the path of JSON chapters
 (idempotence, volume lookup, conflicts, results). Chapter numbers are read from the file names; when a
 name gives none, or the same one twice, the file's place in the upload decides, and the decision is
-recorded with its reason (never silent, never a question to a person).
+recorded with its reason (never silent, never a question to a person). With `split=headings`, one
+file holding many chapters is cut at its chapter headings (app.engines.ingestion.split), numbered and
+titled from them, and the split is recorded as a decision.
 """
 
 import hashlib
@@ -21,6 +23,7 @@ from app.engines.ingestion.payload import (
     TranslationPayload,
     parse_payload,
 )
+from app.engines.ingestion.split import FRONT_MATTER, api_chapters, detect, part_text, read_source
 from app.engines.ingestion.text import TextRejected, decode
 from app.schemas import StrictModel
 
@@ -53,6 +56,8 @@ class UploadOptions(StrictModel):
     discard_human: bool = False
     # Place in the fair queue, within what the token allows (app.jobs.fairness); empty: normal.
     priority: Literal["low", "normal", "high"] | None = None
+    # TXT or DOCX: `headings` splits one file holding many chapters at its chapter headings.
+    split: Literal["none", "headings"] = "none"
 
     @model_validator(mode="after")
     def one_series(self):
@@ -88,7 +93,7 @@ def callback_events(options: UploadOptions) -> list[str]:
 
 def epub_digest(data: bytes, options: UploadOptions) -> str:
     """Same file and same options: same request (idempotence); the callback does not change the work."""
-    meaning = options.model_dump(mode="json", exclude={"callback_url", "callback_events", "priority"})
+    meaning = options.model_dump(mode="json", exclude={"callback_url", "callback_events", "priority", "split"})
     return hashlib.sha256(
         hashlib.sha256(data).digest() + json.dumps(meaning, sort_keys=True).encode()
     ).hexdigest()
@@ -144,19 +149,43 @@ def text_payload(
     if not options.source_language or not options.target_language:
         raise PayloadRejected([{"loc": ["source_language"], "msg": "Indiquez la langue source et la langue cible.",
                                 "type": "missing"}])  # fmt: skip
+    if options.split == "headings" and len(files) != 1:
+        raise PayloadRejected([{"loc": ["split"], "msg": "Le découpage par titres s’applique à un seul fichier "
+                                "par requête.", "type": "value_error"}])  # fmt: skip
     names = [name for name, _ in files]
     numbers, decisions = chapter_numbers(names)
     chapters, errors = [], []
     for index, ((name, data), number) in enumerate(zip(files, numbers, strict=True)):
+        fmt = "docx" if name.casefold().endswith(".docx") else "txt"
         try:
-            text, encoding, _ = decode(data)
-        except TextRejected as exc:
+            if fmt == "docx" or options.split == "headings":
+                source = read_source(fmt, name, data)
+                text, encoding = part_text(source, 0, source.size), source.encoding
+            else:
+                source, (text, encoding, _) = None, decode(data)
+        except (TextRejected, ValueError) as exc:
             errors.append({"loc": ["files", index], "msg": f"« {name} » : {exc}", "type": "value_error"})
             continue
         if encoding == "windows-1252":
             decisions.append({"file": index, "name": name, "encoding": encoding,
                               "reason": "fichier non UTF-8 lu en Windows-1252"})  # fmt: skip
-        chapters.append({"number": number, "title": clean_title(name), "content": text})
+        found = detect(source) if source is not None and options.split == "headings" else None
+        if found:
+            parts = api_chapters(source, found)
+            if len(parts) > max_chapters:
+                raise PayloadRejected([{"loc": ["files", index], "msg": f"Trop de chapitres : {max_chapters} au "
+                                        "maximum par requête.", "type": "too_long"}])  # fmt: skip
+            # The file's own number does not apply: its chapters are numbered from their headings.
+            decisions[:] = [item for item in decisions if item.get("file") != index or "encoding" in item]
+            decisions.append({"file": index, "name": name, "split": len(parts), "confidence": found.confidence,
+                              "reason": f"fichier découpé en {len(parts)} chapitres d’après ses titres ({found.reason})"})  # fmt: skip
+            decisions += [{"file": index, "name": name, "reason": warning} for warning in found.warnings]
+            chapters += parts
+            continue
+        if options.split == "headings":
+            decisions.append({"file": index, "name": name, "split": 1,
+                              "reason": "aucun titre de chapitre trouvé : le fichier reste un seul chapitre"})  # fmt: skip
+        chapters.append({"number": number, "title": clean_title(name) or FRONT_MATTER, "content": text})
     if errors:
         raise PayloadRejected(errors)
     raw = {

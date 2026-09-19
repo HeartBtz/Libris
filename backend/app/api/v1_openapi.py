@@ -156,7 +156,7 @@ SCHEMAS: dict[str, dict] = {
             "series_id": nullable(IDENTIFIER),
             "project_id": nullable(s("string", "The volume (UUID).")),
             "job_id": nullable(s("string", "The pipeline job; `null` while the request waits (`queued`).")),
-            "input": s("string", "What was sent.", enum=["epub", "txt", "json"]),
+            "input": s("string", "What was sent.", enum=["epub", "txt", "docx", "json"]),
             "status": ref("RequestStatus"),
             "status_url": s("string", "Path of the status document."),
             "result_url": s("string", "Path of the result."),
@@ -522,6 +522,9 @@ FIELD_NOTES = {
     "VolumeReference.title": "Title of a new volume (default: “Series — number”).",
     "ChapterInput.title": "Optional; without it the chapter is named by its number.",
     "UploadOptions.title": "Volume title (an EPUB keeps its own otherwise).",
+    "UploadOptions.split": "TXT or DOCX: `headings` splits one file holding many chapters at its chapter headings "
+    "(numbers and titles from the headings, the split recorded in `report.decisions.intake`); `none` (default) "
+    "keeps each file as one chapter. Refused for an EPUB.",
     "author": "Author of the volume.",
     "source_language": "BCP 47 tag such as `en`, `fr-FR`, `zh-Hant`.",
     "target_language": "BCP 47 tag.",
@@ -674,8 +677,9 @@ OPERATIONS: dict[tuple[str, str], dict] = {
         "tags": ["Translation requests"],
         "summary": "Send a translation request",
         "description": "Send **an EPUB** (multipart field `file`, or the raw file as `application/epub+zip` with "
-        "its options in the query string), **TXT chapters** (multipart, one or more `.txt` files in `file` or "
-        "`files`, one chapter each) or **a JSON document**. One request carries one kind of file.\n\n"
+        "its options in the query string), **TXT or DOCX chapters** (multipart, one or more `.txt` or `.docx` "
+        "files in `file` or `files`, one chapter each, or one file split at its chapter headings with "
+        "`split=headings`) or **a JSON document**. One request carries one kind of file.\n\n"
         "The request is stored before the answer and its pipeline starts in the worker: `202 Accepted` with a "
         "`Location` header. The same content sent again with the same `Idempotency-Key` or `external_id` "
         "answers `200` with the original request and `Idempotent-Replayed: true`.\n\n"
@@ -960,15 +964,16 @@ def model_schemas() -> dict:
 def upload_body(options: dict) -> dict:
     form = clean(copy.deepcopy(options))
     form["description"] = (
-        "An EPUB (one file in `file`), TXT chapters (one or more `.txt` files in `file` or `files`; `series` or "
+        "An EPUB (one file in `file`), TXT or DOCX chapters (one or more `.txt` or `.docx` files in `file` or "
+        "`files`; `series` or "
         "`series_id`, `volume`, `source_language` and `target_language` required) or one `.json` document in "
         "`file` with no other field. Empty fields count as not given; unknown fields are refused."
     )
     form["properties"] = {
         "file": {"type": "string", "format": "binary", "description": "The EPUB, the JSON document or a TXT "
-                                                                     "chapter."},
+                                                                     "or DOCX chapter."},
         "files": {"type": "array", "items": {"type": "string", "format": "binary"},
-                  "description": "TXT chapters, one file each, numbered from their names."},
+                  "description": "TXT or DOCX chapters, one file each, numbered from their names."},
         **form.get("properties", {}),
     }  # fmt: skip
     form.pop("required", None)
@@ -980,8 +985,10 @@ def upload_body(options: dict) -> dict:
             "multipart/form-data": {
                 "schema": form,
                 "encoding": {
-                    "file": {"contentType": "application/epub+zip, application/json, text/plain"},
-                    "files": {"contentType": "text/plain"},
+                    "file": {"contentType": "application/epub+zip, application/json, text/plain, "
+                             "application/vnd.openxmlformats-officedocument.wordprocessingml.document"},
+                    "files": {"contentType": "text/plain, "
+                              "application/vnd.openxmlformats-officedocument.wordprocessingml.document"},
                 },
             },  # fmt: skip
             "application/epub+zip": {"schema": {"type": "string", "format": "binary"}},

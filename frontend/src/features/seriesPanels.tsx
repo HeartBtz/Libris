@@ -16,6 +16,8 @@ import type {
   SeriesRelation,
   SeriesTerm,
 } from "../types";
+import { GlossaryExport, GlossaryImport, importSummary } from "./GlossaryImport";
+import { SeriesSharedGlossary } from "./GlossaryLevels";
 import {
   Badge,
   Button,
@@ -224,6 +226,9 @@ registerTranslations({
   "Lien d’identité rejeté": "Identity link rejected",
   "Dérogation d’un volume au glossaire": "Volume glossary override",
   "Dérogation retirée": "Override removed",
+  "Import dans le glossaire de série": "Import into the series glossary",
+  "Glossaire partagé rattaché": "Shared glossary attached",
+  "Glossaire partagé détaché": "Shared glossary detached",
 });
 
 const WORLD: [string, string][] = [
@@ -256,6 +261,9 @@ const AUDIT: Record<string, string> = {
   "series.link_linked": "Lien d’identité confirmé",
   "series.link_rejected": "Lien d’identité rejeté",
   "glossary.series_override": "Dérogation d’un volume au glossaire",
+  "series.glossary_imported": "Import dans le glossaire de série",
+  "series.shared_glossary_attached": "Glossaire partagé rattaché",
+  "series.shared_glossary_detached": "Glossaire partagé détaché",
   "glossary.series_override_removed": "Dérogation retirée",
 };
 
@@ -546,9 +554,25 @@ export function SeriesGlossary({ series, owner, run }: { series: SeriesDetail; o
   const filtered = list.filter((term) => `${term.source} ${term.translation}`.toLocaleLowerCase().includes(needle));
   return (
     <div className="stack">
+      <SeriesSharedGlossary seriesId={series.id} owner={owner} run={run} />
       <Card
         title={t("Glossaire de série")}
         description={t("Les termes acceptés s’imposent aux volumes suivants, sauf dérogation explicite d’un volume.")}
+        actions={
+          <div className="row">
+            {owner && (
+              <GlossaryImport
+                endpoint={`/series/${series.id}/glossary/import`}
+                run={run}
+                onImported={async (result) => {
+                  toast(importSummary(t, result));
+                  await load();
+                }}
+              />
+            )}
+            <GlossaryExport base={`/series/${series.id}/glossary`} name="series-glossary" run={run} />
+          </div>
+        }
       >
         <div className="series-toolbar">
           <label className="library-search">

@@ -1,9 +1,9 @@
 """Starting the work of a freshly imported volume, when the person (or the API client) asked for it."""
 
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, object_session
 
-from app.config import settings
+from app.automation_settings import autopilot_config
 from app.jobs.queue import HELD, enqueue
 from app.models import Job, Project
 
@@ -14,9 +14,11 @@ AUTOPILOT = {"autopilot": True, "automatic_recovery": True, "full_review": True}
 
 
 def autopilot_default(project: Project) -> bool:
-    """The project's own choice (`config["autopilot"]`), else AUTOPILOT_ENABLED (on by default)."""
+    """The project's own choice (`config["autopilot"]`), else the global one (on by default)."""
     chosen = (project.config or {}).get("autopilot")
-    return settings().autopilot_enabled if chosen is None else bool(chosen)
+    if chosen is not None:
+        return bool(chosen)
+    return bool(autopilot_config(object_session(project))["enabled"])
 
 
 def pipeline_options(project: Project) -> dict:

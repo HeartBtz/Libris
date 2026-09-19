@@ -9,6 +9,7 @@ translation, failed passages kept in the original with their reason — and the 
 
 from sqlalchemy import delete, func, select
 
+from app.automation_settings import autopilot_config
 from app.config import settings
 from app.db import SessionLocal
 from app.engines.autopilot.arbitration import arbitrate, open_condition, settle_open
@@ -102,7 +103,7 @@ async def converge(job: Job, owner: str) -> None:
     from app.engines.translation.pipeline import consistency
 
     job = await blocking(checkpoint, job.id, owner)
-    limit = settings().autopilot_max_rounds
+    limit = autopilot_config()["max_rounds"]
     round_no = int(job.checkpoint.get("autopilot_round") or 0)
     if not round_no:
         round_no = 1

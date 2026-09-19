@@ -1,7 +1,8 @@
 """Provider fallback: an outage is waited out for a bounded time, then the next provider takes over.
 
 The chain is the job's provider, then the project's `config["fallback_provider_ids"]`, then
-AUTOPILOT_FALLBACK_PROVIDERS (names or ids). When no provider of the chain answers any more, the job
+the global fallback providers (AUTOPILOT_FALLBACK_PROVIDERS or the
+administration setting, names or ids). When no provider of the chain answers any more, the job
 ends `failed` with the reason: waiting for ever would leave the book neither finished nor failed.
 """
 
@@ -10,7 +11,7 @@ import time
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
-from app.config import settings
+from app.automation_settings import autopilot_config
 from app.db import SessionLocal
 from app.engines.autopilot.decisions import enabled, record
 from app.jobs.queue import RUNNING, emit
@@ -20,8 +21,8 @@ from app.models import Job, Project, Provider, RequestLog
 def chain(db: Session, project: Project, first: str | None = None) -> list[str]:
     """Existing providers, in the order they are tried; `first` (the job's provider) leads."""
     ids = [first, project.provider_id, *(project.config.get("fallback_provider_ids") or [])]
-    for token in settings().autopilot_fallback_providers.split(","):
-        if token := token.strip():
+    for token in autopilot_config(db)["fallback_providers"]:
+        if token := str(token).strip():
             found = db.get(Provider, token) or db.scalar(
                 select(Provider).where(Provider.name == token).limit(1)
             )
@@ -58,11 +59,11 @@ def handle_outage(job_id: str, owner: str, message: str, authentication: bool) -
         progress = dict(job.checkpoint)
         started = progress.get("outage_started_at") if job.outage_count else None
         started = started or now
-        config = settings()
+        config = autopilot_config(db)
         if (
             not authentication
-            and job.outage_count < config.autopilot_outage_max_retries
-            and now - started < config.autopilot_outage_max_wait_seconds
+            and job.outage_count < config["outage_max_retries"]
+            and now - started < config["outage_max_wait_seconds"]
         ):
             job.checkpoint = {**progress, "outage_started_at": started}
             db.commit()

@@ -363,6 +363,19 @@ async def request_dispatcher(stopped: asyncio.Event, interval: float = REQUEST_I
             await asyncio.wait_for(stopped.wait(), timeout=interval)
 
 
+async def webhook_dispatcher(stopped: asyncio.Event, interval: float = REQUEST_INTERVAL) -> None:
+    """Sends the webhooks of ended automation requests (app.engines.delivery.webhooks); never the API."""
+    from app.engines.delivery.webhooks import pump
+
+    while not stopped.is_set():
+        try:
+            await asyncio.to_thread(pump)
+        except SQLAlchemyError as exc:
+            logger.warning("operation=webhooks status=deferred reason=%s", type(exc).__name__)
+        with contextlib.suppress(TimeoutError):
+            await asyncio.wait_for(stopped.wait(), timeout=interval)
+
+
 RETENTION_INTERVAL = 3600
 
 
@@ -394,6 +407,7 @@ async def main() -> None:
         worker_slot(stopped, ("sync_memory",)),
         retention_loop(stopped),
         request_dispatcher(stopped),
+        webhook_dispatcher(stopped),
     )
 
 

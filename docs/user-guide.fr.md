@@ -751,10 +751,13 @@ l’environnement** efface ce qui a été enregistré ici.
 
 ### Reprise automatique
 
-Le **Délai de reprise (secondes)** après une panne réseau, un timeout ou une erreur temporaire (60 secondes par
-défaut, de 5 à 3 600). Le travail reprend depuis son dernier point enregistré. Le délai demandé par le provider
-et sa capacité restent prioritaires ; les pauses manuelles et les erreurs d’authentification attendent toujours
-une personne.
+Le **Délai de reprise (secondes)** après une panne réseau, un timeout ou une erreur temporaire (de 5 à 3 600).
+Sans délai enregistré ici, c’est la valeur de l’installation (`PROVIDER_RECOVERY_BASE_SECONDS`, 60 secondes par
+défaut) qui s’applique ; elle est rappelée sous le champ, et un badge indique **Délai enregistré ici** ou
+**Délai de l’environnement**. **Revenir au délai de l’environnement** oublie le délai enregistré, après
+confirmation. Le travail reprend depuis son dernier point enregistré. Le délai demandé par le provider et sa
+capacité restent prioritaires ; les pauses manuelles et les erreurs d’authentification attendent toujours une
+personne.
 
 ### API d’automatisation
 

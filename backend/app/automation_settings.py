@@ -1,8 +1,8 @@
-"""Global autopilot and webhook settings an administrator may change at runtime.
+"""Global autopilot, webhook and recovery settings an administrator may change at runtime.
 
-The environment (`AUTOPILOT_*`, `API_WEBHOOK_*`) gives the defaults; a value saved from the
-interface (`AppSetting` rows "autopilot" and "webhooks", see app.api.automation) wins over it
-until it is reset. Every code path that uses one of these values reads it here, so a change
+The environment (`AUTOPILOT_*`, `API_WEBHOOK_*`, `PROVIDER_RECOVERY_BASE_SECONDS`) gives the
+defaults; a value saved from the interface (`AppSetting` rows "autopilot", "webhooks" and
+"provider_recovery", see app.api.automation and app.api.recovery) wins over it until it is reset. Every code path that uses one of these values reads it here, so a change
 applies to the next decision without a restart. Per-volume choices (`config["autopilot"]`,
 `config["fallback_provider_ids"]`) still come first where they exist.
 """
@@ -20,6 +20,7 @@ logger = logging.getLogger("epub.settings")
 
 AUTOPILOT_KEY = "autopilot"
 WEBHOOKS_KEY = "webhooks"
+RECOVERY_KEY = "provider_recovery"
 AUTOPILOT_FIELDS = (
     "enabled",
     "max_rounds",
@@ -92,3 +93,11 @@ def webhook_secret(db: Session | None = None) -> str:
         except SecretUnreadable:
             logger.warning("webhooks=saved_secret_unreadable_secret_key_changed")
     return settings().api_webhook_secret
+
+
+def recovery_base_seconds(db: Session | None = None) -> int:
+    """First wait before retrying an unavailable provider: the saved delay, else the environment."""
+    value = saved(db, RECOVERY_KEY).get("retry_seconds")
+    if isinstance(value, int) and not isinstance(value, bool):
+        return value
+    return settings().provider_recovery_base_seconds

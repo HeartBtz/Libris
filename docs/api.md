@@ -1,127 +1,122 @@
-# Automation API (`/api/v1`)
+# Automation API
 
-The automation API lets a script or another server send chapters or a whole EPUB to Libris and get the
-translation back, with no step in the interface: the file goes in, the pipeline runs to its end on its
-own, and the result (a translated EPUB for an EPUB, JSON, text or a ZIP of chapters for chapters) comes
-out with a completion report. It is separate from the API used by the web interface:
+This page is for developers who want a script or another server to send books to Libris and get the
+translation back, with no step in the web interface. You send an EPUB, some TXT chapters or a JSON
+document; Libris runs the whole pipeline on its own; you poll the status (or receive a webhook) and
+download the result with its completion report.
 
-- every path starts with `/api/v1` and its contract is versioned;
+The automation API lives under `/api/v1` and is separate from the API used by the web interface:
+
 - it only accepts API tokens (`Authorization: Bearer …`). The interface's session cookie does not open
-  `/api/v1`, and a token does not open the interface's `/api/*` routes;
-- work is asynchronous: a request is stored in SQL before the `202 Accepted` answer, the pipeline runs in
-  the worker, and the client polls (or long-polls with `?wait=`, or receives a webhook). No HTTP request
-  stays open during a translation;
+  `/api/v1`, and a token does not open the interface's routes;
+- work is asynchronous. A request is saved in the database before the `202 Accepted` answer, the
+  pipeline runs in the worker, and no HTTP connection stays open during a translation;
 - a request always ends: `completed`, `completed_with_residuals`, `failed` (with the reason) or
   `cancelled`. It never stays `running` forever.
 
-All examples use two shell variables:
+## At a glance
+
+| Method and path | Scope | Purpose |
+| --- | --- | --- |
+| `POST /api/v1/translation-requests` | `content:write` (+ `pipeline:start` to translate) | Send an EPUB, TXT chapters or a JSON document |
+| `GET /api/v1/translation-requests/{id}` | `jobs:read` | Status, progress and report (`?wait=` to long-poll) |
+| `POST /api/v1/translation-requests/{id}/pause` | `jobs:control` | Pause the request's job |
+| `POST /api/v1/translation-requests/{id}/resume` | `jobs:control` | Resume it |
+| `POST /api/v1/translation-requests/{id}/cancel` | `jobs:control` | Cancel it |
+| `GET /api/v1/translation-requests/{id}/result` | `results:read` | Download the result (EPUB, JSON, TXT or ZIP) |
+| `GET /api/v1/series` | `series:read` | List your series |
+| `GET /api/v1/series/{id}` | `series:read` | One series and its volumes |
+
+Every example on this page uses these shell variables:
 
 ```bash
 export LIBRIS_URL=https://libris.example.org
-export LIBRIS_TOKEN=lbr_xxxxxxxx_...   # shown once when the token is created
+export LIBRIS_TOKEN=lbr_xxxxxxxx_...        # shown once when the token is created
+export PROVIDER_ID=...                      # a provider id, see "Choosing a provider" below
 ```
 
-## Tokens and scopes
+## Create a token
 
-Create tokens in the interface: **My account › API tokens** (administrators also find them under
-**Settings › Automation API**). Give a name, choose the scopes and an optional expiry (30, 90, 365 days or
-never). The secret (`lbr_` + 8 identifying characters + `_` + 256 random bits) is displayed **once**; Libris
-only stores its SHA-256 and compares it in constant time. The list shows the prefix, scopes, creation,
-expiry, last use (updated at most once a minute) and state. Revocation is immediate and final. Creation and
-revocation are recorded in the audit log, without the secret. A token acts on behalf of its owner and only
-sees the owner's series and requests; a disabled account makes its tokens unusable.
+1. In the interface, open **My account › API tokens** (administrators also find it under
+   **Settings › Automation API**).
+2. Under **Create a token**, give it a name, tick the permissions it needs and choose an expiration
+   (30, 90 or 365 days, or never).
+3. Optionally tick **Sign webhooks with a secret of this token** (see [Webhooks](#webhooks)).
+4. Copy the secret now: it is displayed **once** and never again.
 
-| Scope | Allows |
+A token acts on behalf of its owner: it only sees the owner's series and requests, and it stops
+working when the owner's account is disabled. The list shows each token's prefix, permissions,
+creation and expiry dates, last use (updated at most once a minute) and state (active, expired,
+revoked). **Revoke** is immediate and final; clients using the token then get `401`. Creating and
+revoking a token are written to the audit log, without the secret. An account can hold at most 50
+tokens that are not revoked.
+
+| Scope | Interface label | Allows |
+| --- | --- | --- |
+| `series:read` | Read series | `GET /api/v1/series`, `GET /api/v1/series/{id}` |
+| `content:write` | Send content | `POST /api/v1/translation-requests` |
+| `pipeline:start` | Start the pipeline | Together with `content:write`: requests that start the translation (the default). Without it, only `start=false` (import only) is accepted. |
+| `jobs:read` | Follow jobs | `GET /api/v1/translation-requests/{id}` |
+| `jobs:control` | Control jobs (pause, resume, cancel) | `POST …/pause`, `…/resume`, `…/cancel` |
+| `results:read` | Read results | `GET /api/v1/translation-requests/{id}/result` |
+
+A token has the form `lbr_` + 8 identifying characters + `_` + a random secret (256 bits). Libris
+stores only its SHA-256 and compares it in constant time.
+
+### Managing tokens from a script
+
+The interface manages tokens through three routes that use the **session cookie**, not a token:
+
+| Route | Body and answer |
 | --- | --- |
-| `series:read` | `GET /api/v1/series`, `GET /api/v1/series/{id}` |
-| `content:write` | `POST /api/v1/translation-requests` (import only) |
-| `pipeline:start` | together with `content:write`: requests that start the pipeline (`pipeline.start` / `start`, true by default) |
-| `jobs:read` | `GET /api/v1/translation-requests/{id}` |
-| `jobs:control` | `POST /api/v1/translation-requests/{id}/pause|resume|cancel` |
-| `results:read` | `GET /api/v1/translation-requests/{id}/result` |
+| `GET /api/tokens` | The caller's tokens: `id, name, prefix, scopes, created_at, expires_at, revoked_at, last_used_at, state, webhook_secret` (a boolean: whether the token has its own signing secret). |
+| `POST /api/tokens` | Body `{"name": "…", "scopes": ["…"], "expires_in_days": 90, "webhook_secret": false}`. `name` 1–100 characters, at least one scope, `expires_in_days` 1–3650 or `null` for no expiry. Answers `201` with the token view plus `token` (the secret) and, when asked, `webhook_secret` (the signing secret). This is the only answer that ever contains them. |
+| `DELETE /api/tokens/{id}` | Revokes the token and returns its view. |
 
-The interface manages tokens through `GET /api/tokens`, `POST /api/tokens`
-(`{"name", "scopes", "expires_in_days", "webhook_secret"}`, the only answer that contains `token`) and
-`DELETE /api/tokens/{id}` (revocation), with the session cookie. With `"webhook_secret": true` the token
-also gets its own secret to sign webhooks, returned once as `webhook_secret` (stored encrypted with
-`SECRET_KEY`; the list only says whether one exists).
-
-## Sending a translation request
+## Send a translation request
 
 `POST /api/v1/translation-requests` accepts three kinds of input:
 
-- a JSON document (`application/json`, or a single `.json` file in the multipart field `file`), below;
-- an **EPUB**: `multipart/form-data` with one `.epub` file in `file` and the options as form fields, or
-  the raw file as `application/epub+zip` with the options in the query string
-  ([Sending an EPUB](#sending-an-epub));
-- **TXT chapters**: `multipart/form-data` with one or several `.txt` files in `file` or `files` and the
-  options as form fields ([Sending TXT chapters](#sending-txt-chapters)).
+| Input | How to send it | Default result |
+| --- | --- | --- |
+| **An EPUB** | `multipart/form-data` with one `.epub` file in the field `file`, options as form fields; or the raw file as `Content-Type: application/epub+zip`, options in the query string | The translated EPUB |
+| **TXT chapters** | `multipart/form-data` with one or more `.txt` files in `file` or `files`, options as form fields | JSON |
+| **A JSON document** | `Content-Type: application/json`; or one `.json` file in the multipart field `file` (with no other form field) | JSON (or `output.format`) |
 
-The JSON document:
+One request carries one kind of file: mixing `.epub`, `.txt` and `.json` files, or sending several
+EPUB or JSON files, is refused with `422`. Structured formats (Markdown, HTML, DOCX) are not accepted
+here: import them through the interface.
+
+Every accepted request answers `202 Accepted`, with a `Location` header pointing to its status:
 
 ```json
 {
+  "request_id": "5b1c…",
   "external_id": "tbate-volume-12",
-  "series": {"id": null, "name": "The Synthetic Saga", "create_if_missing": true},
-  "volume": {"external_id": "volume-12", "number": 12, "title": "Volume 12"},
-  "author": "A. Author",
-  "source_language": "en",
-  "target_language": "fr",
-  "chapters": [
-    {"external_id": "chapter-001", "number": 1, "title": "Chapter 1", "content": "First paragraph.\n\nSecond paragraph.\n"}
-  ],
-  "replace_changed_chapters": false,
-  "discard_human": false,
-  "pipeline": {"start": true, "provider_id": null, "quality": "high", "context_backend": "hybrid", "final_review": true},
-  "output": {"format": "json"},
-  "callback_url": "https://hooks.example.org/libris"
-}
-```
-
-| Field | Rules |
-| --- | --- |
-| `external_id` | Optional, your identifier of the request (letters, digits, `._:/-`, up to 200). Unique per owner. |
-| `series` | `id` (a series you own) **or** `name`. An unknown name is created when `create_if_missing` is true (default), otherwise 404. Archived series are refused (409). |
-| `volume` | `number` is required (1–10000). The volume is found by `external_id`, then by number within the series, otherwise created as a JSON volume. A volume imported from an EPUB is refused (409). |
-| `source_language`, `target_language` | Required BCP 47 tags: `en`, `fr-FR`, `zh-Hant`, `es-419`… They are applied to the volume. |
-| `chapters` | At least one; at most `API_MAX_CHAPTERS` (2000). `number` is required, numbers and `external_id`s must not repeat, `content` must not be blank and at most `TEXT_CHAPTER_MAX_CHARS` characters. `title` is optional: without it nothing is added to the text. Chapters are ordered by number. |
-| `replace_changed_chapters` | A chapter already in the volume (same `external_id`, or same number) with another text is refused (409 `chapter_conflict`) unless this is true. Passages whose text did not change keep their translation; passages corrected or validated by a person are never discarded through the API (409). |
-| `pipeline` | `start` (default true; needs `pipeline:start`), `provider_id` (an existing provider; otherwise the volume's or series' provider — one is required to start), `quality` (`fast`, `normal`, `high`, `maximum`), `context_backend` (`internal`, `openviking`, `hybrid`), `final_review` (false skips the final review; it never runs when the server sets `FINAL_REVIEW_ENABLED=false`). |
-| `discard_human` | With `replace_changed_chapters`, also replaces chapters whose passages a person corrected or validated (their edits are lost). Default false: such chapters are refused (409). |
-| `output.format` | Default format of the result: `json`, `txt` or `txt-zip`. |
-| `callback_url` | Optional webhook called when the request ends ([Webhooks](#webhooks)). |
-
-Any unknown field is refused. Nothing is ever downloaded from a URL found in the payload: text is taken
-as is. Chapters go through the same text adapter as TXT imports (same passages, layout and checksums).
-The normalized payload is stored as a JSON source file of the volume, referenced by the chapters it
-created or replaced.
-
-```bash
-curl -sS -X POST "$LIBRIS_URL/api/v1/translation-requests" \
-  -H "Authorization: Bearer $LIBRIS_TOKEN" \
-  -H "Content-Type: application/json" \
-  -H "Idempotency-Key: tbate-volume-12-run-1" \
-  --data @request.json
-
-# The same document as a file:
-curl -sS -X POST "$LIBRIS_URL/api/v1/translation-requests" \
-  -H "Authorization: Bearer $LIBRIS_TOKEN" \
-  -H "Idempotency-Key: tbate-volume-12-run-1" \
-  -F "file=@request.json;type=application/json"
-```
-
-Answer `202 Accepted` (header `Location` = `status_url`):
-
-```json
-{
-  "request_id": "5b1c…", "external_id": "tbate-volume-12",
-  "series_id": "…", "project_id": "…", "job_id": "…", "input": "json", "status": "pending",
+  "series_id": "…",
+  "project_id": "…",
+  "job_id": "…",
+  "input": "json",
+  "status": "pending",
   "status_url": "/api/v1/translation-requests/5b1c…",
   "result_url": "/api/v1/translation-requests/5b1c…/result"
 }
 ```
 
-### Sending an EPUB
+`input` is `epub`, `txt` or `json`. `job_id` is `null` while the request waits for its volume
+(`status: "queued"`).
+
+### Choosing a provider
+
+A translation needs a model provider. Libris uses, in order, `provider_id` from the request, the
+volume's provider, then the series' default provider. If none is set, the request is refused with
+`422 provider_required`; an unknown id answers `422 unknown_provider`.
+
+The simplest setup is to choose a default provider for the series once, in the interface (the series'
+**Defaults** tab), and leave `provider_id` out. To find provider ids, a signed-in user can call the
+interface's `GET /api/providers` (session cookie), which lists each provider's `id`, name and model.
+
+### Send an EPUB
 
 ```bash
 # Multipart: the file and its options as form fields
@@ -140,103 +135,231 @@ curl -sS -X POST "$LIBRIS_URL/api/v1/translation-requests?target_language=fr&pro
   --data-binary @tower.epub
 ```
 
-The EPUB becomes a volume (standalone, or in the series named by `series` / `series_id`) and its pipeline
-starts at once. The same file sent again (same content) reuses the volume already made from it, and the
-request records that decision. In a series without `volume`, the number found in the file name is used
-when it is free, otherwise the volume after the last one; the choice and its reason are recorded. A volume
-number already taken by another book answers `409 volume_conflict`; an unreadable file `422 invalid_epub`.
-The result is a translated EPUB by default ([Results](#results)).
+What Libris does with it:
 
-Options of file uploads (form fields, or query parameters for a raw body; unknown ones are refused):
+- The EPUB becomes a volume: standalone, or in the series named by `series` (created if missing) or
+  `series_id`. Its pipeline starts at once.
+- The same file sent again (same bytes) reuses the volume already made from it, and the request
+  records that decision. An archived volume answers `409 volume_archived`.
+- In a series, without `volume`, Libris takes the volume number from the file name when that number is
+  free, otherwise the number after the last volume. The choice and its reason are recorded in the
+  report (`decisions.intake`). A volume number already used by another book answers
+  `409 volume_conflict`.
+- Languages default to the language declared in the EPUB (`en` when none) and to the series' target
+  language (`fr` when there is none).
+- A file that cannot be read as an EPUB answers `422 invalid_epub`.
+- If a job is already running on the volume, its settings are left alone and the request waits for it
+  (the decision is recorded).
 
-| Option | Meaning |
-| --- | --- |
-| `series` or `series_id` | Series by name (created when missing) or identifier. Required for TXT; optional for an EPUB (standalone volume). |
-| `volume` | Volume number (1–10000). Required for TXT. |
-| `external_id`, `volume_external_id` | Your identifiers of the request and of the volume. |
-| `title`, `author` | Volume title and author (an EPUB keeps its own otherwise). |
-| `source_language`, `target_language` | BCP 47 tags. Both required for TXT; an EPUB defaults to its declared language and to the series' (or `fr`) target. |
-| `provider_id`, `quality`, `context_backend`, `final_review` | As in `pipeline` above. |
-| `start` | `true` (default) runs the whole pipeline; `false` only imports. |
-| `output_format` | `epub` (EPUB only, default for an EPUB), `json`, `txt`, `txt-zip`. |
-| `callback_url` | Webhook ([Webhooks](#webhooks)). |
-| `replace_changed_chapters`, `discard_human` | TXT only, as in the JSON document. |
-| `filename` | Raw EPUB body only: the file name (used for the volume number guess). |
-
-### Sending TXT chapters
+### Send TXT chapters
 
 ```bash
 curl -sS -X POST "$LIBRIS_URL/api/v1/translation-requests" \
   -H "Authorization: Bearer $LIBRIS_TOKEN" \
   -F "files=@Chapter 1.txt" -F "files=@Chapter 2.txt" -F "files=@Afterword.txt" \
-  -F series="Web Saga" -F volume=1 -F source_language=en -F target_language=fr \
+  -F series="Web Saga" -F volume=1 \
+  -F source_language=en -F target_language=fr \
   -F provider_id="$PROVIDER_ID" -F output_format=txt-zip
 ```
 
-Each file becomes a chapter; together they are exactly the JSON request they stand for (same
-idempotency, volume lookup, conflicts and results). Files are decoded like TXT imports (UTF-8, UTF-16 with
-BOM, Windows-1252 as a recorded last resort). Chapter numbers come from the file names (`Chapter 12.txt`,
-`012 - Title.txt`, or the part that varies across the batch); a file without a number, or with the number
-of another file, gets the next free number in upload order. These choices are never questions: they are
-recorded with their reason in the request (`report.decisions.intake`). Mixed kinds of files in one request
-are refused (422).
+Each file becomes one chapter, and the request behaves exactly like the JSON document it stands for
+(same idempotency, volume lookup, conflicts and results). `series` (or `series_id`), `volume`,
+`source_language` and `target_language` are required.
 
-### Idempotency
+- **Encoding.** Files are decoded as UTF-8, UTF-16 with a BOM, or, as a last resort, Windows-1252. The
+  last case is recorded in the report.
+- **Chapter numbers** come from the file names (`Chapter 12.txt`, `012 - Title.txt`, or the part that
+  varies across the batch). A file with no number, or with the same number as another file, gets the
+  next free number in upload order. These choices are never questions: each one is recorded with its
+  reason in `report.decisions.intake`.
+- **Titles** are taken from the file names.
 
-Send an `Idempotency-Key` header (1–200 printable characters) and/or an `external_id`. Sending again the
-same content with the same key or the same `external_id` answers `200` with the same resource and the
-header `Idempotent-Replayed: true`; nothing is created twice. The same key or `external_id` with another
-content answers `409 idempotency_conflict`. Content is compared after validation (key order and
-whitespace do not matter; JSON and multipart are equivalent). For an EPUB the content is the file and its
-options (the `callback_url` aside). Even without a key, sending chapters that
-are already in the volume with the same text never duplicates series, volumes or chapters.
+### Send a JSON document
 
-## Asynchronous processing
-
-The request, its chapters and its job are committed before the answer. If another job already works on the
-volume, the request stays `queued` (its chapters are imported only when no job is active on the volume);
-the worker's dispatcher checks queued requests every 2 seconds and starts each one once the volume is free.
-Requests on the same volume start in arrival order. A volume held by a paused or blocked job stays busy
-until that job is resumed and finishes, or is cancelled. Everything lives in SQL: restarting the API or the
-worker loses nothing.
-
-Status values: `queued` (waiting for the volume), `imported` (chapters imported, `pipeline.start` false),
-then the state of the job: `pending`, `running`, `paused`, `waiting` (provider temporarily unavailable,
-retried automatically), `blocked` (e.g. provider authentication), `finalizing` (the job ended, the result
-is being built), and finally one of:
-
-| Final status | Meaning |
-| --- | --- |
-| `completed` | Every passage translated; the result is stored. |
-| `completed_with_residuals` | The result is stored, but some passages kept their source text (refused, failed, or restored by the EPUB repair); they are listed in `report.residuals` with their reason. |
-| `failed` | With the reason in `error`: the job failed, the EPUB could not be repaired, the job stayed paused/blocked/waiting too long, or the request exceeded its maximum duration. |
-| `cancelled` | Cancelled by the client (or a person). |
-
-No request stays `running` forever: a job paused, blocked or waiting for more than
-`API_REQUEST_STALL_MINUTES` (360) is cancelled and the request fails with the reason, and so does a request
-still unfinished after `API_REQUEST_MAX_HOURS` (168). When the autopilot reports an outcome on the job
-(`result.autopilot`), a `failed` outcome fails the request with its reason.
-
-Started requests run under the [autopilot](autopilot.md) (unless the server sets `AUTOPILOT_ENABLED=false`
-or the volume opts out): refused content, invalid answers and open review proposals never wait for a
-person, and a provider outage switches to the fallback providers after a bounded wait, so a job always ends
-`completed` or `failed`. Its report (`outcome`, `rounds`, `residuals` — passages kept in the original, with
-their reason — and `reason`) is stored on the job (`result.autopilot`); the interface reads it, with every
-decision, from `GET /api/projects/{id}/autopilot`.
-
-```bash
-curl -sS "$LIBRIS_URL/api/v1/translation-requests/$REQUEST_ID" -H "Authorization: Bearer $LIBRIS_TOKEN"
-# Long poll: answers as soon as the request ends, or after 60 s at most (API_RESULT_MAX_WAIT_SECONDS)
-curl -sS "$LIBRIS_URL/api/v1/translation-requests/$REQUEST_ID?wait=60" -H "Authorization: Bearer $LIBRIS_TOKEN"
+```json
+{
+  "external_id": "tbate-volume-12",
+  "series": {"id": null, "name": "The Synthetic Saga", "create_if_missing": true},
+  "volume": {"external_id": "volume-12", "number": 12, "title": "Volume 12"},
+  "author": "A. Author",
+  "source_language": "en",
+  "target_language": "fr",
+  "chapters": [
+    {"external_id": "chapter-001", "number": 1, "title": "Chapter 1",
+     "content": "First paragraph.\n\nSecond paragraph.\n"}
+  ],
+  "replace_changed_chapters": false,
+  "discard_human": false,
+  "pipeline": {"start": true, "provider_id": null, "quality": "high",
+               "context_backend": "hybrid", "final_review": true},
+  "output": {"format": "json"},
+  "callback_url": "https://hooks.example.org/libris"
+}
 ```
 
-The status gives `status`, `stage` (`analysis`, `translation`, `review`, `export`), `step` (current step of
-the job), `progress` (`segments`, `translated`, `percent` for the request's chapters, and the volume's
-`stages`), `estimate` (remaining seconds and cost when enough calls have been observed), `error`,
-`stop_reason`, `next_attempt`, `chapters` (`created`, `unchanged`, `replaced` and per chapter:
-identifiers, passages, translated, validated, flagged, complete), `finished_at`, `result` (format, size,
-SHA-256 of the stored result), `report` (the completion report, once the request ended) and `webhook`
-(`state`: `pending`, `delivered` or `failed`, `attempts`, last `error`) when a callback was given.
+```bash
+curl -sS -X POST "$LIBRIS_URL/api/v1/translation-requests" \
+  -H "Authorization: Bearer $LIBRIS_TOKEN" \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: tbate-volume-12-run-1" \
+  --data @request.json
+
+# The same document as an uploaded file
+curl -sS -X POST "$LIBRIS_URL/api/v1/translation-requests" \
+  -H "Authorization: Bearer $LIBRIS_TOKEN" \
+  -H "Idempotency-Key: tbate-volume-12-run-1" \
+  -F "file=@request.json;type=application/json"
+```
+
+| Field | Required | Rules |
+| --- | --- | --- |
+| `external_id` | no | Your identifier for the request: starts with a letter or digit, then letters, digits and `._:/-`, up to 200 characters. Unique per owner (see [Sending twice](#sending-the-same-request-twice)). |
+| `series` | yes | `id` (a series you own) **or** `name`. An unknown name is created when `create_if_missing` is true (the default), otherwise `404 series_not_found`. An archived series answers `409 series_archived`. |
+| `volume.number` | yes | 1–10000. |
+| `volume.external_id`, `volume.title` | no | The volume is found by `external_id`, then by number within the series; otherwise it is created (title defaults to "Series — number"). A volume that came from an EPUB answers `409 volume_conflict`, and so does a volume with that number but another `external_id`. An archived volume answers `409 volume_archived`. |
+| `author` | no | Up to 500 characters. |
+| `source_language`, `target_language` | yes | BCP 47 tags such as `en`, `fr-FR`, `zh-Hant`, `es-419`. Applied to the volume. |
+| `chapters` | yes | 1 to `API_MAX_CHAPTERS` (2000) chapters. `number` is required (0–100000, decimals such as `12.5` allowed); numbers and `external_id`s must not repeat. `content` must not be blank and holds at most `TEXT_CHAPTER_MAX_CHARS` characters. `title` is optional; without it nothing is added to the text and the chapter is named by its number. Chapters are ordered by number. |
+| `replace_changed_chapters` | no | Default `false`: a chapter already in the volume (same `external_id` or same number) with a different text answers `409 chapter_conflict` with the list in `conflicts`. With `true`, it is replaced; passages whose text did not change keep their translation. |
+| `discard_human` | no | Default `false`: a replacement that would drop passages a person corrected or validated answers `409 conflict` with `protected_segments`. With `true` (and `replace_changed_chapters`), those edits are discarded. |
+| `pipeline.start` | no | Default `true`: run the whole pipeline (needs the `pipeline:start` scope). `false` only imports the chapters. |
+| `pipeline.provider_id` | no | See [Choosing a provider](#choosing-a-provider). |
+| `pipeline.quality` | no | `fast`, `normal`, `high` or `maximum` (see [the autopilot guide](autopilot.md#what-each-quality-level-does)). |
+| `pipeline.context_backend` | no | `internal`, `openviking` or `hybrid` (see [OpenViking](openviking.md)). |
+| `pipeline.final_review` | no | Default `true`. `false` skips the final review. It never runs when the server sets `FINAL_REVIEW_ENABLED=false`. |
+| `output.format` | no | Default format of the result: `json`, `txt` or `txt-zip`. |
+| `callback_url` | no | A webhook called when the request ends (see [Webhooks](#webhooks)). |
+
+Unknown fields are refused. Libris never downloads anything from a URL found in the document: text is
+taken as it is. Chapters go through the same text importer as TXT files (same passages, layout and
+checksums), and the normalized document is stored as a source file of the volume.
+
+A new volume, and a series created by the request, take `provider_id`, `quality` and
+`context_backend` from `pipeline` when given, otherwise from the series defaults.
+
+### Options of file uploads
+
+For EPUB and TXT uploads, options are form fields (or query parameters for a raw EPUB body). Empty
+values count as "not given"; unknown options are refused.
+
+| Option | Meaning |
+| --- | --- |
+| `series` or `series_id` | The series by name (created when missing) or by id; not both. Required for TXT, optional for an EPUB (standalone volume otherwise). |
+| `volume` | Volume number (1–10000). Required for TXT. |
+| `external_id` | Your identifier of the request. |
+| `volume_external_id` | Your identifier of the volume. |
+| `title`, `author` | Volume title and author (an EPUB keeps its own otherwise). |
+| `source_language`, `target_language` | BCP 47 tags. Both required for TXT. |
+| `provider_id`, `quality`, `context_backend`, `final_review` | As in `pipeline` above. |
+| `start` | `true` (default) runs the whole pipeline; `false` only imports. |
+| `output_format` | `epub` (EPUB input only; the default for an EPUB), `json`, `txt` or `txt-zip`. |
+| `callback_url` | See [Webhooks](#webhooks). |
+| `replace_changed_chapters`, `discard_human` | TXT only, as in the JSON document. |
+| `filename` | Raw EPUB body only: the file name, used to guess the volume number. |
+
+### Sending the same request twice
+
+Send an `Idempotency-Key` header (1–200 printable characters), an `external_id`, or both. Sending the
+same content again with the same key or `external_id` answers `200 OK` with the original request and
+the header `Idempotent-Replayed: true`: nothing is created twice. The same key or `external_id` with
+different content answers `409 idempotency_conflict`.
+
+"Same content" is compared after validation: key order and whitespace do not matter, and a JSON
+document and the multipart upload of the same chapters are equivalent. For an EPUB, the content is the
+file plus its options, `callback_url` excepted.
+
+Even without a key, sending chapters that are already in the volume with the same text never
+duplicates a series, a volume or a chapter: they are reported as `unchanged`.
+
+## Follow a request
+
+```bash
+curl -sS "$LIBRIS_URL/api/v1/translation-requests/$REQUEST_ID" \
+  -H "Authorization: Bearer $LIBRIS_TOKEN"
+
+# Long poll: answers as soon as the request ends, or after 60 seconds at most
+curl -sS "$LIBRIS_URL/api/v1/translation-requests/$REQUEST_ID?wait=60" \
+  -H "Authorization: Bearer $LIBRIS_TOKEN"
+```
+
+`?wait=<seconds>` holds the answer until the request ends, up to `API_RESULT_MAX_WAIT_SECONDS`
+(60 by default); a larger value is cut to that limit, and values above 3600 are refused. Nothing is
+held open in the database while waiting.
+
+### How a request moves
+
+1. **Queued.** If another job is working on the volume, the request waits as `queued`. Its chapters
+   are imported only once no job is active on the volume. The worker checks queued requests every
+   2 seconds and starts each one as soon as its volume is free; requests on the same volume start in
+   arrival order. A volume held by a paused or blocked job stays busy until that job is resumed and
+   finishes, or is cancelled.
+2. **Running.** The pipeline runs under the [autopilot](autopilot.md): refusals, invalid model answers
+   and open review points never wait for a person, and a provider outage switches to fallback
+   providers after a bounded wait. (If an administrator turned the autopilot off, or the volume opted
+   out, these steps behave as in the interface.)
+3. **Finalizing.** The job ended; Libris builds and stores the result, then writes the report.
+4. **Ended.** One of the final statuses below.
+
+Everything lives in the database: restarting the API or the worker loses nothing.
+
+| Status | Meaning |
+| --- | --- |
+| `queued` | Waiting for the volume to be free. |
+| `imported` | Chapters imported, nothing started (`start` was false). This is an end state. |
+| `pending`, `running` | The job is waiting for a worker, or working. |
+| `paused` | Paused by you or by a person in the interface. |
+| `waiting` | The provider is temporarily unavailable; retried automatically. |
+| `blocked` | Needs attention, for example the provider refuses its credentials. |
+| `finalizing` | The job ended; the result is being built. |
+| `completed` | Every passage is translated; the result is stored. |
+| `completed_with_residuals` | The result is stored, but some passages kept their source text (refused, failed, or restored by the EPUB repair). They are listed in `report.residuals` with their reason. |
+| `failed` | See `error`: the job failed, the EPUB could not be repaired, the job stayed stalled too long, or the request ran past its maximum duration. |
+| `cancelled` | Cancelled by you or by a person. |
+
+**No request runs forever.** If its job stays `paused`, `blocked` or `waiting` for more than
+`API_REQUEST_STALL_MINUTES` (360), Libris cancels the job and the request fails with the reason. The
+same happens to a request still unfinished `API_REQUEST_MAX_HOURS` (168) after it was created. When
+the autopilot reports that it failed, the request fails with the autopilot's reason.
+
+### The status document
+
+```json
+{
+  "request_id": "5b1c…", "external_id": "tbate-volume-12", "series_id": "…", "project_id": "…",
+  "job_id": "…", "input": "json", "status": "running",
+  "status_url": "/api/v1/translation-requests/5b1c…",
+  "result_url": "/api/v1/translation-requests/5b1c…/result",
+  "created_at": 1790000000.0, "updated_at": 1790000100.0, "finished_at": null,
+  "stage": "translation", "step": "translation",
+  "progress": {"segments": 412, "translated": 180, "percent": 44,
+               "stages": [{"key": "translation", "done": 180, "total": 412, "percent": 44}]},
+  "estimate": {"…": "…"},
+  "error": "", "stop_reason": "", "next_attempt": 0,
+  "chapters": {"created": 3, "unchanged": 0, "replaced": 0,
+               "items": [{"chapter_id": "…", "external_id": "chapter-001", "number": 1, "title": "Chapter 1",
+                          "segments": 140, "translated": 60, "validated": 0, "flagged": 0, "complete": false}]},
+  "options": {"start": true, "final_review": true, "output_format": "json"},
+  "result": null,
+  "report": null,
+  "webhook": {"state": "pending", "attempts": 0, "error": ""}
+}
+```
+
+| Field | Meaning |
+| --- | --- |
+| `stage` | Current stage of the volume: `import`, `analysis`, `translation`, `review` or `export` (`null` without a job). |
+| `step` | Current step of the job (for example `translation`, `final_review`, `autopilot`, `arbitration`). |
+| `progress` | `segments`, `translated` and `percent` for the request's chapters (every chapter for an EPUB), and `stages`, the volume's progress per stage. |
+| `estimate` | Remaining time and cost, once enough model calls have been observed; otherwise `null`. |
+| `error`, `stop_reason`, `next_attempt` | Why the job stopped or is waiting, and when it will retry (Unix time, `0` when not waiting). |
+| `chapters` | How many chapters were `created`, `unchanged` or `replaced`, and per chapter its passages, translated, validated and flagged counts, and whether it is `complete`. |
+| `result` | Once stored: `format`, `media_type`, `filename`, `size`, `sha256`, `created_at`. |
+| `report` | The [completion report](#completion-report), once the request ended. |
+| `webhook` | Only when a `callback_url` was given: `state` (`pending`, `delivered`, `failed`), `attempts`, last `error`. |
+
+Times are Unix timestamps in seconds.
+
+### Pause, resume or cancel
 
 ```bash
 curl -sS -X POST "$LIBRIS_URL/api/v1/translation-requests/$REQUEST_ID/pause"  -H "Authorization: Bearer $LIBRIS_TOKEN"
@@ -244,150 +367,85 @@ curl -sS -X POST "$LIBRIS_URL/api/v1/translation-requests/$REQUEST_ID/resume" -H
 curl -sS -X POST "$LIBRIS_URL/api/v1/translation-requests/$REQUEST_ID/cancel" -H "Authorization: Bearer $LIBRIS_TOKEN"
 ```
 
-Pause, resume and cancel follow the rules of the interface (409 when the job's state does not allow it).
-A `queued` request without a job can only be cancelled.
+Each answers with the status document. They follow the same rules as the interface: `409` when the
+job's state does not allow the action. A request that has no job yet (`queued`) can only be cancelled;
+pausing or resuming it answers `409 not_started`.
 
-### Webhooks
-
-A request may name a `callback_url`. When it ends (any final status, or `imported`), the **worker** — never
-the API — sends one `POST` with a JSON body:
-
-```json
-{
-  "event": "translation_request.finished", "request_id": "…", "external_id": "…",
-  "status": "completed_with_residuals", "error": null, "project_id": "…", "job_id": "…",
-  "status_url": "/api/v1/translation-requests/…", "result_url": "/api/v1/translation-requests/…/result",
-  "artifact": {"format": "epub", "size": 812345, "sha256": "…"},
-  "report": {"outcome": "completed_with_residuals", "residual_total": 2, "…": "…"},
-  "finished_at": 1790000000.0
-}
-```
-
-Headers: `X-Libris-Event`, `X-Libris-Delivery` (`<request id>:<attempt>`), `X-Libris-Timestamp` (Unix
-seconds) and `X-Libris-Signature: sha256=<hex>`, the HMAC-SHA256 of `<timestamp>.<body>` with the token's
-webhook secret, or `API_WEBHOOK_SECRET` when the token has none. Verify it, and refuse old timestamps:
-
-```python
-import hashlib, hmac
-expected = hmac.new(secret.encode(), timestamp.encode() + b"." + body, hashlib.sha256).hexdigest()
-assert hmac.compare_digest(signature, "sha256=" + expected)
-```
-
-Any `2xx` answer is a delivery. Otherwise the call is retried with an exponential backoff (30 s, 60 s, …, at
-most one hour) up to `API_WEBHOOK_MAX_ATTEMPTS` (6) times; each call has a `API_WEBHOOK_TIMEOUT_SECONDS`
-(10) timeout and redirects are not followed. The webhook is a convenience: the status stays the reference.
-
-Protections (a `callback_url` that breaks one of them is refused at once with `422 callback_refused`):
-
-- webhooks are off until an administrator lists the allowed hosts in `API_WEBHOOK_HOSTS`
-  (`hooks.example.org,*.partner.example`); any other host is refused;
-- an HTTP(S) URL without credentials; a signing secret must exist (token or global);
-- the host is resolved when the request is accepted and again before every call; loopback, private,
-  link-local, reserved and multicast addresses are refused unless they fall in
-  `API_WEBHOOK_PRIVATE_NETWORKS` (CIDRs, e.g. `10.20.0.0/16` for a receiver on your own network). The call
-  goes to the address that was checked (a DNS answer that changes in between cannot redirect it), with the
-  original name in `Host` and TLS SNI.
-
-## Results
-
-When a request ends successfully (`completed` or `completed_with_residuals`) Libris builds its result once
-and stores it under `DATA_DIR/results/<request id>/` (a name Libris chooses): the translated EPUB for an
-EPUB, otherwise the request's `output.format`. `GET …/result` returns that stored file; other formats are
-rendered on demand from the database. The format is chosen by `?format=` (`epub`, `json`, `txt`,
-`txt-zip`), else by the `Accept` header (`application/epub+zip`, `application/json`, `text/plain`,
-`application/zip`), else the request's own format (EPUB for an EPUB). `epub` is only available for an EPUB
-(409 `format_unavailable` otherwise). `?wait=<seconds>` waits for the end of the request first (bounded by
-`API_RESULT_MAX_WAIT_SECONDS`).
+## Get the result
 
 ```bash
-# Upload, wait, download: the whole journey, with no human step
-REQUEST_ID=$(curl -sS -X POST "$LIBRIS_URL/api/v1/translation-requests" \
-  -H "Authorization: Bearer $LIBRIS_TOKEN" -F "file=@book.epub" -F target_language=fr \
-  -F provider_id="$PROVIDER_ID" | jq -r .request_id)
-while :; do  # each call answers when the request ends, or after 60 s
-  STATUS=$(curl -sS "$LIBRIS_URL/api/v1/translation-requests/$REQUEST_ID?wait=60" \
-    -H "Authorization: Bearer $LIBRIS_TOKEN" | jq -r .status)
-  case "$STATUS" in completed|completed_with_residuals|failed|cancelled) break ;; esac
-done
-echo "$STATUS"
-
-# The translated EPUB (default for an EPUB); its report is in the status
+# The default format: the translated EPUB for an EPUB, otherwise the request's output format
 curl -sS "$LIBRIS_URL/api/v1/translation-requests/$REQUEST_ID/result" \
   -H "Authorization: Bearer $LIBRIS_TOKEN" -o book.fr.epub
-# JSON (default for chapters, or output.format of the request)
+
+# JSON
 curl -sS "$LIBRIS_URL/api/v1/translation-requests/$REQUEST_ID/result?format=json" \
   -H "Authorization: Bearer $LIBRIS_TOKEN" -o result.json
-# One UTF-8 text, chapters under their translated headings
+
+# One UTF-8 text file, chapters under their translated headings
 curl -sS "$LIBRIS_URL/api/v1/translation-requests/$REQUEST_ID/result?format=txt" \
   -H "Authorization: Bearer $LIBRIS_TOKEN" -o volume-12.txt
-# ZIP: chapters/001 - Title.txt … and manifest.json (SHA-256 of each file); report.json when it is the
-# stored result
+
+# ZIP: chapters/001 - Title.txt …, manifest.json with the SHA-256 of each file
 curl -sS "$LIBRIS_URL/api/v1/translation-requests/$REQUEST_ID/result?format=txt-zip" \
   -H "Authorization: Bearer $LIBRIS_TOKEN" -o volume-12.zip
-# What is ready so far
-curl -sS "$LIBRIS_URL/api/v1/translation-requests/$REQUEST_ID/result?partial=true" \
+
+# Whatever is ready so far
+curl -sS "$LIBRIS_URL/api/v1/translation-requests/$REQUEST_ID/result?format=json&partial=true" \
   -H "Authorization: Bearer $LIBRIS_TOKEN"
 ```
 
-The result covers **the chapters of the request only** (not the rest of the volume; the whole book for an
-EPUB), in reading order. While the request has not ended, the answer is `409 result_not_ready` (header
-`Retry-After`) with `status` and `incomplete_chapters`; a failed or cancelled request answers
-`409 request_failed` / `request_cancelled` with the `reason`. With `partial=true` the result is returned
-anyway: `complete` is false, `incomplete_chapters` lists the chapters concerned, each chapter carries
-`complete` and `missing_segments`. In every format, passages without a translation — residuals of a
-`completed_with_residuals` request, or not yet translated in a partial result — **keep their source text**.
-Every format sends `X-Libris-Complete: true|false` and `X-Libris-Status`.
+**Choosing the format.** `?format=` wins (`epub`, `json`, `txt`, `txt-zip`); otherwise the `Accept`
+header (`application/epub+zip`, `application/json`, `text/plain`, `application/zip`); otherwise the
+request's own format. `epub` exists only for a request that sent an EPUB (`409 format_unavailable`
+otherwise).
 
-#### The delivered EPUB
+**What it covers.** The chapters of the request only, in reading order; for an EPUB, the whole book.
 
-The translated EPUB is rebuilt from the original file with every translated passage; residual passages
-keep their source markup and text. It is then checked by EPUBCheck (when `EPUBCHECK_JAR` is set). When
-EPUBCheck rejects it, Libris repairs it automatically: the files named by the errors fall back to their
-source text (the passages concerned become residuals with the reason `epubcheck_repair`), and the book is
-checked again, at most `DELIVERY_REPAIR_ATTEMPTS` (3) times. Errors the original EPUB already had are
-inherited, not caused by the translation: they are listed in `report.delivery.inherited_errors` and do not
-block the delivery. Only when the repairs are exhausted does the request fail (`EPUBCheck refuse l’EPUB
-traduit, même après réparation automatique.`, with the errors in `report.delivery.errors`). A passage whose
-translated markup codes no longer match its source is also written in its source (`markup_mismatch`).
+**Stored and rendered results.** When a request ends successfully, Libris builds its result once, in
+the request's default format, and stores it under `DATA_DIR/results/<request id>/`. That file is
+served as is. Other formats are rendered on demand from the database. Stored files are removed after
+`RETENTION_RESULTS_DAYS` (30 days); asking again then renders the result from the database.
 
-#### Completion report
+**Before the end.** While the request is not finished, the answer is `409 result_not_ready` with
+`status`, `incomplete_chapters` and a `Retry-After: 5` header. A failed or cancelled request answers
+`409 request_failed` or `409 request_cancelled` with the `reason`. Add `?wait=<seconds>` to wait for
+the end first, or `?partial=true` to get what is ready: then `complete` is `false`, and
+`incomplete_chapters` lists the chapters that are not fully translated.
 
-In the status (`report`), the JSON result (`report`), the stored ZIP (`report.json`) and the webhook:
+**Missing passages keep their source text** in every format: residuals of a
+`completed_with_residuals` request, and passages not yet translated in a partial result.
 
-```json
-{
-  "version": 1, "outcome": "completed_with_residuals", "reason": null,
-  "passages": {"total": 412, "translated": 410, "source_retained": 1, "untranslated": 1, "flagged": 3,
-               "validated": 0, "human": 0, "by_status": {"ok": 407, "check": 3, "source_retained": 1, "error": 1}},
-  "residual_total": 2,
-  "residuals": [{"segment_id": "…", "chapter_id": "…", "chapter_external_id": null, "chapter_title": "…",
-                 "position": 118, "status": "source_retained", "kept": "source", "reason": "…"}],
-  "residuals_truncated": false,
-  "usage": {"calls": 1290, "prompt_tokens": 2410000, "completion_tokens": 610000, "cached_calls": 12, "cost": 3.41},
-  "durations": {"total_seconds": 5230.1, "queued_seconds": 0.4, "job_seconds": 5211.8},
-  "autopilot": {"outcome": "completed_with_residuals", "rounds": 2, "reason": null},
-  "decisions": {"autopilot": 17, "intake": [{"file": 2, "name": "Afterword.txt", "chapter_number": 3.0,
-                                             "confidence": "low", "reason": "…"}]},
-  "delivery": {"validation": {"available": true, "valid": true}, "repairs": [], "inherited_errors": []}
-}
-```
+Every result carries two headers: `X-Libris-Complete: true|false` and `X-Libris-Status: <status>`.
+Files other than JSON also carry a `Content-Disposition` with a file name. If the volume was deleted,
+the answer is `404 volume_not_found`.
 
-`residuals` lists at most 500 passages (`residual_total` counts them all). Their `reason` is the
-autopilot's when it recorded one, else the passage's last error, else `source_retained` / `untranslated`.
-`usage` sums the model calls of the request's job (`cost` only counts calls made with a known price; null
-when none had one). `autopilot` and `decisions.autopilot` (the automatic decisions logged for the job) are
-null when this build has no autopilot data.
+### The delivered EPUB
 
-JSON result (`schema_version` 1):
+The translated EPUB is rebuilt from the original file with every translated passage. Passages without
+a usable translation keep their source text and markup: passages not translated, passages kept in the
+original by the autopilot, and passages whose translated markup no longer matches the source
+(`markup_mismatch`).
+
+The book is then checked with EPUBCheck (when the server has `EPUBCHECK_JAR`). If EPUBCheck rejects it,
+Libris repairs it on its own: the files named by the errors go back to their source text (the passages
+concerned become residuals with the reason `epubcheck_repair`), and the book is checked again, up to
+`DELIVERY_REPAIR_ATTEMPTS` (3) times. Errors the original EPUB already had are not caused by the
+translation: they are listed in `report.delivery.inherited_errors` and do not block delivery. Only
+when the repairs run out does the request fail, with the errors in `report.delivery.errors`. When the
+EPUB is rendered on demand and cannot be built, the answer is `422 delivery_failed`.
+
+### The JSON result
 
 ```json
 {
-  "schema_version": 1, "request_id": "…", "external_id": "tbate-volume-12", "status": "completed",
-  "complete": true,
+  "schema_version": 1,
+  "request_id": "…", "external_id": "tbate-volume-12", "status": "completed", "complete": true,
   "series": {"id": "…", "name": "The Synthetic Saga"},
   "volume": {"project_id": "…", "external_id": "volume-12", "number": 12, "title": "Volume 12"},
   "source_language": "en", "target_language": "fr",
-  "strategy": {"provider": {"name": "Local", "model": "…"}, "quality": "high", "context_backend": "hybrid", "final_review": true},
+  "strategy": {"provider": {"name": "Local", "model": "…"}, "quality": "high",
+               "context_backend": "hybrid", "final_review": true},
   "incomplete_chapters": [],
   "chapters": [{
     "chapter_id": "…", "external_id": "chapter-001", "number": 1,
@@ -397,65 +455,237 @@ JSON result (`schema_version` 1):
     "source_sha256": "…", "sha256": "…",
     "review": {"segments": 2, "validated": 0, "flagged": 0},
     "issues": [], "flagged_passages": []
-  }]
+  }],
+  "report": {"…": "the completion report"}
 }
 ```
 
-`sha256` is the SHA-256 of `translation` (UTF-8); `source_sha256` the one of the normalized source text.
-`issues` are unresolved quality issues, `flagged_passages` passages still flagged for a person (`check`,
-`error`, `refused`, not validated). The strategy names the provider and model only, never its address or
-key.
+- `sha256` is the SHA-256 of `translation` (UTF-8); `source_sha256` is that of the normalized source
+  text.
+- `issues` lists unresolved quality issues (`segment_id`, `severity`, `code`, `message`);
+  `flagged_passages` lists passages still flagged (`check`, `error` or `refused`, not validated).
+- `strategy` names the provider and model only, never the provider's address or key.
+- `report` is the completion report once the request ended, `null` before.
 
-## Series
+### Completion report
+
+The report appears in the status document (`report`), in the JSON result, as `report.json` inside
+the stored ZIP, and in the webhook.
+
+```json
+{
+  "version": 1, "outcome": "completed_with_residuals", "reason": null,
+  "passages": {"total": 412, "translated": 410, "source_retained": 1, "untranslated": 1, "flagged": 3,
+               "validated": 0, "human": 0,
+               "by_status": {"ok": 407, "check": 3, "source_retained": 1, "error": 1}},
+  "residual_total": 2,
+  "residuals": [{"segment_id": "…", "chapter_id": "…", "chapter_external_id": null,
+                 "chapter_title": "…", "position": 118, "status": "source_retained",
+                 "kept": "source", "reason": "…"}],
+  "residuals_truncated": false,
+  "usage": {"calls": 1290, "prompt_tokens": 2410000, "completion_tokens": 610000,
+            "cached_calls": 12, "cost": 3.41},
+  "durations": {"total_seconds": 5230.1, "queued_seconds": 0.4, "job_seconds": 5211.8},
+  "autopilot": {"outcome": "completed_with_residuals", "rounds": 2, "reason": null},
+  "decisions": {"autopilot": 17,
+                "intake": [{"file": 2, "name": "Afterword.txt", "chapter_number": 3.0,
+                            "confidence": "low", "reason": "…"}]},
+  "delivery": {"validation": {"available": true, "valid": true}, "repairs": [], "inherited_errors": []}
+}
+```
+
+| Field | Meaning |
+| --- | --- |
+| `outcome`, `reason` | `completed`, `completed_with_residuals`, `failed` or `cancelled`, and why when it did not complete. |
+| `passages` | Counts over the request's passages (the whole book for an EPUB). |
+| `residuals` | Passages delivered in their source text, at most 500 (`residual_total` counts them all, `residuals_truncated` says when the list is cut). `reason` is the autopilot's when it recorded one, else the passage's last error, else `source_retained`, `untranslated`, `markup_mismatch` or `epubcheck_repair`. |
+| `usage` | Model calls of the request's job and their tokens. `cost` only counts calls with a known price, and is `null` when none had one. |
+| `durations` | Seconds since the request was created, spent waiting for the volume, and spent in the job. |
+| `autopilot` | How the autopilot ended (`null` when it did not run). |
+| `decisions` | `autopilot`: the number of decisions the autopilot logged for the job; `intake`: the choices made when reading the upload (volume and chapter numbers, text encoding, reused EPUB). |
+| `delivery` | EPUB only: EPUBCheck `validation`, the `repairs` made (attempt, errors, files, passages restored), `inherited_errors`, and `errors` when the delivery failed. |
+
+The full log of autopilot decisions for a book is shown in the interface (the book's **Autopilot**
+tab); see [the autopilot guide](autopilot.md#the-decision-log-and-the-report).
+
+## Webhooks
+
+A request may name a `callback_url`. When it ends (any final status, and also `imported`), the
+**worker** sends one `POST` to that URL. The webhook is a convenience: the status document stays the
+reference, and you can always poll it.
+
+### Enabling webhooks (administrators)
+
+Webhooks are off until an administrator allows at least one host. In **Settings › Automation API ›
+Webhooks of API requests**, or with environment variables:
+
+| Setting | Environment variable | Default |
+| --- | --- | --- |
+| Allowed hosts (`hooks.example.org`, `*.partner.example` for its subdomains) | `API_WEBHOOK_HOSTS` (comma-separated) | empty: webhooks refused |
+| Allowed private networks, in CIDR notation | `API_WEBHOOK_PRIVATE_NETWORKS` | empty |
+| Attempts at most | `API_WEBHOOK_MAX_ATTEMPTS` | 6 |
+| Timeout of a call, in seconds | `API_WEBHOOK_TIMEOUT_SECONDS` | 10 |
+| Global signing secret (32 characters at least) | `API_WEBHOOK_SECRET` | empty |
+
+Values saved in the interface win over the environment until **Go back to the environment values**.
+They apply without a restart. Every webhook must be signed: a token needs its own signing secret
+(chosen when the token is created) or a global secret must exist.
+
+### What is sent
+
+```json
+{
+  "event": "translation_request.finished",
+  "request_id": "…", "external_id": "…",
+  "status": "completed_with_residuals", "error": null,
+  "project_id": "…", "job_id": "…",
+  "status_url": "/api/v1/translation-requests/…",
+  "result_url": "/api/v1/translation-requests/…/result",
+  "artifact": {"format": "epub", "size": 812345, "sha256": "…"},
+  "report": {"outcome": "completed_with_residuals", "residual_total": 2, "…": "…"},
+  "finished_at": 1790000000.0
+}
+```
+
+| Header | Value |
+| --- | --- |
+| `X-Libris-Event` | `translation_request.finished` |
+| `X-Libris-Delivery` | `<request id>:<attempt number>` |
+| `X-Libris-Timestamp` | Unix time in seconds |
+| `X-Libris-Signature` | `sha256=<hex>`: HMAC-SHA256 of `<timestamp>.<body>` |
+| `User-Agent` | `Libris-Webhook/1` |
+
+The signature uses the token's own webhook secret when it has one, otherwise the global secret.
+
+### Verifying a webhook
+
+Check the signature over the raw body, and refuse old timestamps to block replays:
+
+```python
+import hashlib
+import hmac
+import time
+
+
+def verify(secret: str, body: bytes, timestamp: str, signature: str, tolerance: int = 300) -> bool:
+    if abs(time.time() - int(timestamp)) > tolerance:
+        return False
+    expected = hmac.new(secret.encode(), timestamp.encode() + b"." + body, hashlib.sha256).hexdigest()
+    return hmac.compare_digest(signature, "sha256=" + expected)
+```
+
+### Retries
+
+Any `2xx` answer counts as delivered. Anything else (another status, a timeout, a network error) is
+retried with an exponential backoff: 30 seconds, then 60, 120… up to one hour between attempts, for
+at most `API_WEBHOOK_MAX_ATTEMPTS` calls. Redirects are not followed. The status document shows the
+webhook's `state`, `attempts` and last `error`.
+
+### Protections
+
+A `callback_url` that breaks one of these rules is refused at once with `422 callback_refused`,
+before anything is stored:
+
+- it must be an `http` or `https` URL without user name or password, of at most 2000 characters;
+- its host must be in the allowed list;
+- a signing secret must exist (the token's or the global one);
+- its name must resolve only to public addresses. Loopback, private, link-local, reserved and
+  multicast addresses are refused unless they fall inside an allowed private network.
+
+The name is resolved again before every call, and the call goes to the address just checked (with the
+original name in the `Host` header and the TLS server name), so a DNS answer that changes in between
+cannot redirect it. Proxy environment variables are ignored.
+
+## List your series
 
 ```bash
 curl -sS "$LIBRIS_URL/api/v1/series" -H "Authorization: Bearer $LIBRIS_TOKEN"
 curl -sS "$LIBRIS_URL/api/v1/series/$SERIES_ID" -H "Authorization: Bearer $LIBRIS_TOKEN"
 ```
 
-The list gives `id, name, kind, source_language, target_language, archived, volumes, created_at,
-updated_at`; the detail adds `volume_list` (`project_id, title, volume_number, external_id, source_format,
-project_kind, status, chapters`). Only the owner's series are visible (shared volumes are not).
+The list is sorted by name and gives `id, name, kind, source_language, target_language, archived,
+volumes, created_at, updated_at`. The detail adds `volume_list`, sorted by volume number, with
+`project_id, title, volume_number, external_id, source_format, project_kind, status, chapters`. Only
+series the token's owner owns are visible; volumes shared with them are not.
 
 ## Errors
 
-Every error has the shape `{"detail": {"code": "…", "message": "…", …}}`. Messages are in French by
-default and in English with `Accept-Language: en`. Book text is never echoed in errors or written to the
-service logs.
+Every error has the same shape:
+
+```json
+{"detail": {"code": "chapter_conflict", "message": "…", "conflicts": ["…"]}}
+```
+
+`code` is stable; `message` is in French by default and in English with `Accept-Language: en`.
+Validation errors never echo the submitted values, so book text is never sent back.
 
 | HTTP | `code` | When |
 | --- | --- | --- |
-| 401 | `missing_token`, `invalid_token`, `revoked_token`, `expired_token`, `inactive_account`, `unauthorized` | No or bad token (header `WWW-Authenticate: Bearer`) |
-| 403 | `insufficient_scope` (with `scope`), `forbidden` | Missing scope; cross-site browser request |
-| 404 | `request_not_found`, `series_not_found`, `volume_not_found`, `not_found` | Unknown, or owned by someone else |
-| 409 | `idempotency_conflict`, `chapter_conflict` (with `conflicts`), `volume_conflict`, `series_archived`, `volume_archived`, `result_not_ready`, `request_failed`, `request_cancelled`, `format_unavailable`, `not_started`, `conflict` | State conflicts |
-| 413 | `payload_too_large` | Body above the limit |
-| 415 | `unsupported_media_type` | Neither JSON, EPUB nor multipart |
-| 422 | `invalid_payload` (with `errors: [{loc, msg, type}]`), `invalid_request`, `invalid_idempotency_key`, `unknown_provider`, `provider_required`, `invalid_epub`, `callback_refused`, `delivery_failed` | Validation |
-| 429 | `rate_limited` | Too many calls for this token (header `Retry-After`) |
+| 401 | `missing_token`, `invalid_token`, `revoked_token`, `expired_token`, `inactive_account` | No token, or a bad one (header `WWW-Authenticate: Bearer`). |
+| 401 | `unauthorized` | A request with a body but no `Authorization: Bearer` header. |
+| 403 | `insufficient_scope` (with `scope`) | The token lacks a permission. |
+| 403 | `forbidden` | A browser request from another site (see below). |
+| 404 | `request_not_found`, `series_not_found`, `volume_not_found`, `not_found` | Unknown, or owned by someone else. |
+| 409 | `idempotency_conflict` (with `request_id`) | Same key or `external_id`, different content. |
+| 409 | `chapter_conflict` (with `conflicts`) | Chapters exist with another text; send `replace_changed_chapters`. |
+| 409 | `conflict` (with `protected_segments`) | A replacement would drop human edits; send `discard_human`. |
+| 409 | `volume_conflict`, `series_archived`, `volume_archived` | The target volume cannot take this content. |
+| 409 | `result_not_ready`, `request_failed`, `request_cancelled`, `format_unavailable` | The result cannot be served (see [Get the result](#get-the-result)). |
+| 409 | `not_started`, `conflict` | Pause, resume or cancel not allowed in the current state. |
+| 413 | `payload_too_large` | The body is above the size limit. |
+| 415 | `unsupported_media_type` | Neither JSON, EPUB nor multipart. |
+| 422 | `invalid_payload` (with `errors: [{loc, msg, type}]`) | The document or the upload is invalid. |
+| 422 | `invalid_request` (with `errors`) | A bad query parameter (for example `format`, `wait`). |
+| 422 | `invalid_idempotency_key`, `unknown_provider`, `provider_required`, `invalid_epub`, `callback_refused`, `delivery_failed` | See the sections above. |
+| 429 | `rate_limited` | Too many calls for this token (header `Retry-After`). |
+| 500 | `server_error` | Unexpected failure; the message carries a diagnostic reference for the server logs. |
+
+Server-to-server clients do not send an `Origin` header and are accepted. A browser page on another
+site is refused like for the interface (`ALLOWED_ORIGINS`, `Sec-Fetch-Site`).
 
 ## Limits
 
 | Setting | Default | Effect |
 | --- | --- | --- |
-| `API_MAX_PAYLOAD_MB` | `MAX_UPLOAD_MB` | Largest body of a request sent with a Bearer token, enforced before the body is read. Without a token the limit is 1 MiB and the answer 401. |
-| `API_MAX_CHAPTERS` | 2000 | Chapters per request. |
-| `TEXT_CHAPTER_MAX_CHARS` | 2,000,000 | Characters per chapter (shared with TXT imports). |
+| `API_MAX_PAYLOAD_MB` | `MAX_UPLOAD_MB` (60) | Largest request body with a Bearer token: an EPUB, or all TXT files together. Enforced before the body is read. Without a Bearer header the limit is 1 MiB and the answer `401`. |
+| `API_MAX_CHAPTERS` | 2000 | Chapters (or TXT files) per request. |
+| `TEXT_CHAPTER_MAX_CHARS` | 2,000,000 | Characters per chapter, shared with TXT imports. |
 | `API_RATE_LIMIT_PER_MINUTE` | 120 | Calls per token over a sliding minute, **counted in each API process** (with several API replicas the effective limit is multiplied). `0` disables it. |
-| `API_RESULT_MAX_WAIT_SECONDS` | 60 | Longest `?wait=` long poll (0–600). |
-| `API_REQUEST_STALL_MINUTES` | 360 | A request whose job stays paused, blocked or waiting longer fails (the job is cancelled). |
-| `API_REQUEST_MAX_HOURS` | 168 | A request still unfinished after this fails (the job is cancelled). |
-| `DELIVERY_REPAIR_ATTEMPTS` | 3 | EPUBCheck repair rounds of a delivered EPUB before the request fails. |
-| `API_WEBHOOK_HOSTS` | empty | Hosts a `callback_url` may name (`host`, `*.domain`); empty: webhooks refused. |
-| `API_WEBHOOK_PRIVATE_NETWORKS` | empty | CIDRs allowed although private (otherwise refused). |
-| `API_WEBHOOK_SECRET` | empty | Global HMAC secret (32 characters at least) for tokens without their own. |
-| `API_WEBHOOK_MAX_ATTEMPTS`, `API_WEBHOOK_TIMEOUT_SECONDS` | 6, 10 | Webhook calls per request, and the timeout of each. |
+| `API_RESULT_MAX_WAIT_SECONDS` | 60 | Longest `?wait=` (0–600). |
+| `API_REQUEST_STALL_MINUTES` | 360 | A request whose job stays paused, blocked or waiting longer fails, and the job is cancelled. |
+| `API_REQUEST_MAX_HOURS` | 168 | A request still unfinished after this fails, and the job is cancelled. |
+| `DELIVERY_REPAIR_ATTEMPTS` | 3 | EPUBCheck repair rounds of a delivered EPUB. |
+| `RETENTION_RESULTS_DAYS` | 30 | Days a stored result file is kept (it can be rendered again afterwards). |
+| `API_WEBHOOK_*` | see [Webhooks](#enabling-webhooks-administrators) | Webhook hosts, networks, secret, attempts and timeout. |
 
-The size limit applies to the whole body (an EPUB, or all TXT files together) and is enforced before the
-body is read; an EPUB is also bounded by the archive limits of imports (`MAX_UPLOAD_MB`,
-`MAX_UNPACKED_MB`, `MAX_ENTRIES`, `MAX_COMPRESSION_RATIO`). Stored results stay under `DATA_DIR/results`
-(back it up with the rest of `DATA_DIR`, or delete old folders: a request whose file is gone renders its
-result again from the database).
+An EPUB is also bounded by the archive limits of every import (`MAX_UNPACKED_MB`, `MAX_ENTRIES`,
+`MAX_COMPRESSION_RATIO`). All settings are described in [the configuration reference](configuration.md).
 
-Server-to-server clients do not send an `Origin` header and are accepted; a browser page on another site is
-refused like for the interface (`ALLOWED_ORIGINS`, `Sec-Fetch-Site`).
+## A complete example
+
+Upload an EPUB, wait for the end, then download the translated book and read the report:
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+
+REQUEST_ID=$(curl -sS -X POST "$LIBRIS_URL/api/v1/translation-requests" \
+  -H "Authorization: Bearer $LIBRIS_TOKEN" \
+  -H "Idempotency-Key: book-fr-1" \
+  -F "file=@book.epub" -F target_language=fr -F provider_id="$PROVIDER_ID" \
+  | jq -r .request_id)
+
+while :; do   # each call answers when the request ends, or after 60 seconds
+  STATUS=$(curl -sS "$LIBRIS_URL/api/v1/translation-requests/$REQUEST_ID?wait=60" \
+    -H "Authorization: Bearer $LIBRIS_TOKEN" | jq -r .status)
+  case "$STATUS" in completed|completed_with_residuals|failed|cancelled) break ;; esac
+done
+echo "Request ended: $STATUS"
+
+if [ "$STATUS" = completed ] || [ "$STATUS" = completed_with_residuals ]; then
+  curl -sS "$LIBRIS_URL/api/v1/translation-requests/$REQUEST_ID/result" \
+    -H "Authorization: Bearer $LIBRIS_TOKEN" -o book.fr.epub
+fi
+curl -sS "$LIBRIS_URL/api/v1/translation-requests/$REQUEST_ID" \
+  -H "Authorization: Bearer $LIBRIS_TOKEN" | jq '.report | {outcome, residual_total, usage}'
+```

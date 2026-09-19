@@ -286,8 +286,25 @@ class Analyst:
     def answer(self, schema: str, messages: list[dict]) -> dict:
         text = "\n".join(m["content"] for m in messages if m["role"] == "user")
         context = sections(text)
+        self.calls[schema] = self.calls.get(schema, 0) + 1
         if schema == "ChapterAnalysis":
             return self.analysis(context)
+        if schema == "TranslationResult":
+            return {
+                "units": [
+                    {"id": u["id"], "text": "FR " + u["text"]} for u in context.get("TARGET_TEXT") or []
+                ]
+            }
+        if schema in {"ReviewResult", "ReviewRevisionResult"}:
+            return {"issues": []}
+        if schema == "FinalReviewResult":
+            return {
+                "decision": "accept",
+                "issues": [],
+                "uncertainties": [],
+                "explanation": "",
+                "search_queries": [],
+            }
         return {"summary": "Synthetic overview.", "tone": "Plain", "translation_guidelines": ["Keep names."]}
 
     def analysis(self, context: dict) -> dict:
@@ -650,18 +667,28 @@ def create_world(world: World, *, capacity: int = 16) -> tuple[list[str], str]:
         return ids, provider.id
 
 
-def simulated_provider(analyst: Analyst, latency: float = 0.0):
-    """A respx side effect: the analyst's answer after `latency` seconds (a model call's duration)."""
+def simulated_provider(analyst: Analyst, latency: float = 0.0, jitter: float = 0.0, log: list | None = None):
+    """A respx side effect: the analyst's answer after `latency` seconds (a model call's duration),
+    plus up to `jitter` seconds that depend on the request, so that calls finish out of order."""
     import asyncio
+    import hashlib
 
     import httpx
 
     async def respond(request):
         body = json.loads(request.content)
         schema = body.get("response_format", {}).get("json_schema", {}).get("name", "")
-        if latency:
-            await asyncio.sleep(latency)
+        if log is not None:
+            log.append(("start", schema, body["messages"]))
+        delay = latency
+        if jitter:
+            digest = int(hashlib.sha256(request.content).hexdigest()[:8], 16)
+            delay += jitter * (digest % 1000) / 1000
+        if delay:
+            await asyncio.sleep(delay)
         result = analyst.answer(schema, body["messages"])
+        if log is not None:
+            log.append(("end", schema, body["messages"]))
         prompt = sum(len(m["content"]) for m in body["messages"])
         return httpx.Response(
             200,
@@ -693,7 +720,7 @@ async def analyse(project_ids: list[str], options: dict, *, rounds: int = 50) ->
                 current = db.get(Job, job_id)
                 if current.status in {"completed", "failed", "blocked", "paused", "cancelled"}:
                     break
-                current.next_attempt = min(current.next_attempt, time.time())
+                current.next_attempt = 0  # the retry delay is not waited for here
                 db.commit()
             claimed = claim()
             assert claimed is not None and claimed[0] == job_id, claimed

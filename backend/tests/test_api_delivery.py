@@ -94,7 +94,7 @@ async def test_an_epub_goes_in_and_a_translated_epub_comes_out(owner, api, provi
     assert report["usage"]["calls"] > 0 and report["usage"]["prompt_tokens"] > 0
     assert report["durations"]["job_seconds"] is not None
     assert report["delivery"]["validation"]["available"] is False  # no EPUBCheck in this test run
-    assert report["decisions"] == {"autopilot": None, "intake": []}
+    assert report["decisions"]["intake"] == [] and report["decisions"]["autopilot"] >= 0
     assert status["result"]["format"] == "epub"
     assert status["result"]["sha256"] == hashlib.sha256(result.content).hexdigest()
     with SessionLocal() as db:

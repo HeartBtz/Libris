@@ -5,7 +5,7 @@ import time
 
 from sqlalchemy import case, func, literal_column, select
 
-from app.models import Chapter, Job, Project, RequestLog, Segment, TranslationRequest
+from app.models import AutopilotDecision, Chapter, Job, Project, RequestLog, Segment, TranslationRequest
 
 REPORT_VERSION = 1
 RESIDUAL_LIMIT = 500
@@ -29,20 +29,10 @@ def autopilot_report(job: Job | None) -> dict | None:
 
 
 def decisions_count(db, job: Job | None) -> int | None:
-    """INTEGRATION HOOK (#63): automatic decisions logged for this job in `autopilot_decisions`.
-
-    None while that table does not exist in this build; the integrator only has to keep the model name
-    `AutopilotDecision` (app.models.runs) with its `job_id` column for the count to appear.
-    """
+    """Automatic decisions the autopilot (#63) logged for this job."""
     if job is None:
         return None
-    from app import models
-    from app.models import runs
-
-    model = getattr(models, "AutopilotDecision", None) or getattr(runs, "AutopilotDecision", None)
-    if model is None:
-        return None
-    return db.scalar(select(func.count()).select_from(model).where(model.job_id == job.id))
+    return db.scalar(select(func.count()).select_from(AutopilotDecision).where(AutopilotDecision.job_id == job.id))
 
 
 def residual_reason(retained: bool, error: str, autopilot: dict) -> str:

@@ -1,94 +1,150 @@
-# OpenViking external memory
+# OpenViking memory
 
-Libris works without OpenViking: SQL (PostgreSQL in production) is the source of truth for every
-memory, and the `internal` context backend reads it directly. OpenViking is an optional semantic index
-of the same memories. Everything written to it can be rebuilt from PostgreSQL at any time, and a
-failure of OpenViking never removes or undoes a result stored in SQL: the `hybrid` backend then keeps
-translating with SQL alone and says so in the context inspector.
+This page is for administrators who want to connect Libris to an OpenViking server as an external,
+semantic memory for their books. It explains what OpenViking adds, how to set it up, what Libris
+writes there, what a passage is allowed to read back, and how to maintain it.
 
-Configure the instance in **Settings → Memory · OpenViking** (or `OPENVIKING_URL`, `OPENVIKING_API_KEY`,
-`OPENVIKING_ROOT_URI`), then choose `openviking` or `hybrid` per volume or as a series default.
+OpenViking is **optional**. Libris keeps every memory in its own database (PostgreSQL in production),
+and the default `internal` backend reads it directly. OpenViking is an extra semantic index of the same
+memories:
 
-## Layout (since 0.6)
+- everything written to it can be rebuilt from the database at any time;
+- a failure of OpenViking never removes or undoes a result stored in Libris. With the `hybrid`
+  backend, translation simply continues with the database alone, and the context inspector says so.
 
-All identifiers in a URI are SQL UUIDs chosen by Libris, never a title or a path taken from a book.
+## Set it up
+
+1. Run an OpenViking server that Libris can reach on your private network. Keep it private and
+   maintained separately.
+2. In **Settings › Memory · OpenViking** (administrators), fill in:
+
+   | Field | Meaning |
+   | --- | --- |
+   | OpenViking URL | Base URL of the server. |
+   | Dedicated `viking://` root | A dedicated sub-directory under `viking://resources/` (default `viking://resources/epub-translator`). The root itself is refused. |
+   | API key | Sent as `X-API-Key`. Stored encrypted; never shown again. |
+   | Authentication | **API key** (recommended), or **trusted** mode, which also sends the account and user headers you provide (`X-OpenViking-Account`, `X-OpenViking-User`). |
+   | Context budget, retrieval budget | How much memory context, and how much of it from retrieval, a call may use (defaults 12000 and 6000). |
+   | Minimum score | Relevance threshold of search hits (default 0.15). |
+   | Timeout | Seconds per call (default 20). |
+   | Semantic search (find), deep search (search) | Which OpenViking search modes Libris may use. |
+
+   **Test connection** checks that the server answers, that the key is accepted and that the root can
+   be searched. The first three settings can also come from `OPENVIKING_URL`, `OPENVIKING_API_KEY` and
+   `OPENVIKING_ROOT_URI`; values saved in the interface win (see [configuration](configuration.md)).
+3. Choose the memory backend per volume (the book's **Settings**) or as a series default:
+
+   | Backend | Behaviour |
+   | --- | --- |
+   | `internal` | The database only. Nothing is written to OpenViking. |
+   | `openviking` | Memories are mirrored to OpenViking and retrieved from it. |
+   | `hybrid` | Both: retrieval uses OpenViking when it answers and the database otherwise. |
+
+The automation API accepts the same values in `pipeline.context_backend` ([API guide](api.md)).
+
+## What Libris writes
+
+Libris writes with idempotent `replace` operations on stable URIs, without waiting for indexing. Every
+identifier in a URI is a database id chosen by Libris, never a title or a path taken from a book:
 
 ```text
-<root>/<owner_id>/series/<series_id>/volumes/<project_id>/events/<memory_id>.json   volume of a series
-<root>/<owner_id>/series/<series_id>/volumes/<project_id>/book.md, book-bible.json…  catalog of that volume
-<root>/<owner_id>/standalone/<project_id>/events/<memory_id>.json                   standalone volume
+<root>/<owner_id>/series/<series_id>/volumes/<project_id>/events/<memory_id>.json   event, volume of a series
+<root>/<owner_id>/series/<series_id>/volumes/<project_id>/book.md …                 catalog of that volume
+<root>/<owner_id>/standalone/<project_id>/events/<memory_id>.json                   event, standalone volume
+<root>/<owner_id>/standalone/<project_id>/book.md …                                 catalog of that volume
 ```
 
-Before 0.6 a book used `<root>/<owner_id>/<project_id>/…` and events were named after rows of the send
-queue. See *Upgrading* below.
+### Events
 
-## Event documents
-
-An event is one SQL memory (`memories` row: analysis of a passage, narrative state, validated human
-decision). Its document is a pure function of SQL:
+An event is one memory of the book: the analysis of a passage, its narrative state, or a validated
+human decision. Its document is computed from the database at the moment it is written, so OpenViking
+always holds the current event at its current place.
 
 | Field | Meaning |
 | --- | --- |
 | `schema_version` | `2` |
-| `owner_id`, `series_id`, `project_id`, `volume_number` | where the memory belongs |
-| `chapter_id`, `chapter_position`, `chapter_number` | its chapter, order inside the volume and the author's number |
-| `segment_id`, `position` | the passage and its narrative position in the volume |
-| `type` | `analysis`, `narrative` or `human_decision` |
-| `identities` | characters named by the memory (canonical names, `known_by`) |
-| `validated` | a person validated it |
-| `created_at` | creation time of the SQL memory |
-| `content` | the memory itself |
+| `owner_id`, `series_id`, `project_id`, `volume_number` | Where the memory belongs. |
+| `chapter_id`, `chapter_position`, `chapter_number` | Its chapter, its order in the volume, and the author's number. |
+| `segment_id`, `position` | The passage and its narrative position in the volume. |
+| `type` | `analysis`, `narrative` or `human_decision`. |
+| `identities` | Characters named by the memory (canonical names and who knows them). |
+| `validated` | A person validated it. |
+| `created_at` | When the memory was created. |
+| `content` | The memory itself. |
 
-The send queue (`memory_outbox`) only carries the work of writing a document; the document is computed
-again from SQL at the moment it is written, so what OpenViking holds is always the current canonical
-event at its current place.
+The send queue only carries the work of writing a document; failed writes are retried with a growing
+delay (about half an hour at most).
+
+### Catalog documents
+
+For each volume that has an analysis or a Book Bible, Libris also publishes a small named catalog,
+refreshed every `MEMORY_CATALOG_INTERVAL_SECONDS` (60) when something changed:
+
+| Document | Content |
+| --- | --- |
+| `book.md` | Title, author, languages, analysis progress and links to the other documents. |
+| `book-bible.json` | The Book Bible (editorial synthesis), without the characters. |
+| `characters.json` and `characters-NNNN.json` | Identities, aliases, role, description, gender, pronouns, speech style, and whether a person confirmed them. |
+| `relationships.json` and `relationships-NNNN.json` | Relations between characters, with evidence, provenance and validation. |
+
+These are compact projections; the database keeps the complete and exact data. Catalog documents are
+**never** used as narrative evidence (see below).
 
 ## What a passage may read
 
-A passage of volume N at position P searches with `target_uri` set to its series' `volumes` directory
-(its own `events` directory for a standalone volume). The server-side scope only narrows the search: a
-second barrier in Libris keeps a hit only if
+A passage of volume N at position P searches with `target_uri` set to its series' `volumes`
+directory, or to its own `events` directory for a standalone volume. That only narrows the search on
+the server. Libris then keeps a hit only if:
 
-1. its URI is exactly the URI of an event SQL admits for this passage: a memory of the same volume at an
-   earlier position (a person's validated analysis of the passage itself included), or any memory of an
-   earlier volume of the same series, owner and language pair (volume number lower than N);
-2. superseded human analyses and human decisions on a passage edited since are excluded;
-3. the document read back (L2) is identical to the canonical SQL event.
+1. its URI is exactly the URI of an event the database admits for this passage: a memory of the same
+   volume at an earlier position (a person's validated analysis of the passage itself included), or a
+   memory of an earlier volume of the same series, owner and language pair (volume number lower than
+   N);
+2. it is not a superseded human analysis, nor a human decision on a passage edited since;
+3. the document read back is identical to the event computed from the database.
 
-Everything else is rejected and listed in the context inspector (`outside_narrative_allowlist`,
-`low_relevance`, `differs_from_canonical_event`, `invalid_structured_memory`, `retrieval_budget`): later
-passages, later volumes, directory summaries, catalogs, another owner's documents, stale or tampered
-documents. The Series Bible and the Book Bibles are editorial knowledge built from whole volumes: they
-are mirrored as named catalog documents but are never admitted as narrative evidence. Continuous
-webnovel containers and unnumbered volumes have no "earlier volume": they rely on their own chapters.
+Everything else is rejected and listed in the context inspector with its reason
+(`outside_narrative_allowlist`, `low_relevance`, `differs_from_canonical_event`,
+`invalid_structured_memory`, `retrieval_budget`): later passages, later volumes, directory summaries,
+catalogs, another owner's documents, stale or tampered documents. The Book Bible and character sheets
+are editorial knowledge built from a whole reading, which is why they are never admitted as evidence
+of what a passage may know. Continuous webnovel flows and unnumbered volumes have no "earlier volume":
+they rely on their own chapters.
 
 ## Maintenance
 
-On a series page (**Mémoire OpenViking** tab) and on a volume (**Book Bible → Mémoire OpenViking**):
+On a **series** page, the **Memory** tab (**Series OpenViking memory**) shows, per volume, the events
+waiting, written and failed, with the last errors, and offers:
 
-- **Backlog**: events waiting to be written, written, and failed (with the last errors), per volume.
-- **Resync** retries now everything waiting, without waiting for the back-off delay.
-- **Rebuild** rewrites every event and catalog of the series (or volume) from SQL, including memories
-  whose queue rows the retention already removed. Writes are idempotent (`replace` on a stable URI).
-- **Reindex** asks OpenViking to recompute its index of the series (or volume) directory.
+- **Resynchronize**: retry now everything waiting, without waiting for the backoff delay;
+- **Rebuild**: rewrite every event and catalog of the series from the database, including memories
+  whose queue rows the retention already removed;
+- **Reindex**: ask OpenViking to recompute its index of the series directory.
 
-API: `GET /api/series/{id}/memory`, `POST /api/series/{id}/memory/{resync|rebuild|reindex}`,
-`GET /api/projects/{id}/memory/status`, `POST /api/projects/{id}/memory/{synchronize|rebuild|reindex|check}`.
+On a **volume**, the **Book Bible** tab has an **OpenViking memory** panel with the queue state, the
+root, links that open the documents OpenViking actually holds (read through Libris, without exposing
+the key), and these actions:
 
-Libris never deletes anything in OpenViking automatically. Deleting a book or a series, or moving a
-volume, leaves the old remote documents in place; they are no longer admitted by the SQL barrier. Clean
-them up with OpenViking's own tools if you need the space.
+- **Synchronize the book and graph**: queue the catalog again (works even during an analysis);
+- **Check in OpenViking**: read the catalog documents back and compare them with what Libris wrote,
+  and look for them in the index (this confirms the documents found, not the indexing of every event);
+- **Reindex in OpenViking** and **Rebuild from the database**, as for a series.
 
-## Upgrading from 0.5
+The same actions are available through the interface's API: `GET /api/series/{id}/memory`,
+`POST /api/series/{id}/memory/{resync|rebuild|reindex}`, `GET /api/projects/{id}/memory/status`,
+`POST /api/projects/{id}/memory/{synchronize|rebuild|reindex|check}`.
 
-No manual step is needed. The first time the worker runs with OpenViking configured after the upgrade,
-every volume using `openviking` or `hybrid` has its events written again from SQL into the new layout
-(an `openviking_layout` marker in `app_settings` records that it was done); its catalog is written again
-too. Until a volume's events are rewritten, its remote hits are rejected and translation relies on SQL
-memory. The same replay happens automatically whenever a volume moves into or out of a series or is
-renumbered.
+Libris never deletes anything in OpenViking. Deleting a book or a series, or moving a volume, leaves
+the old documents in place; the database check simply no longer admits them. Clean them up with
+OpenViking's own tools if you need the space.
+
+When a volume moves into or out of a series, or is renumbered, its events and catalog are written
+again at the new place automatically; until then, its remote hits are rejected and translation relies
+on the database. The same automatic rewrite moves volumes written with the older
+`<root>/<owner_id>/<project_id>/…` layout: no manual step is needed after an upgrade.
 
 ## Retention
 
-`RETENTION_OUTBOX_SENT_DAYS` deletes queue rows already written. This does not affect retrieval, which
-is checked against the SQL memories, nor a rebuild, which recreates the rows it needs.
+`RETENTION_OUTBOX_SENT_DAYS` (7) deletes queue rows that were already written. This affects neither
+retrieval, which is checked against the database, nor a rebuild, which recreates the rows it needs.
+See [data retention](configuration.md#data-retention).

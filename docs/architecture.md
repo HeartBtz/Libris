@@ -35,7 +35,7 @@ contributing, see [development](development.md).
 | `engines/exports` | Text and Markdown renderings of a volume. |
 | `jobs` | Queue, leases and fencing (`queue.py`, `clock.py`), fair order, priorities and quotas (`fairness.py`), per-passage job state (`segment_state.py`), running work off the event loop (`concurrency.py`), automation request dispatch (`requests.py`), the scope of a volume follow-up (`follow_up.py`), the worker (`worker.py`). |
 | `providers` | Model calls (`llm.py`: structured output, validation, retries, cache, budget, traces), OpenViking client, SearXNG, Codex bridge. |
-| `api` | Interface routes, [automation API](api.md) (`v1.py`, `tokens.py`), administration settings. |
+| `api` | Interface routes, [automation API](api.md) (`v1.py`, `tokens.py`, and `v1_openapi.py`, which generates its published description `docs/openapi/libris-v1.json`), administration settings. |
 | `maintenance` | Retention, usage aggregation, request log compaction, provider comparison. |
 
 ## The path of a book
@@ -591,8 +591,9 @@ columns deliberately left out; a test fails if a new column is neither archived 
 - Failed sign-ins are throttled per client and account (20 failures in five minutes) and per client
   (200). The throttle and the automation API rate limit live in each process's memory: they are not a
   complete internet-facing abuse control.
-- `/openapi.json` requires a session and can be disabled with `OPENAPI_ENABLED=false`. `/metrics`
-  exists only when `METRICS_TOKEN` is set, and requires it.
+- `/openapi.json` (every route) requires a session and can be disabled with `OPENAPI_ENABLED=false`. The
+  public description of the automation API alone is the file `docs/openapi/libris-v1.json`, not a route.
+  `/metrics` exists only when `METRICS_TOKEN` is set, and requires it.
 - Live event streams are bounded per account and per process.
 
 **Outbound connections**

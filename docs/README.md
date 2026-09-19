@@ -21,6 +21,7 @@ them.
 | Learn the whole interface, in French | [user-guide.fr.md](user-guide.fr.md) |
 | Understand what the autopilot does, from import to the final result, and how to turn it off | [autopilot.md](autopilot.md) |
 | Send books or chapters from a script and get the translation back | [api.md](api.md) |
+| Generate a client, or read the API contract in OpenAPI 3.1 | [openapi/libris-v1.json](openapi/libris-v1.json), and the example client [examples/libris_client.py](../examples/libris_client.py) |
 
 ## Understand and change Libris
 

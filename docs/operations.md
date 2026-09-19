@@ -276,7 +276,7 @@ statistics under the operation `provider_comparison`.
 | Symptom | Cause and fix |
 | --- | --- |
 | A book stays **queued** | The worker is not running (`docker compose ps worker`), or its provider has no free **Concurrent books** slot. |
-| A book is **waiting** | The provider is unreachable, timed out or answered 429/5xx. Libris retries on its own: first after 60 seconds (or the **Automatic recovery** delay), then doubling up to an hour; a provider's `Retry-After` is respected up to 24 hours. Under the autopilot, after `AUTOPILOT_OUTAGE_MAX_RETRIES` waits it switches to the next fallback provider. |
+| A book is **waiting** | The provider is unreachable, timed out or answered 429/5xx. Libris retries on its own: first after the **Automatic recovery** delay (`PROVIDER_RECOVERY_BASE_SECONDS`, 60 seconds by default), then doubling up to an hour; a provider's `Retry-After` is respected up to 24 hours. Under the autopilot, after `AUTOPILOT_OUTAGE_MAX_RETRIES` waits it switches to the next fallback provider. |
 | A book is **blocked** | The provider rejected the credentials. Fix the key or sign in again, then resume. Under the autopilot, the next fallback provider takes over, or the job fails if none is left. |
 | A book **failed** with "providers exhausted" | Every provider in the autopilot chain was unavailable. Add a fallback provider in **Settings › Autopilot**, then resume. |
 | Passages are refused or kept in the source language | See [autopilot](autopilot.md) for the recovery ladder and how to retranslate them with another provider. |

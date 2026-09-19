@@ -12,6 +12,7 @@ from sqlalchemy import func, select
 from app.automation_settings import autopilot_config
 from app.db import SessionLocal
 from app.engines.autopilot.decisions import record
+from app.engines.context.series import InheritedTerm, enforced_glossary
 from app.engines.memory.identities import names, normalized
 from app.jobs import segment_state as state
 from app.jobs.concurrency import job_lock
@@ -57,7 +58,28 @@ def decide_glossary(job: Job, owner: str) -> None:
             return
         text = "\n".join(db.scalars(select(Segment.source).where(Segment.project_id == job.project_id)))
         text = text.casefold()
+        # A locked series or shared-glossary term is a person's decision: a proposal contradicting it goes.
+        imposed = {
+            term.source.casefold(): term
+            for term in enforced_glossary(db, db.get(Project, job.project_id))
+            if isinstance(term, InheritedTerm)
+        }
         for term in pending:
+            locked = imposed.get(term.source.casefold())
+            if locked and locked.translation.casefold() != term.translation.casefold():
+                db.delete(term)
+                where = "du glossaire partagé" if locked.origin == "shared_glossary" else "de la série"
+                record(
+                    db,
+                    job.project_id,
+                    job_id=job.id,
+                    stage="memory",
+                    kind="glossary_term",
+                    action="rejected",
+                    reason=f"« {term.source} » → « {term.translation} » : contredit le terme verrouillé {where} "
+                    f"« {locked.translation} » ; proposition retirée.",
+                )
+                continue
             occurrences = text.count(term.source.casefold())
             confidence = term_confidence(occurrences)
             evidence = f"{occurrences} occurrence(s) dans le texte source, confiance {confidence:.2f}"

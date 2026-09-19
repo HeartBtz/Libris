@@ -242,7 +242,8 @@ def _prepare(
         ]
         mandatory["SERIES_CONVENTIONS"] = {
             "scope": (
-                "Accepted terminology and human decisions from earlier volumes only. Locked terms are "
+                "Accepted terminology and human decisions from earlier volumes only, then the universe's "
+                "shared glossary (origin shared_glossary) for terms the series does not decide. Locked terms are "
                 "mandatory unless LOCKED_GLOSSARY or USER_RULES decide otherwise; unlocked terms yield "
                 "to this book's own choices."
             ),

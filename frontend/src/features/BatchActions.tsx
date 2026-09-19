@@ -16,8 +16,8 @@ import {
 
 registerTranslations({
   "Supprimer les livres sélectionnés ?": "Delete the selected books?",
-  "Les {count} projets sélectionnés et leurs travaux seront supprimés définitivement. La mémoire OpenViking distante reste séparée.":
-    "The {count} selected projects and their jobs will be permanently deleted. Remote OpenViking memory remains separate.",
+  "Les {count} projets sélectionnés et leurs travaux seront supprimés définitivement. La mémoire OpenViking distante n’est effacée que si un administrateur a activé son nettoyage.":
+    "The {count} selected projects and their jobs will be permanently deleted. Remote OpenViking memory is removed only if an administrator switched its cleanup on.",
   "Retirer les livres de leur série ?": "Remove the books from their series?",
   "Les {count} livres sélectionnés ne feront plus partie d’une série.": "The {count} selected books will no longer belong to a series.",
   "{count} livre retiré de sa série.": "{count} book removed from its series.",
@@ -147,7 +147,7 @@ export function BatchActions({
       !(await confirm({
         title: t("Supprimer les livres sélectionnés ?"),
         message: t(
-          "Les {count} projets sélectionnés et leurs travaux seront supprimés définitivement. La mémoire OpenViking distante reste séparée.",
+          "Les {count} projets sélectionnés et leurs travaux seront supprimés définitivement. La mémoire OpenViking distante n’est effacée que si un administrateur a activé son nettoyage.",
           { count: books.length },
         ),
         confirmLabel: t("Supprimer définitivement"),

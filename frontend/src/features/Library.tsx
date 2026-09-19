@@ -66,8 +66,8 @@ registerTranslations({
   Supprimer: "Delete",
   "Actions pour {title}": "Actions for {title}",
   "Supprimer {title} ?": "Delete {title}?",
-  "Le projet local, ses traductions et ses travaux seront supprimés définitivement. La mémoire OpenViking distante reste séparée.":
-    "The local project, its translations and its jobs will be permanently deleted. Remote OpenViking memory remains separate.",
+  "Le projet local, ses traductions et ses travaux seront supprimés définitivement. La mémoire OpenViking distante n’est effacée que si un administrateur a activé son nettoyage.":
+    "The local project, its translations and its jobs will be permanently deleted. Remote OpenViking memory is removed only if an administrator switched its cleanup on.",
   "Supprimer définitivement": "Delete permanently",
   "Aucun livre ne correspond.": "No books match.",
   "Essayez un autre titre ou affichez tous vos livres.": "Try another title or show all your books.",
@@ -259,7 +259,7 @@ export function Library({ run, user }: { run: Run; user: User }) {
     const accepted = await confirm({
       title: t("Supprimer {title} ?", { title: p.title }),
       message: t(
-        "Le projet local, ses traductions et ses travaux seront supprimés définitivement. La mémoire OpenViking distante reste séparée.",
+        "Le projet local, ses traductions et ses travaux seront supprimés définitivement. La mémoire OpenViking distante n’est effacée que si un administrateur a activé son nettoyage.",
       ),
       confirmLabel: t("Supprimer définitivement"),
       tone: "danger",

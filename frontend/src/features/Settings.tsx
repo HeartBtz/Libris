@@ -26,6 +26,7 @@ import {
 import { ApiTokens } from "./ApiTokens";
 import { AutopilotSettings, WebhookSettings } from "./AutomationSettings";
 import { CodexConnection } from "./CodexConnection";
+import { OpenVikingCleanup } from "./OpenVikingCleanup";
 import { RecoverySettings } from "./Account";
 
 registerTranslations({
@@ -259,7 +260,10 @@ export function Settings({ run }: { run: Run }) {
           {tab === "providers" ? (
             <ProviderSettings run={run} />
           ) : tab === "memory" ? (
-            <MemorySettings run={run} />
+            <div className="stack">
+              <MemorySettings run={run} />
+              <OpenVikingCleanup run={run} />
+            </div>
           ) : tab === "prompts" ? (
             <Prompts run={run} />
           ) : tab === "search" ? (

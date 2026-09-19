@@ -8,6 +8,7 @@ imported twice.
 
 import asyncio
 import hashlib
+import logging
 import shutil
 import time
 from typing import Literal
@@ -54,6 +55,7 @@ from app.schemas import StrictModel
 from app.security import DB, CurrentUser
 
 router = APIRouter(prefix="/api/imports")
+logger = logging.getLogger("epub.imports")
 staging_locks: dict[str, asyncio.Lock] = {}
 LOCALIZED = {"warnings", "errors", "reason", "number_reason", "message", "series_reason"}
 
@@ -347,7 +349,8 @@ class CommitInput(StrictModel):
     first_line_title: bool = False
     discard_human: bool = False
     settings: Defaults = Field(default_factory=Defaults)
-    start: Literal["none", "analyze", "pipeline"] = "none"
+    # The whole pipeline unless the caller chooses otherwise: nothing waits for a person by default.
+    start: Literal["none", "analyze", "pipeline"] = "pipeline"
 
 
 class Rejected(Exception):
@@ -355,10 +358,22 @@ class Rejected(Exception):
         self.errors = errors
 
 
-def check_epub_plan(session: ImportSession, body: CommitInput, guesses: dict[int, dict]) -> list[Item]:
+def decide(decisions: list[dict], entry: dict, field: str, value, reason: str) -> None:
+    """An automatic choice made instead of asking the person: recorded in the result and logged."""
+    decisions.append({"index": entry["index"], "name": entry["name"], field: value, "reason": reason})
+    logger.info("import=auto_decision file=%s %s=%s", entry["index"], field, value)
+
+
+def check_epub_plan(
+    session: ImportSession, body: CommitInput, guesses: dict[int, dict], taken: set[int] | None = None,
+    decisions: list[dict] | None = None,
+) -> list[Item]:  # fmt: skip
     errors = []
+    decisions = [] if decisions is None else decisions
+    confirm = settings().import_confirm_low_confidence
     files = {item["index"]: item for item in session.files}
     chosen = []
+    used = set(taken or ()) | {item.volume_number for item in body.items if item.volume_number and not item.skip}
     for item in body.items:
         entry = files.get(item.index)
         if entry is None:
@@ -371,15 +386,20 @@ def check_epub_plan(session: ImportSession, body: CommitInput, guesses: dict[int
         if entry["duplicate"]:
             errors.append(f"« {entry['name']} » est déjà dans votre bibliothèque ou dans ce lot : retirez-le.")
         if body.destination.mode == "series":
-            if item.volume_number is None:
-                errors.append(f"Indiquez le numéro de volume de « {entry['name']} ».")
             guess = guesses.get(item.index, {})
-            if (
-                guess.get("confidence") == LOW
-                and item.volume_number == guess.get("volume_number")
-                and not item.confirmed
-            ):
-                errors.append(f"Confirmez le numéro de volume de « {entry['name']} » : il n’a pas pu être déduit avec certitude.")
+            if item.volume_number is None and confirm:
+                errors.append(f"Indiquez le numéro de volume de « {entry['name']} ».")
+            elif item.volume_number is None:
+                number = max(used, default=0) + 1
+                used.add(number)
+                item = item.model_copy(update={"volume_number": number})
+                decide(decisions, entry, "volume_number", number, "aucun numéro : volume suivant de la série")
+            elif guess.get("confidence") == LOW and item.volume_number == guess.get("volume_number") and not item.confirmed:
+                if confirm:
+                    errors.append(f"Confirmez le numéro de volume de « {entry['name']} » : il n’a pas pu être déduit avec certitude.")
+                else:
+                    decide(decisions, entry, "volume_number", item.volume_number,
+                           f"numéro peu sûr accepté : {guess.get('reason') or 'meilleure proposition'}")  # fmt: skip
         chosen.append(item)
     if not chosen:
         errors.append("Aucun fichier à importer.")
@@ -403,7 +423,14 @@ def apply_defaults(project: Project, defaults: Defaults) -> None:
 
 def commit_epub(db, session: ImportSession, body: CommitInput, user, files: Files) -> dict:
     guesses = {item["index"]: item for item in proposal(db, session, user, body.destination.series_id, None)["items"]}
-    chosen = check_epub_plan(session, body, guesses)
+    target = db.get(Series, body.destination.series_id) if body.destination.series_id else (
+        find_series(db, user.id, body.destination.series_name) if body.destination.series_name.strip() else None
+    )
+    numbers = set()
+    if target is not None and target.owner_id == user.id:
+        numbers = {n for n in db.scalars(select(Project.volume_number).where(Project.series_id == target.id)) if n}
+    decisions: list[dict] = []
+    chosen = check_epub_plan(session, body, guesses, numbers, decisions)
     series = None
     if body.destination.mode == "series":
         series = resolve_series(db, body.destination, user, "books", body.settings)
@@ -453,6 +480,7 @@ def commit_epub(db, session: ImportSession, body: CommitInput, user, files: File
             {"id": p.id, "title": p.title, "volume_number": p.volume_number, "status": "created"} for p in created
         ],
         "chapters": {"created": 0, "unchanged": 0, "replaced": 0, "items": []},
+        "decisions": decisions,
     }
 
 
@@ -524,7 +552,8 @@ def commit_txt(db, session: ImportSession, body: CommitInput, user, files: Files
     target = body.target or Target()
     entries = {item["index"]: item for item in session.files}
     guesses = {item["index"]: item for item in proposal(db, session, user, None, None)["items"]}
-    errors, chosen = [], []
+    errors, chosen, decisions = [], [], []
+    confirm = settings().import_confirm_low_confidence
     for item in body.items:
         entry = entries.get(item.index)
         if entry is None:
@@ -538,9 +567,16 @@ def commit_txt(db, session: ImportSession, body: CommitInput, user, files: Files
             errors.append(f"« {entry['name']} » est en double dans ce lot : retirez-le.")
         guess = guesses.get(item.index, {})
         if item.chapter_number is None and not item.confirmed:
-            errors.append(f"Indiquez le numéro de chapitre de « {entry['name']} » ou confirmez qu’il n’en a pas.")
+            if confirm:
+                errors.append(f"Indiquez le numéro de chapitre de « {entry['name']} » ou confirmez qu’il n’en a pas.")
+            else:
+                decide(decisions, entry, "chapter_number", None, "aucun numéro : chapitre placé d’après son nom")
         elif guess.get("confidence") == LOW and item.chapter_number == guess.get("chapter_number") and not item.confirmed:
-            errors.append(f"Confirmez le numéro de chapitre de « {entry['name']} ».")
+            if confirm:
+                errors.append(f"Confirmez le numéro de chapitre de « {entry['name']} ».")
+            else:
+                decide(decisions, entry, "chapter_number", item.chapter_number,
+                       f"numéro peu sûr accepté : {guess.get('reason') or 'meilleure proposition'}")  # fmt: skip
         chosen.append(item)
     if not chosen:
         errors.append("Aucun fichier à importer.")
@@ -598,6 +634,7 @@ def commit_txt(db, session: ImportSession, body: CommitInput, user, files: Files
                 for item, outcome in zip(chosen, outcomes, strict=True)
             ],
         },
+        "decisions": decisions,
     }
 
 

@@ -16,6 +16,9 @@ RECOVERY_TARGET = "recovery_target"  # passages retried by the automatic recover
 REPAIR = "repair"  # one validated four-unit batch of a repaired passage
 CONSISTENCY = "consistency"  # one global consistency sample already checked
 BIBLE = "bible"  # one batch of chapter evidence already consolidated into the bible
+ANALYSIS_SKIPPED = "analysis_skipped"  # autopilot: analysis given up for this passage, the book goes on
+LADDER = "autopilot_ladder"  # autopilot: failed passage taken through the recovery ladder (key: round)
+ARBITRATED = "autopilot_arbitrated"  # autopilot: open proposals of the passage decided (key: round)
 
 KEYS = ("job_id", "step", "segment_id", "key")
 CHUNK = 500

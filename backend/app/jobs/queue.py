@@ -22,6 +22,8 @@ STEP_STATUS = {
     "final_review": "reviewing",
     "consistency": "reviewing",
     "critique_acceptance": "reviewing",
+    "autopilot": "reviewing",
+    "arbitration": "reviewing",
 }
 
 

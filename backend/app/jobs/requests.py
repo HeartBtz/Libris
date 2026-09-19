@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.db import SessionLocal
 from app.diagnostics import safe_trace
+from app.engines.delivery.lifecycle import ENDED, fail, finalize, settle
 from app.engines.ingestion.payload import PayloadRejected, TranslationPayload, payload_chapters
 from app.engines.ingestion.store import Files, add_chapters, asset_file, conflicts, lock, read_asset
 from app.engines.series.bible import refresh_series
@@ -68,7 +69,7 @@ def ingest(db: Session, request: TranslationRequest, project: Project, payload: 
     chapters = payload_chapters(project, payload, settings().text_chapter_max_chars)
     replace = set(range(len(chapters))) if payload.replace_changed_chapters else set()
     # The payload is stored once for the request, not once per chapter: chapters are linked below.
-    outcomes = add_chapters(db, project, chapters, files, replace=replace)
+    outcomes = add_chapters(db, project, chapters, files, replace=replace, discard_human=payload.discard_human)
     asset = db.get(SourceAsset, request.options.get("asset_id") or "")
     previous = set()
     for outcome in outcomes:
@@ -110,7 +111,7 @@ def advance(db: Session, request: TranslationRequest, files: Files, payload: Tra
     """Moves a queued request as far as its volume allows; the caller commits."""
     project = db.get(Project, request.project_id or "")
     if project is None:
-        request.status, request.error = "failed", "Le volume de cette requête a été supprimé."
+        fail(db, request, "Le volume de cette requête a été supprimé.")
         return
     volume_lock(db, project.id)
     if not request.options.get("ingested"):
@@ -118,7 +119,7 @@ def advance(db: Session, request: TranslationRequest, files: Files, payload: Tra
             return
         ingest(db, request, project, payload or stored_payload(db, request), files)
     if not request.options.get("start"):
-        request.status = "imported"
+        finalize(request, "imported")
         return
     if busy(db, project, HELD):
         return
@@ -127,7 +128,7 @@ def advance(db: Session, request: TranslationRequest, files: Files, payload: Tra
         {"final_review": bool(request.options.get("final_review", True)), "translation_request": request.id},
     )  # fmt: skip
     if job is None:
-        request.status, request.error = "failed", reason
+        fail(db, request, reason)
         return
     request.job_id, request.status, request.error = job.id, "running", ""
 
@@ -166,11 +167,7 @@ def dispatch() -> int:
             before = (request.status, request.job_id)
             try:
                 if request.status == "running":
-                    job = db.get(Job, request.job_id or "")
-                    if job is None:
-                        request.status, request.error = "failed", "Le travail de cette requête a été supprimé."
-                    elif job.status in FINISHED_JOBS:
-                        request.status = job.status
+                    settle(db, request)
                 else:
                     advance(db, request, files)
                 db.commit()
@@ -182,7 +179,7 @@ def dispatch() -> int:
                 db.rollback()
                 files.discard()
                 request = db.get(TranslationRequest, request_id)
-                request.status, request.error = "failed", failure_message(exc)[:1500]
+                fail(db, request, failure_message(exc)[:1500])
                 db.commit()
             except Exception as exc:  # noqa: BLE001 - one broken request must not stop the others
                 db.rollback()
@@ -195,9 +192,15 @@ def dispatch() -> int:
 
 
 def public_status(request: TranslationRequest, job: Job | None) -> str:
-    """queued | imported | pending | running | paused | waiting | blocked | completed | failed | cancelled."""
+    """queued | imported | pending | running | paused | waiting | blocked | finalizing | completed |
+    completed_with_residuals | failed | cancelled. Once the request ended, its own status is the answer;
+    `finalizing`: the job ended and the result is being built."""
+    if request.status in ENDED:
+        return request.status
     if job is None:
         return request.status if request.status != "running" else "pending"
     if job.status in RUNNING:
         return "running"
+    if job.status in FINISHED_JOBS:
+        return "finalizing"
     return job.status

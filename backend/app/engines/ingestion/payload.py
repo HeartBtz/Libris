@@ -90,8 +90,12 @@ class TranslationPayload(StrictModel):
     chapters: list[ChapterInput] = Field(min_length=1)
     # A chapter already imported with another text is refused unless this is true.
     replace_changed_chapters: bool = False
+    # A replaced chapter keeps no human edit: true lets an automation overwrite them without a person.
+    discard_human: bool = False
     pipeline: PipelineOptions = Field(default_factory=PipelineOptions)
     output: OutputOptions = Field(default_factory=OutputOptions)
+    # Webhook called by the worker when the request ends (see app.engines.delivery.webhooks).
+    callback_url: str | None = Field(default=None, max_length=2000)
 
     @model_validator(mode="after")
     def distinct_chapters(self):
@@ -104,8 +108,13 @@ class TranslationPayload(StrictModel):
         return self
 
     def canonical(self) -> bytes:
-        """The stored form: two requests with the same meaning have the same bytes and checksum."""
-        return json.dumps(self.model_dump(mode="json"), ensure_ascii=False, sort_keys=True).encode()
+        """The stored form: two requests with the same meaning have the same bytes and checksum.
+        Fields added in 0.6 are left out while unset, so a 0.5 request keeps its checksum."""
+        data = self.model_dump(mode="json")
+        for key, default in (("discard_human", False), ("callback_url", None)):
+            if data.get(key) == default:
+                data.pop(key, None)
+        return json.dumps(data, ensure_ascii=False, sort_keys=True).encode()
 
 
 class PayloadRejected(ValueError):

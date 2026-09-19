@@ -80,6 +80,9 @@ class ProjectConfig(StrictModel):
     passage_max_chars: int | None = Field(default=None, ge=500, le=20000)
     # "fused": one call reviews and corrects a passage (high/maximum quality); empty: REVIEW_MODE.
     review_mode: Literal["separate", "fused"] | None = None
+    # Autopilot of this book (None: AUTOPILOT_ENABLED) and the providers it falls back to, in order.
+    autopilot: bool | None = None
+    fallback_provider_ids: list[str] | None = Field(default=None, max_length=10)
 
 
 class SeriesBatchInput(StrictModel):
@@ -267,6 +270,20 @@ class FinalReviewResult(ReviewResult):
         return self
 
 
+class ArbitrationDecision(StrictModel):
+    id: str
+    accept: bool
+    reason: str = Field(default="", max_length=2000)
+
+
+class ArbitrationResult(StrictModel):
+    """The autopilot's verdict on the open proposals of one passage; `units` holds only the units whose
+    text changes because a proposal was accepted (empty when none changes)."""
+
+    decisions: list[ArbitrationDecision] = Field(default_factory=list)
+    units: list[TextUnit] = Field(default_factory=list)
+
+
 class AskResult(StrictModel):
     answer: str
     variants: list[str] = Field(default_factory=list)
@@ -288,6 +305,8 @@ class JobInput(StrictModel):
     provider_id: str | None = None
     refused_only: bool = False
     continue_pipeline: bool = False
+    # Whole-book analysis or translation without any human step; None: the project's default.
+    autopilot: bool | None = None
 
 
 class AskInput(StrictModel):

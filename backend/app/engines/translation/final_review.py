@@ -68,24 +68,29 @@ async def web_evidence(queries: list[str]) -> dict:
     return evidence
 
 
-def _review_targets(job: Job, owner: str) -> tuple[list[str], set[str]]:
+def _default_targets(db, job: Job) -> list[str]:
+    conditions = [
+        Segment.project_id == job.project_id,
+        Segment.translation != "",
+        Segment.human.is_(False),
+        Segment.validated.is_(False),
+        Segment.retained_source.is_(False),
+    ]
+    if job.options.get("full_review"):
+        conditions.append(~Segment.status.in_(("error", "refused", "blocked")))
+    else:
+        conditions.append(Segment.status == "check")
+    return list(db.scalars(select(Segment.id).where(*conditions).order_by(Segment.position)))
+
+
+def _review_targets(job: Job, owner: str, select_targets=None) -> tuple[list[str], set[str]]:
     with SessionLocal() as db:
         # The targets are frozen on the first run: a resumed review must not grow or shrink its scope.
         if "review_targets" in job.checkpoint:
             ids = state.in_book_order(db, job.id, state.REVIEW_TARGET)
         else:
-            conditions = [
-                Segment.project_id == job.project_id,
-                Segment.translation != "",
-                Segment.human.is_(False),
-                Segment.validated.is_(False),
-                Segment.retained_source.is_(False),
-            ]
-            if job.options.get("full_review"):
-                conditions.append(~Segment.status.in_(("error", "refused", "blocked")))
-            else:
-                conditions.append(Segment.status == "check")
-            ids = list(db.scalars(select(Segment.id).where(*conditions).order_by(Segment.position)))
+            # The autopilot's later rounds choose their own passages.
+            ids = select_targets(db) if select_targets else _default_targets(db, job)
             with job_lock(job.id):
                 current = fence(db, job.id, owner)
                 state.mark_all(db, job.id, state.REVIEW_TARGET, ids)
@@ -94,9 +99,10 @@ def _review_targets(job: Job, owner: str) -> tuple[list[str], set[str]]:
         return ids, state.marked(db, job.id, state.REVIEWED)
 
 
-async def resolve_validations(job: Job, owner: str) -> None:
+async def resolve_validations(job: Job, owner: str, select_targets=None) -> None:
+    """`select_targets(db)`: the passages to review, in book order, instead of the job's options."""
     job = await blocking(checkpoint, job.id, owner)
-    ids, reviewed = await blocking(_review_targets, job, owner)
+    ids, reviewed = await blocking(_review_targets, job, owner, select_targets)
 
     async def launch(item: tuple[int, str]):
         index, sid = item

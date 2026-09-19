@@ -100,6 +100,17 @@ def _suspend_safely(job_id: str, *arguments) -> None:
         logger.error("job=%s status=suspend_deferred reason=database_unavailable", job_id)
 
 
+def _fallback_safely(job_id: str, owner: str, message: str, *, authentication: bool) -> bool:
+    """Under the autopilot, a provider down for too long hands over to the next one (or ends the job)."""
+    from app.engines.autopilot.providers import handle_outage
+
+    try:
+        return handle_outage(job_id, owner, message, authentication)
+    except SQLAlchemyError:
+        logger.error("job=%s status=fallback_deferred reason=database_unavailable", job_id)
+        return False
+
+
 def _complete(job_id: str, owner: str, project_id: str) -> None:
     with SessionLocal() as db:
         current = fence(db, job_id, owner)
@@ -117,6 +128,12 @@ def _complete(job_id: str, owner: str, project_id: str) -> None:
             if current.options.get("chapter_id"):
                 stale = stale.where(Chapter.id == current.options["chapter_id"])
             db.execute(stale.values(context_stale=False))
+        if current.options.get("autopilot") and "autopilot" not in (current.result or {}):
+            # A job without a translation stage (an analysis alone) still says how it ended.
+            current.result = {
+                **(current.result or {}),
+                "autopilot": {"outcome": "completed", "rounds": 0, "residuals": [], "reason": None},
+            }
         emit(db, project.id, job_id=job_id, status="completed")
         db.commit()
 
@@ -155,9 +172,11 @@ async def execute(job_id: str, owner: str) -> None:
     except JobStopped:
         pass
     except ProviderUnavailable as exc:
-        _suspend_safely(job_id, owner, "waiting", "provider_unavailable", str(exc), exc.retry_after)
+        if not _fallback_safely(job_id, owner, str(exc), authentication=False):
+            _suspend_safely(job_id, owner, "waiting", "provider_unavailable", str(exc), exc.retry_after)
     except ProviderAuthenticationRequired as exc:
-        _suspend_safely(job_id, owner, "blocked", "authentication_required", str(exc))
+        if not _fallback_safely(job_id, owner, str(exc), authentication=True):
+            _suspend_safely(job_id, owner, "blocked", "authentication_required", str(exc))
     except ProviderContentRefused as exc:
         try:
             with SessionLocal() as db:
@@ -216,6 +235,13 @@ async def execute(job_id: str, owner: str) -> None:
             if current and current.lease_owner == owner and current.status not in {"paused", "cancelled"}:
                 current.status, current.error = "failed", str(exc)[:1500]
                 current.finished_at = time.time()
+                if current.options.get("autopilot"):
+                    from app.engines.autopilot.providers import failed_report
+
+                    current.result = {
+                        **(current.result or {}),
+                        "autopilot": failed_report(current, current.error),
+                    }
                 db.get(Project, job.project_id).status = "failed"
                 emit(db, job.project_id, job_id=job_id, status="failed", error=current.error)
                 db.commit()
@@ -363,6 +389,19 @@ async def request_dispatcher(stopped: asyncio.Event, interval: float = REQUEST_I
             await asyncio.wait_for(stopped.wait(), timeout=interval)
 
 
+async def webhook_dispatcher(stopped: asyncio.Event, interval: float = REQUEST_INTERVAL) -> None:
+    """Sends the webhooks of ended automation requests (app.engines.delivery.webhooks); never the API."""
+    from app.engines.delivery.webhooks import pump
+
+    while not stopped.is_set():
+        try:
+            await asyncio.to_thread(pump)
+        except SQLAlchemyError as exc:
+            logger.warning("operation=webhooks status=deferred reason=%s", type(exc).__name__)
+        with contextlib.suppress(TimeoutError):
+            await asyncio.wait_for(stopped.wait(), timeout=interval)
+
+
 RETENTION_INTERVAL = 3600
 
 
@@ -394,6 +433,7 @@ async def main() -> None:
         worker_slot(stopped, ("sync_memory",)),
         retention_loop(stopped),
         request_dispatcher(stopped),
+        webhook_dispatcher(stopped),
     )
 
 

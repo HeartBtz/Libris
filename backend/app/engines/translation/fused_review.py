@@ -14,6 +14,7 @@ with the reason logged: fusion saves tokens, it never costs a passage.
 import logging
 
 from app.config import settings
+from app.engines.autopilot.degrade import note, reason_of
 from app.engines.context.builder import ContextTooLarge, build_context
 from app.engines.quality.checks import checks, locked_term_error, validate_translation
 from app.jobs.concurrency import blocking
@@ -102,6 +103,16 @@ async def review_and_revise(job, owner: str, project: Project, segment: Segment,
     except (ContextTooLarge, InvalidResponseExhausted) as exc:
         logger.warning(
             "segment=%s review_mode=fused fallback=separate reason=%s", segment.id, type(exc).__name__
+        )
+        await blocking(
+            note,
+            job,
+            owner,
+            stage="translation",
+            kind=OPERATION,
+            action="fallback",
+            reason=f"Relecture fusionnée impossible ({reason_of(exc)}) : relecture et révision séparées.",
+            segment_id=segment.id,
         )
         return False
     critique = [issue.model_dump() for issue in result.issues]

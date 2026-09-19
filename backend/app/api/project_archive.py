@@ -276,6 +276,7 @@ class ArchivedJob(Archived):
     outage_count: int = Field(default=0, ge=0)
     stop_reason: str = Field(default="", max_length=40)
     finished_at: float | None = None
+    result: dict = Field(default_factory=dict)  # the autopilot report travels with its job
 
 
 class ArchivedJobState(BaseModel):

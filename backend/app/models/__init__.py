@@ -11,7 +11,7 @@ from app.models.memory import (
     Outbox,
     Prompt,
 )
-from app.models.runs import Event, Issue, Job, JobSegmentState, RequestLog
+from app.models.runs import AutopilotDecision, Event, Issue, Job, JobSegmentState, RequestLog
 from app.models.series import (
     ApiToken,
     AuditEntry,
@@ -28,6 +28,7 @@ from app.models.sync import sync_series  # noqa: F401  (keeps series_name and se
 from app.models.usage import UsageDaily
 
 __all__ = [
+    "AutopilotDecision",
     "CharacterRelation",
     "EntityMerge",
     "Chapter",

@@ -1,5 +1,7 @@
 # Échecs de traduction et poursuite du livre
 
+> Sous le [pilote automatique](autopilot.md) (par défaut), le compteur ci-dessous n’arrête jamais le job : chaque passage en échec passe par l’échelle de récupération (nouvel essai informé, groupes, phrases, contexte réduit, fournisseurs de secours) puis, en dernier recours, garde son texte original avec la raison.
+
 - Après **5 réponses invalides** sur un passage (paragraphes ou marqueurs altérés, format inexploitable), Libris tente une [réparation bornée par petits groupes](recovery.md). Si elle est impossible ou échoue à son tour, Libris conserve le texte existant, signale une erreur et poursuit le passage suivant.
 - Un refus de contenu conserve sa limite de **2 tentatives**, puis le passage est signalé comme refusé.
 - Ces deux catégories alimentent un compteur commun : **10 passages consécutifs en échec arrêtent le job**. Il ne s'agit pas de dix requêtes HTTP, mais de dix passages après épuisement de leurs tentatives.

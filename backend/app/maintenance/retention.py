@@ -21,7 +21,16 @@ from sqlalchemy import Text, cast, delete, func, select, update
 from app.config import settings
 from app.db import SessionLocal
 from app.jobs.segment_state import REVIEWED
-from app.models import BibleRevision, Event, ImportSession, Job, JobSegmentState, Outbox, RequestLog
+from app.models import (
+    BibleRevision,
+    Event,
+    ImportSession,
+    Job,
+    JobSegmentState,
+    Outbox,
+    RequestLog,
+    TranslationRequest,
+)
 
 DAY = 86400
 KEPT_EVENTS = 500  # per book, whatever their age: the interface replays recent progress from them
@@ -192,6 +201,29 @@ def request_rows(days: int, dry_run: bool, now: float) -> int:
             db.commit()
 
 
+def results(days: int, dry_run: bool, now: float) -> int:
+    """Delivered result files of old requests: the row keeps the report, and asking for the result again
+    rebuilds the file from the database."""
+    from app.engines.delivery.results import discard
+
+    if not days:
+        return 0
+    with SessionLocal() as db:
+        old = list(
+            db.scalars(
+                select(TranslationRequest).where(TranslationRequest.finished_at < now - days * DAY)
+            )
+        )
+        old = [request for request in old if (request.artifact or {}).get("path")]
+        if dry_run:
+            return len(old)
+        for request in old:
+            discard(request)
+            request.artifact = None
+        db.commit()
+    return len(old)
+
+
 def apply(dry_run: bool = False) -> dict:
     from app.maintenance.usage import rollup
 
@@ -206,6 +238,7 @@ def apply(dry_run: bool = False) -> dict:
         "bible_revisions": bible_revisions(config.retention_bible_revisions, dry_run),
         "job_state": job_state(config.retention_job_state_days, dry_run, now),
         "import_sessions": import_sessions(dry_run, now),
+        "results": results(config.retention_results_days, dry_run, now),
     }
 
 
@@ -220,5 +253,5 @@ if __name__ == "__main__":
         f"request rows {verb} deleted; {result['request_bodies']} request bodies {verb} emptied; {result['events']} events, "
         f"{result['outbox']} sent outbox rows, {result['bible_revisions']} bible revisions and "
         f"{result['job_state']} job state rows {verb} deleted; {result['import_sessions']} expired imports "
-        f"{verb} cleaned."
+        f"and {result['results']} delivered results {verb} cleaned."
     )

@@ -25,6 +25,7 @@ from app.engines.ingestion.store import (
     lock,
     safe_display_name,
 )
+from app.engines.memory.cleanup import queue_volume_cleanup
 from app.engines.memory.identities import canonical_bible
 from app.engines.series.bible import refresh_series
 from app.engines.translation.memory import translation_memory_enabled
@@ -313,6 +314,8 @@ def remove(project_id: str, user: CurrentUser, db: DB, stop_jobs: bool = False):
     # SET NULL on an entity already deleted by the same cascade.
     db.execute(update(Entity).where(Entity.project_id == project_id).values(merged_into_id=None))
     series_id = project.series_id
+    # Opt-in: queued with the deletion itself, removed later by the worker (never blocks this request).
+    cleanup = queue_volume_cleanup(db, project, user.id)
     db.delete(project)
     db.commit()
     discard_book_file(project)
@@ -321,7 +324,10 @@ def remove(project_id: str, user: CurrentUser, db: DB, stop_jobs: bool = False):
         db.commit()
     return {
         "ok": True,
-        "message": "Projet local supprimé. La mémoire OpenViking distante se gère séparément.",
+        "message": "Projet local supprimé. Ses documents OpenViking seront effacés par le worker."
+        if cleanup
+        else "Projet local supprimé. La mémoire OpenViking distante se gère séparément.",
+        "openviking_cleanup_id": cleanup.id if cleanup else None,
     }
 
 

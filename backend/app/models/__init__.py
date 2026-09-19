@@ -1,4 +1,5 @@
 from app.models.books import Chapter, Membership, Project, Segment, TranslationVersion
+from app.models.cleanup import OpenVikingCleanup
 from app.models.identity import LoginSession, Provider, User
 from app.models.memory import (
     AppSetting,
@@ -44,6 +45,7 @@ __all__ = [
     "Glossary",
     "Memory",
     "Outbox",
+    "OpenVikingCleanup",
     "Prompt",
     "Event",
     "Issue",

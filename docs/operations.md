@@ -91,6 +91,10 @@ the new provider in its configuration and resume: the rest of the book uses the 
 One worker is enough for most installations. It renews a 60-second lease on each job; if the worker stops
 abruptly, another start picks the job up after the lease expires.
 
+The worker also sends memory updates to OpenViking and, when the [cleanup](openviking.md#cleanup-of-deleted-volumes-and-series)
+is on, removes the OpenViking documents of deleted volumes and series. A removal holds a 5-minute lease too;
+a waiting one is visible, with its last error, in **Settings › Memory · OpenViking › Cleanup log**.
+
 ## Monitoring
 
 ### Health

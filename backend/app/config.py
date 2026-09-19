@@ -71,6 +71,9 @@ class Settings(BaseSettings):
     searxng_url: str = ""
     final_review_enabled: bool = True
     openviking_root_uri: str = "viking://resources/epub-translator"
+    # Deleting a volume or a series also removes its OpenViking documents (queued for the worker).
+    # Off by default; Settings › Memory · OpenViking overrides it (app.engines.memory.cleanup).
+    openviking_cleanup_on_delete: bool = False
     epubcheck_jar: str = ""
     # Live event streams (SSE) held open at once, per account and for the whole API process.
     event_streams_per_user: int = Field(default=4, ge=1, le=100)

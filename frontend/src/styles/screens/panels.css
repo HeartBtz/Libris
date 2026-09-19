@@ -698,3 +698,43 @@
   padding: 0;
   border: 0;
 }
+
+/* ---------- OpenViking cleanup (Settings › Memory · OpenViking) ---------- */
+.cleanup-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.cleanup-list {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.cleanup-list > li {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+.cleanup-results,
+.cleanup-results ul {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding-left: var(--space-3);
+}
+
+.cleanup-uri {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  overflow-wrap: anywhere;
+}

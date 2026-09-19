@@ -344,6 +344,14 @@ async def provider_dispatcher(stopped: asyncio.Event) -> None:
             await asyncio.gather(*running, return_exceptions=True)
 
 
+async def memory_work() -> None:
+    await sync_outbox()
+    # Opt-in removals of deleted volumes and series (app.engines.memory.cleanup), after the writes.
+    from app.engines.memory.cleanup import run_cleanups
+
+    await run_cleanups()
+
+
 def catalog_due(last: float, now: float) -> bool:
     return now - last > settings().memory_catalog_interval_seconds
 
@@ -357,7 +365,7 @@ async def memory_pump(stopped: asyncio.Event) -> None:
                 if memory_config()["base_url"]:
                     refresh_layouts()
             last_catalog = time.monotonic()
-        work = asyncio.create_task(sync_outbox())
+        work = asyncio.create_task(memory_work())
         shutdown = asyncio.create_task(stopped.wait())
         try:
             done, _ = await asyncio.wait({work, shutdown}, return_when=asyncio.FIRST_COMPLETED)

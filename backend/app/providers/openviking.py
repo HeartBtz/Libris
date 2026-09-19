@@ -1,5 +1,6 @@
 """Small async adapter for the documented OpenViking HTTP API, not a server dependency."""
 
+import re
 from urllib.parse import unquote
 
 import httpx
@@ -142,3 +143,62 @@ class OpenVikingClient:
         return await self.request(
             "POST", "/api/v1/content/reindex", json={"uri": uri, "wait": False, "mode": "vectors_only"}
         )
+
+    async def ls(self, uri: str, recursive: bool = False, limit: int = 1000) -> list[dict] | None:
+        """Entries of a directory ({"uri", "isDir"}), or None when it does not exist."""
+        params = {"uri": uri, "recursive": recursive, "output": "original", "node_limit": limit}
+        try:
+            result = await self.request("GET", "/api/v1/fs/ls", params=params)
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code == 404:
+                return None
+            raise
+        if not isinstance(result, list):
+            raise ValueError("Réponse ls OpenViking inattendue.")
+        entries = []
+        for entry in result:
+            if isinstance(entry, str):
+                entries.append({"uri": entry, "isDir": entry.endswith("/")})
+            elif isinstance(entry, dict) and isinstance(entry.get("uri"), str):
+                entries.append({"uri": entry["uri"], "isDir": bool(entry.get("isDir"))})
+        return entries
+
+    async def remove_tree(self, uri: str) -> dict | None:
+        """Removes a whole directory. Only a prefix Libris owns (see cleanup_scope) is ever accepted."""
+        if cleanup_scope(uri, self.config.get("root_uri", "")) is None:
+            raise ValueError("URI OpenViking non sûre.")
+        try:
+            result = await self.request("DELETE", "/api/v1/fs", params={"uri": uri, "recursive": True})
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code == 404:
+                return None
+            raise
+        return result if isinstance(result, dict) else {}
+
+
+# The only directories a cleanup may remove, relative to the root: a series, a volume in its series
+# space or its standalone space, and a volume of the 0.5 layout <root>/<owner>/<project>.
+_ID = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
+LIBRIS_ID = re.compile(_ID)
+_SCOPES = (
+    ("series", re.compile(rf"({_ID})/series/({_ID})")),
+    ("series_volume", re.compile(rf"({_ID})/series/({_ID})/volumes/({_ID})")),
+    ("standalone", re.compile(rf"({_ID})/standalone/({_ID})")),
+    ("legacy", re.compile(rf"({_ID})/({_ID})")),
+)
+
+
+def cleanup_scope(uri: str, root: str) -> tuple[str, tuple[str, ...]] | None:
+    """(kind, ids) when `uri` is exactly one of Libris' item directories under `root`, else None."""
+    try:
+        root = validate_root(root)
+    except ValueError:
+        return None
+    if not uri.startswith(root + "/"):
+        return None
+    relative = uri[len(root) + 1 :]
+    for kind, pattern in _SCOPES:
+        match = pattern.fullmatch(relative)
+        if match:
+            return kind, match.groups()
+    return None

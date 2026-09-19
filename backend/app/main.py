@@ -26,6 +26,7 @@ from app.api import (
     memory,
     monitoring,
     observability,
+    openviking_cleanup,
     projects,
     providers,
     recovery,
@@ -213,6 +214,7 @@ for module in (
     app.include_router(module.router)
 app.include_router(estimates.router)
 app.include_router(monitoring.router)
+app.include_router(openviking_cleanup.router)
 
 
 @app.get("/openapi.json", include_in_schema=False)

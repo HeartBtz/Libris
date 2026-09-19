@@ -27,7 +27,7 @@ contributing, see [development](development.md).
 | `engines/epub` | ZIP preflight, EbookLib reading, lxml DOM, units with inline codes, segmentation, rebuilding a translated copy of the archive, EPUBCheck. |
 | `engines/series` | Series memory (canonical identities, links, relations, series glossary, Series Bible), rebuilt from the volumes (`refresh_series`), and the audit log. |
 | `engines/context` | Context selection for each model call: narrative query, local, external or hybrid memory, budget, inspector; series conventions inherited from earlier volumes (`series.py`); section order (`prefix.py`). |
-| `engines/memory` | Human decisions, characters, glossary, OpenViking events and catalogs, the send queue. |
+| `engines/memory` | Human decisions, characters, glossary, OpenViking events and catalogs, the send queue, the opt-in cleanup of deleted items. |
 | `engines/translation` | Analysis, translation, review, revision and polishing, global consistency, final review, repair in groups (`repair.py`), translation memory (`memory.py`), versions. |
 | `engines/autopilot` | The convergence loop (`loop.py`), recovery ladder (`recovery.py`), AI arbitration (`arbitration.py`), memory decisions (`memory.py`), provider fallback (`providers.py`), skipping optional steps (`degrade.py`) and the decision log (`decisions.py`). |
 | `engines/quality` | Deterministic checks: unit ids, markup codes, empty output, length, repetition, unchanged text, terminology. |
@@ -159,6 +159,7 @@ SQL tables, grouped by purpose. Column types for documents are SQLAlchemy `JSON`
 | `glossary` | Terms of a volume; `locked` terms are enforced; `series_override` marks a deliberate departure from the series term (audited). |
 | `bible_revisions` | Previous Book Bible versions (bounded by retention). |
 | `memory_outbox` | The OpenViking send queue; `uri` records where an entry was last written. |
+| `openviking_cleanups` | Opt-in removals of the OpenViking directories of deleted volumes and series, and of orphans: directories, state, attempts, lease and the log of what was removed. No foreign key: rows outlive the deleted items. |
 
 ### Series memory
 

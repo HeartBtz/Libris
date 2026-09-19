@@ -98,8 +98,8 @@ registerTranslations({
   "Zone de danger": "Danger zone",
   "Supprimer ce projet": "Delete this project",
   "Supprimer ce projet ?": "Delete this project?",
-  "Le projet local, ses traductions et ses travaux seront supprimés. La mémoire OpenViking distante reste séparée. Exportez le projet pour en garder une copie.":
-    "The local project, its translations and its jobs will be deleted. Remote OpenViking memory remains separate. Export the project to keep a copy.",
+  "Le projet local, ses traductions et ses travaux seront supprimés. La mémoire OpenViking distante n’est effacée que si un administrateur a activé son nettoyage. Exportez le projet pour en garder une copie.":
+    "The local project, its translations and its jobs will be deleted. Remote OpenViking memory is removed only if an administrator switched its cleanup on. Export the project to keep a copy.",
   "Supprimer définitivement": "Delete permanently",
   "Seul le propriétaire du livre gère le partage et la suppression.": "Only the book's owner manages sharing and deletion.",
   "Choix terminologiques": "Terminology choices",
@@ -625,7 +625,7 @@ export function ProjectSettings({
                   const accepted = await confirm({
                     title: t("Supprimer ce projet ?"),
                     message: t(
-                      "Le projet local, ses traductions et ses travaux seront supprimés. La mémoire OpenViking distante reste séparée. Exportez le projet pour en garder une copie.",
+                      "Le projet local, ses traductions et ses travaux seront supprimés. La mémoire OpenViking distante n’est effacée que si un administrateur a activé son nettoyage. Exportez le projet pour en garder une copie.",
                     ),
                     confirmLabel: t("Supprimer définitivement"),
                     tone: "danger",

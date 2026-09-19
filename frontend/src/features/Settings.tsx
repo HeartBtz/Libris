@@ -25,6 +25,7 @@ import {
 } from "../ui";
 import { ApiTokens } from "./ApiTokens";
 import { AutopilotSettings, WebhookSettings } from "./AutomationSettings";
+import { BudgetSettings } from "./Budget";
 import { CodexConnection } from "./CodexConnection";
 import { RecoverySettings } from "./Account";
 
@@ -252,6 +253,7 @@ export function Settings({ run }: { run: Run }) {
             { id: "users", label: t("Utilisateurs") },
             { id: "autopilot", label: t("Pilote automatique") },
             { id: "recovery", label: t("Reprise automatique") },
+            { id: "budget", label: t("Budgets") },
             { id: "api", label: t("API d’automatisation") },
           ]}
         />
@@ -268,6 +270,8 @@ export function Settings({ run }: { run: Run }) {
             <RecoverySettings run={run} />
           ) : tab === "autopilot" ? (
             <AutopilotSettings run={run} />
+          ) : tab === "budget" ? (
+            <BudgetSettings run={run} />
           ) : tab === "api" ? (
             <div className="stack">
               <ApiTokens run={run} />

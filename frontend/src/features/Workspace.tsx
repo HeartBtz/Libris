@@ -31,6 +31,7 @@ import { Bible, Glossary, Observability, ProjectSettings, Quality } from "./pane
 import { ExportMenu, exportFormats, exportName, exportPath } from "./ExportMenu";
 import type { ExportFormat, ExportOptions } from "./ExportMenu";
 import { AutopilotPanel, AutopilotStatus, autopilotOutcome, fetchAutopilot, phaseLabel } from "./Autopilot";
+import { BookBudget } from "./Budget";
 
 const CharacterGraph = lazy(() => import("./CharacterGraph"));
 
@@ -118,6 +119,8 @@ registerTranslations({
   "{count} conservé en original": "{count} retained in the original",
   "{count} conservés en original": "{count} retained in the original",
   "Progression globale": "Overall progress",
+  "Budget atteint : travail en pause": "Budget reached: job paused",
+  "Relever le budget": "Raise the budget",
 });
 
 const stageLabels: Record<string, string> = {
@@ -558,7 +561,7 @@ export function Workspace({ id, user, run }: { id: string; user: User; run: Run 
             {t("Choisissez le modèle et les langues dans les réglages du livre.")}
           </Callout>
         )}
-        {job?.error && (
+        {job?.error && job.stop_reason !== "budget_exceeded" && (
           <Callout
             tone={job.status === "waiting" ? "warning" : "danger"}
             role="alert"
@@ -612,8 +615,22 @@ export function Workspace({ id, user, run }: { id: string; user: User; run: Run 
             )}
           </Callout>
         )}
-        {job?.status === "paused" && (
+        {job?.status === "paused" && job.stop_reason !== "budget_exceeded" && (
           <Callout tone="neutral">{t("Pause volontaire — utilisez Reprendre pour continuer.")}</Callout>
+        )}
+        {job?.status === "paused" && job.stop_reason === "budget_exceeded" && (
+          <Callout
+            tone="warning"
+            role="status"
+            title={t("Budget atteint : travail en pause")}
+            actions={
+              <Button onClick={() => void openTab("config")}>
+                {t("Relever le budget")}
+              </Button>
+            }
+          >
+            {job.error}
+          </Callout>
         )}
         {job?.status === "blocked" && job.stop_reason === "authentication_required" && user.admin && (
           <Callout tone="danger" actions={<a className="btn btn-sm btn-secondary" href="#settings">{t("Ouvrir les paramètres de connexion du provider")}</a>} />
@@ -680,7 +697,10 @@ export function Workspace({ id, user, run }: { id: string; user: User; run: Run 
         ) : tab === "requests" ? (
           <Observability project={project} run={run} tick={tick} />
         ) : (
-          <ProjectSettings project={project} user={user} run={run} refresh={refresh} />
+          <div className="stack">
+            <BookBudget project={project} user={user} run={run} tick={tick} />
+            <ProjectSettings project={project} user={user} run={run} refresh={refresh} />
+          </div>
         )}
       </TabPanel>
     </Page>

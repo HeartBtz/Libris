@@ -698,3 +698,40 @@
   padding: 0;
   border: 0;
 }
+
+/* Cost budgets: the book's budget card and a token's budget line. */
+.budget-last {
+  display: grid;
+  gap: 6px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+
+.budget-figures {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 24px;
+  margin: 0;
+}
+
+.budget-figures div {
+  display: grid;
+  gap: 2px;
+}
+
+.budget-figures dt {
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+}
+
+.budget-figures dd {
+  margin: 0;
+  font-weight: 600;
+}
+
+.token-budget {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}

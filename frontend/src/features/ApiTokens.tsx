@@ -4,6 +4,8 @@ import { formatDateTime, registerTranslations, useI18n } from "../i18n";
 import type { Run } from "../types";
 import { Badge, Button, Callout, Card, Checkbox, Field, FormGrid, Input, LoadingBlock, Select, useDialogs } from "../ui";
 import type { Tone } from "../ui";
+import { TokenBudgetFields, TokenBudgetLine } from "./Budget";
+import type { TokenBudgetView } from "./Budget";
 
 registerTranslations({
   "Jetons d’API": "API tokens",
@@ -80,6 +82,8 @@ interface ApiToken {
   state: "active" | "expired" | "revoked";
   /** Whether webhooks of this token's requests are signed with its own secret (0.6). */
   webhook_secret?: boolean;
+  /** Cost cap of the token's requests with what the period spent (0.7; null: no cap). */
+  budget?: TokenBudgetView | null;
 }
 
 const SCOPES: [string, string][] = [
@@ -124,6 +128,8 @@ export function ApiTokens({ run }: { run: Run }) {
   const [secret, setSecret] = useState("");
   const [signing, setSigning] = useState("");
   const [withWebhookSecret, setWithWebhookSecret] = useState(false);
+  const [budgetAmount, setBudgetAmount] = useState("");
+  const [budgetPeriod, setBudgetPeriod] = useState<"month" | "total">("month");
   const [copied, setCopied] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -193,6 +199,11 @@ export function ApiTokens({ run }: { run: Run }) {
                           : t("Jamais utilisé"),
                       ].join(" · ")}
                     </small>
+                    <TokenBudgetLine
+                      token={token}
+                      run={run}
+                      onSaved={async () => setTokens(await api("/tokens"))}
+                    />
                   </div>
                   <Badge tone={tone} dot>
                     {t(label)}
@@ -280,11 +291,13 @@ export function ApiTokens({ run }: { run: Run }) {
                   expires_in_days: days ? Number(days) : null,
                   // Only sent when asked: servers before 0.6 refuse unknown fields.
                   ...(withWebhookSecret ? { webhook_secret: true } : {}),
+                  ...(budgetAmount ? { budget_amount: Number(budgetAmount), budget_period: budgetPeriod } : {}),
                 },
               );
               setSecret(created.token);
               setSigning(typeof created.webhook_secret === "string" ? created.webhook_secret : "");
               setWithWebhookSecret(false);
+              setBudgetAmount("");
               setCopied("");
               setName("");
               setTokens(await api("/tokens"));
@@ -329,6 +342,15 @@ export function ApiTokens({ run }: { run: Run }) {
             )}
             checked={withWebhookSecret}
             onChange={(event) => setWithWebhookSecret(event.target.checked)}
+          />
+          <TokenBudgetFields
+            amount={budgetAmount}
+            period={budgetPeriod}
+            disabled={busy}
+            onChange={(amount, period) => {
+              setBudgetAmount(amount);
+              setBudgetPeriod(period);
+            }}
           />
           {error && (
             <p role="alert" className="form-status tone-text-danger">

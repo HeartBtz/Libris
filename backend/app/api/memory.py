@@ -7,11 +7,13 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 
 from app.api.common import row
+from app.api.glossaries import Options as GlossaryImportOptions
+from app.api.glossaries import book_import
 from app.config import settings
 from app.engines.context.config import memory_config
 from app.engines.memory.catalog import CATALOG_NAME, catalog_uri, queue_catalog
 from app.engines.memory.events import ensure_events
-from app.engines.memory.glossary_files import export_csv, export_json, export_tbx, read_glossary
+from app.engines.memory.glossary_files import render_export
 from app.engines.memory.identities import canonical_bible, identities, names, normalized, upsert_profiles
 from app.engines.memory.store import invalidate_after_decision
 from app.engines.series.audit import audit
@@ -219,20 +221,22 @@ def delete_term(pid: str, gid: str, user: CurrentUser, db: DB):
 
 
 @router.get("/projects/{pid}/glossary/export/{format}")
-def export_terms(pid: str, format: Literal["json", "csv", "tbx"], user: CurrentUser, db: DB):
+def export_terms(
+    pid: str,
+    format: Literal["json", "csv", "tbx"],
+    user: CurrentUser,
+    db: DB,
+    delimiter: Literal["comma", "semicolon", "tab"] = "comma",
+    bom: bool = False,
+):
     project = access(db, pid, user)
     values = [
         row(g, ("id", "project_id", "created_at", "series_override"))
         for g in db.scalars(select(Glossary).where(Glossary.project_id == pid).order_by(Glossary.source))
     ]
-    content, media_type = {
-        "json": lambda: (export_json(values), "application/json"),
-        "csv": lambda: (export_csv(values), "text/csv"),
-        "tbx": lambda: (
-            export_tbx(values, project.source_language, project.target_language),
-            "application/x-tbx+xml",
-        ),
-    }[format]()
+    content, media_type = render_export(
+        values, format, project.source_language, project.target_language, delimiter, bom
+    )
     return Response(
         content,
         media_type=media_type,
@@ -241,25 +245,14 @@ def export_terms(pid: str, format: Literal["json", "csv", "tbx"], user: CurrentU
 
 
 @router.post("/projects/{pid}/glossary/import")
-async def import_terms(pid: str, file: UploadFile, user: CurrentUser, db: DB):
+async def import_terms(pid: str, file: UploadFile, options: GlossaryImportOptions, user: CurrentUser, db: DB):
+    """Imports a JSON, CSV or TBX glossary. By default a term already in the book is kept (import never
+    silently overwrites a human or locked term); `strategy` replace or replace_all decides otherwise."""
     project = access(db, pid, user, write=True)
     data = await file.read(2 * 1024**2 + 1)
     if len(data) > 2 * 1024**2:
         raise HTTPException(413, "Glossaire trop volumineux.")
-    terms = read_glossary(data, file.filename or "", project.source_language, project.target_language)
-    count = 0
-    for value in terms:
-        existing = db.scalar(
-            select(Glossary).where(Glossary.project_id == pid, Glossary.source == value.source)
-        )
-        if existing:
-            continue  # Import never silently overwrites a human or locked term.
-        db.add(Glossary(project_id=pid, **value.model_dump()))
-        db.flush()
-        count += 1
-    invalidate_after_decision(db, project)
-    db.commit()
-    return {"imported": count, "skipped": len(terms) - count}
+    return book_import(db, project, data, file.filename or "", options, apply=True)
 
 
 class MemorySettings(BaseModel):

@@ -327,6 +327,13 @@ MESSAGES = {
     # Problems recorded on passages (GET /api/projects/{id}/issues)
     "Traduction refusée deux fois ; passage ignoré.": "Translation refused twice; passage skipped.",
     "Texte original conservé par décision humaine ; ce passage n’est pas traduit.": "Original text kept by a human decision; this passage is not translated.",
+    # Glossary imports and shared glossaries
+    "Stratégie d’import inconnue : skip, replace ou replace_all.": "Unknown import strategy: skip, replace or replace_all.",
+    "Correspondance de colonnes invalide : un objet {champ: numéro de colonne} est attendu.": "Invalid column mapping: an object {field: column number} is expected.",
+    "Glossaire partagé introuvable.": "Shared glossary not found.",
+    "Le nom du glossaire est requis.": "The glossary name is required.",
+    "Ce terme existe déjà dans le glossaire partagé.": "This term already exists in the shared glossary.",
+    "Les langues de ce glossaire partagé ne correspondent pas à celles de la série.": "The languages of this shared glossary do not match those of the series.",
 }  # fmt: skip
 
 TEMPLATES = {
@@ -405,6 +412,10 @@ TEMPLATES = {
     "Requête toujours inachevée après {hours} h : délai maximal dépassé.": "Request still unfinished after {hours} h: maximum delay exceeded.",
     "L’hôte « {host} » n’est pas dans la liste des webhooks autorisés.": "The host “{host}” is not in the list of allowed webhooks.",
     "L’hôte « {host} » désigne une adresse privée ou réservée : webhook refusé.": "The host “{host}” points to a private or reserved address: webhook refused.",
+    # Glossary imports and shared glossaries
+    "Un glossaire partagé « {name} » existe déjà.": "A shared glossary “{name}” already exists.",
+    "Valeur non reconnue pour {field} : « {value} »": "Unrecognised value for {field}: “{value}”",
+    "Terme invalide : {problem}": "Invalid term: {problem}",
 }  # fmt: skip
 
 

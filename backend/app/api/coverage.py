@@ -51,7 +51,11 @@ def completion(pid: str, user: CurrentUser, db: DB):
     # Passages kept in the original are listed too: another provider may translate them now.
     stuck = (
         owned,
-        or_(untranslated, Segment.retained_source.is_(True), Segment.status.in_(("error", "refused", "blocked"))),
+        or_(
+            untranslated,
+            Segment.retained_source.is_(True),
+            Segment.status.in_(("error", "refused", "blocked")),
+        ),
     )
     chapters = {c.id: c.title for c in db.scalars(select(Chapter).where(Chapter.project_id == pid))}
     rows = db.execute(

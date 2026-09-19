@@ -6,7 +6,7 @@ COPY frontend/ ./
 RUN npm run build
 
 FROM python:3.13-slim-bookworm@sha256:ed86c82274b3c69b52fb5820f358f0bd7df0b603332063cb5c6e32bd220c3e6e AS runtime
-ARG LIBRIS_VERSION=0.5.0
+ARG LIBRIS_VERSION=0.6.0
 ARG VCS_REF=unknown
 LABEL org.opencontainers.image.title="Libris" \
       org.opencontainers.image.description="Self-hosted, context-aware EPUB translation workbench" \

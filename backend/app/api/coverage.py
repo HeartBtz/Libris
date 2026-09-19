@@ -7,6 +7,8 @@ from app.api.segments import get_segment
 from app.engines.memory.identities import upsert_profiles
 from app.engines.memory.relations import collect
 from app.engines.memory.store import remember
+from app.engines.quality.score import repair as repair_scores
+from app.engines.quality.score import summary as quality_summary
 from app.engines.translation.versions import save_version
 from app.jobs import segment_state as state
 from app.jobs.queue import HELD, emit, lock_live_jobs
@@ -23,6 +25,8 @@ RECOVERY_LIMIT = 500
 @router.get("/projects/{pid}/completion")
 def completion(pid: str, user: CurrentUser, db: DB):
     access(db, pid, user)
+    if repair_scores(db, [pid]):
+        db.commit()
     # Counted by the database: this report refreshes with every burst of job events, and loading each
     # passage of a long book (units, translations, critiques) to count them cost close to 1 MB a call.
     owned = Segment.project_id == pid
@@ -98,6 +102,7 @@ def completion(pid: str, user: CurrentUser, db: DB):
             }
             for sid, position, chapter_id, status, error, excerpt, human, validated in rows
         ],
+        "quality": quality_summary(db, [pid]),
     }
 
 

@@ -16,6 +16,7 @@ from app.engines.autopilot.arbitration import arbitrate, open_condition, settle_
 from app.engines.autopilot.decisions import record
 from app.engines.autopilot.memory import decide_glossary, decide_memory
 from app.engines.autopilot.recovery import failed_condition, recover_failed, retain_source
+from app.engines.quality import score as quality
 from app.jobs import segment_state as state
 from app.jobs.concurrency import blocking, job_lock
 from app.jobs.queue import checkpoint, emit, fence
@@ -168,6 +169,12 @@ def residuals(db, project_id: str) -> list[dict]:
     return [{"segment_id": sid, "chapter_id": cid, "reason": reasons.get(sid, "")} for sid, cid in rows]
 
 
+def quality_summary(db, project_id: str) -> dict:
+    """Passage scores once the run is settled (see app.engines.quality.score)."""
+    quality.repair(db, [project_id])
+    return quality.summary(db, [project_id])
+
+
 def settle(job: Job, owner: str, rounds: int, stable: bool) -> dict:
     """Terminal: nothing is left failed or waiting for a decision, and the report says what remains."""
     why = "Stable." if stable else f"Nombre maximal de tours atteint ({rounds})."
@@ -188,6 +195,7 @@ def settle(job: Job, owner: str, rounds: int, stable: bool) -> dict:
             "reason": None
             if not remaining
             else f"{len(remaining)} passage(s) conservé(s) dans la langue d’origine faute de traduction valide.",
+            "quality": quality_summary(db, job.project_id),
         }
         current.result = {**(current.result or {}), "autopilot": report}
         record(

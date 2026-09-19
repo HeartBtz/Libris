@@ -18,6 +18,7 @@ from app.engines.context.config import memory_config
 from app.engines.ingestion.naming import display_series, missing_numbers, normalize_series
 from app.engines.ingestion.store import find_series
 from app.engines.memory.catalog import queue_catalog
+from app.engines.memory.cleanup import queue_series_cleanup
 from app.engines.memory.events import ensure_events
 from app.engines.series.audit import audit
 from app.engines.series.bible import canonical, refresh_series, series_volumes
@@ -228,9 +229,16 @@ def delete_series(series_id: str, user: CurrentUser, db: DB):
     series = series_access(db, series_id, user, owner=True)
     if db.scalar(select(Project.id).where(Project.series_id == series.id).limit(1)):
         raise HTTPException(409, "Supprimez ou détachez d’abord les volumes de cette série.")
+    cleanup = queue_series_cleanup(db, series, user.id)
     db.delete(series)
     db.commit()
-    return {"ok": True}
+    return {
+        "ok": True,
+        "message": "Série supprimée. Ses documents OpenViking seront effacés par le worker."
+        if cleanup
+        else "Série supprimée.",
+        "openviking_cleanup_id": cleanup.id if cleanup else None,
+    }
 
 
 @router.post("/{series_id}/archive")

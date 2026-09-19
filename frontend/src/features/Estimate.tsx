@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import { api } from "../api";
 import { formatCompact, formatNumber, registerTranslations, useI18n } from "../i18n";
 import { Icon } from "../ui";
+import { EstimateBudgetLine } from "./Budget";
+import type { EstimateBudget } from "./Budget";
 
 registerTranslations({
   Estimation: "Estimate",
@@ -25,6 +27,8 @@ interface Estimate {
   passages?: number;
   basis_kind?: "history" | "mixed" | "default" | "none";
   history_books?: number;
+  /** The book's budget against this estimate (0.7; null without a cap). */
+  budget?: EstimateBudget | null;
 }
 
 /**
@@ -71,6 +75,7 @@ export function EstimateNote({ projectId, operation }: { projectId: string; oper
             `${tp(estimate.passages, "{count} passage restant", "{count} passages restants")} · `}
           {basis}
         </small>
+        <EstimateBudgetLine budget={estimate.budget} />
       </div>
     </div>
   );

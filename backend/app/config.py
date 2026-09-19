@@ -71,6 +71,9 @@ class Settings(BaseSettings):
     searxng_url: str = ""
     final_review_enabled: bool = True
     openviking_root_uri: str = "viking://resources/epub-translator"
+    # Deleting a volume or a series also removes its OpenViking documents (queued for the worker).
+    # Off by default; Settings › Memory · OpenViking overrides it (app.engines.memory.cleanup).
+    openviking_cleanup_on_delete: bool = False
     epubcheck_jar: str = ""
     # Live event streams (SSE) held open at once, per account and for the whole API process.
     event_streams_per_user: int = Field(default=4, ge=1, le=100)
@@ -116,6 +119,18 @@ class Settings(BaseSettings):
     retention_bible_revisions: int = Field(default=20, ge=0)
     retention_job_state_days: int = Field(default=30, ge=0)
     retention_results_days: int = Field(default=30, ge=0)
+    # Fair queue (app.jobs.fairness): jobs of one account running at once and waiting their turn
+    # (0: no limit), and minutes of waiting that raise a job's priority by one level (0: never).
+    # An administrator may override them, and set per-account quotas, from Settings › Queue.
+    queue_max_running_per_account: int = Field(default=0, ge=0, le=1000)
+    queue_max_queued_per_account: int = Field(default=0, ge=0, le=100_000)
+    queue_priority_aging_minutes: int = Field(default=60, ge=0, le=7 * 24 * 60)
+    # Cost budgets (app.engines.budget), in the currency of the provider prices. Default cap of a book
+    # without its own (0: none); share of a cap at which a job switches to a cheaper fallback provider,
+    # or pauses when there is none; what a launch whose estimate exceeds the cap does (warn or refuse).
+    budget_default_book: float = Field(default=0, ge=0)
+    budget_switch_threshold: float = Field(default=0.9, ge=0.5, le=1)
+    budget_on_estimate: Literal["warn", "refuse"] = "warn"
     # Empty: GET /metrics does not exist. Set: Prometheus must send it as a Bearer token.
     metrics_token: str = ""
 

@@ -21,11 +21,13 @@ from app.api import (
     coverage,
     estimates,
     exports,
+    glossaries,
     identity,
     imports,
     memory,
     monitoring,
     observability,
+    openviking_cleanup,
     projects,
     providers,
     recovery,
@@ -34,6 +36,9 @@ from app.api import (
     tokens,
     v1,
 )
+from app.api import budget as budget_api
+from app.api import quality as quality_dashboard
+from app.api import queue as fair_queue
 from app.config import settings
 from app.db import SessionLocal
 from app.diagnostics import safe_trace
@@ -206,13 +211,19 @@ async def unexpected(request: Request, exc: Exception):
 
 # The automation API first: its paths never fall through to the interface's routes.
 app.include_router(v1.router)
+app.include_router(glossaries.v1_router)
 for module in (
     tokens, identity, providers, recovery, exports, projects, segments, memory, observability, characters, coverage,
     series, imports, autopilot, automation_admin,
 ):  # fmt: skip
     app.include_router(module.router)
 app.include_router(estimates.router)
+app.include_router(glossaries.router)
+app.include_router(budget_api.router)
 app.include_router(monitoring.router)
+app.include_router(openviking_cleanup.router)
+app.include_router(quality_dashboard.router)
+app.include_router(fair_queue.router)
 
 
 @app.get("/openapi.json", include_in_schema=False)

@@ -134,17 +134,70 @@ The same actions are available through the interface's API: `GET /api/series/{id
 `POST /api/series/{id}/memory/{resync|rebuild|reindex}`, `GET /api/projects/{id}/memory/status`,
 `POST /api/projects/{id}/memory/{synchronize|rebuild|reindex|check}`.
 
-Libris never deletes anything in OpenViking. Deleting a book or a series, or moving a volume, leaves
-the old documents in place; the database check simply no longer admits them. Clean them up with
-OpenViking's own tools if you need the space.
-
 When a volume moves into or out of a series, or is renumbered, its events and catalog are written
 again at the new place automatically; until then, its remote hits are rejected and translation relies
 on the database. The same automatic rewrite moves volumes written with the older
 `<root>/<owner_id>/<project_id>/…` layout: no manual step is needed after an upgrade.
+
+## Cleanup of deleted volumes and series
+
+By default Libris never deletes anything in OpenViking. Deleting a volume or a series, or moving a
+volume, leaves the old documents in place; the database check simply no longer admits them.
+
+An administrator can switch on the **cleanup** in **Settings › Memory · OpenViking**, card **OpenViking
+cleanup** (or with `OPENVIKING_CLEANUP_ON_DELETE=true`; a value saved in the interface wins until
+**Go back to the environment value**). When it is on:
+
+- deleting a **volume** queues the removal of its directories: its current place
+  (`…/series/<series_id>/volumes/<project_id>` or `…/standalone/<project_id>`), the older
+  `<root>/<owner_id>/<project_id>` place, and any other place the send queue shows it was written to (a
+  volume that changed series);
+- deleting a **series** (possible once it has no volume left) queues the removal of
+  `<root>/<owner_id>/series/<series_id>` as a whole.
+
+The removal is queued in the same transaction as the deletion and done by the worker, never by the
+request: the deletion is immediate even when OpenViking is down. The worker waits about 30 seconds (so a
+write already on its way lands first), then, for each directory, lists its documents and removes it
+recursively. A failure is retried with a growing delay (one hour at most); a restarted worker resumes
+where the previous one stopped. A cleanup queued while the switch was on still runs if it is turned
+off later. If the OpenViking URL is emptied, waiting cleanups wait; if the root changes, they stay
+waiting with the error *The OpenViking root changed since the deletion* and remove nothing.
+
+What a cleanup may remove is bounded twice:
+
+1. only a whole item directory directly under the configured root: a series
+   (`<owner_id>/series/<series_id>`), a volume (`<owner_id>/series/<series_id>/volumes/<project_id>`,
+   `<owner_id>/standalone/<project_id>`, or `<owner_id>/<project_id>`), with database identifiers only.
+   The root, an owner's directory and anything else are refused;
+2. at the moment of the removal, the database must confirm that nothing lives there any more. A
+   directory that is in use again is kept and logged as such.
+
+### Orphans
+
+Documents of items deleted before the cleanup was switched on remain. In the same card, **Look for
+orphans (dry run)** lists the directories under the root that the database no longer owns, with the
+reason (`volume_deleted`, `volume_moved`, `series_deleted`, `legacy_layout` for the older layout), and
+removes nothing. **Remove these directories** then queues their removal, after a confirmation; each one is
+checked against the database again, both when it is queued and when it is removed. Directories whose
+name is not a Libris identifier are ignored. The dry run and the removal work whether the automatic
+cleanup is on or off.
+
+### Log
+
+The card lists the last cleanups: what was deleted (volume, series or orphans, with its title), the
+state (waiting, running, done), the attempts and the last error, and per directory whether it was
+removed (with the number and the first 100 names of its documents), already absent, or kept. **Retry
+now** skips the waiting delay. Everything removed can be written again from the database (**Rebuild**)
+as long as the volume still exists.
+
+The same actions are available through the interface's API (administrators):
+`GET`, `PUT`, `DELETE /api/settings/memory/cleanup`, `GET /api/settings/memory/cleanups`,
+`POST /api/settings/memory/cleanups/{id}/retry`, `POST /api/settings/memory/orphans/scan` (dry run) and
+`POST /api/settings/memory/orphans/clean` (body `{"uris": [...]}`, from the dry run).
 
 ## Retention
 
 `RETENTION_OUTBOX_SENT_DAYS` (7) deletes queue rows that were already written. This affects neither
 retrieval, which is checked against the database, nor a rebuild, which recreates the rows it needs.
 See [data retention](configuration.md#data-retention).
+The cleanup log is small (one row per deleted volume or series, or per orphan cleanup) and is kept.

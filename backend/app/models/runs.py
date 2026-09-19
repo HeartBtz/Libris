@@ -40,6 +40,14 @@ class Job(Identified, Base):
     finished_at: Mapped[float | None] = mapped_column(Float)
     # What the job produced, read by clients once it is terminal (e.g. {"autopilot": {...}}).
     result: Mapped[dict] = mapped_column(JSON, default=dict, server_default="{}")
+    # Fair queue (app.jobs.fairness): 0 low, 1 normal, 2 high; the API token that asked for the job;
+    # when it last entered the queue (launch, resume) and when a worker last picked it.
+    priority: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
+    token_id: Mapped[str | None] = mapped_column(
+        ForeignKey("api_tokens.id", ondelete="SET NULL", name="fk_jobs_token_id"), nullable=True
+    )
+    queued_at: Mapped[float] = mapped_column(Float, default=0, server_default="0")
+    claimed_at: Mapped[float | None] = mapped_column(Float)
 
 
 class Event(Base):

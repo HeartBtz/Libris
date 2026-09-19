@@ -11,6 +11,8 @@ from starlette.concurrency import run_in_threadpool
 
 from app.api.common import row
 from app.config import settings
+from app.engines.budget import admit as budget_admission
+from app.engines.budget import resume_refusal as budget_resume_refusal
 from app.engines.epub.book import SEGMENTATION
 from app.engines.epub.check import epubcheck
 from app.engines.ingestion import EpubAdapter
@@ -25,9 +27,11 @@ from app.engines.ingestion.store import (
     lock,
     safe_display_name,
 )
+from app.engines.memory.cleanup import queue_volume_cleanup
 from app.engines.memory.identities import canonical_bible
 from app.engines.series.bible import refresh_series
 from app.engines.translation.memory import translation_memory_enabled
+from app.jobs.fairness import QueueRefused, admit, requested_priority
 from app.jobs.launch import AUTOPILOT, autopilot_default, pipeline_options
 from app.jobs.queue import ACTIVE, HELD, emit, enqueue
 from app.models import (
@@ -285,7 +289,12 @@ def configure(project_id: str, body: ProjectConfig, user: CurrentUser, db: DB):
     if provider_selected and project.archived_at is None and not db.scalar(
         select(Job.id).where(Job.project_id == project_id, Job.status.in_(HELD))
     ):
-        enqueue(db, project, "analyze", pipeline_options(project))
+        try:
+            admit(db, project.owner_id)  # a full queue leaves the analysis to be started later
+        except QueueRefused:
+            pass
+        else:
+            enqueue(db, project, "analyze", pipeline_options(project))
     db.commit()
     return project_view(db, project)
 
@@ -313,6 +322,8 @@ def remove(project_id: str, user: CurrentUser, db: DB, stop_jobs: bool = False):
     # SET NULL on an entity already deleted by the same cascade.
     db.execute(update(Entity).where(Entity.project_id == project_id).values(merged_into_id=None))
     series_id = project.series_id
+    # Opt-in: queued with the deletion itself, removed later by the worker (never blocks this request).
+    cleanup = queue_volume_cleanup(db, project, user.id)
     db.delete(project)
     db.commit()
     discard_book_file(project)
@@ -321,7 +332,10 @@ def remove(project_id: str, user: CurrentUser, db: DB, stop_jobs: bool = False):
         db.commit()
     return {
         "ok": True,
-        "message": "Projet local supprimé. La mémoire OpenViking distante se gère séparément.",
+        "message": "Projet local supprimé. Ses documents OpenViking seront effacés par le worker."
+        if cleanup
+        else "Projet local supprimé. La mémoire OpenViking distante se gère séparément.",
+        "openviking_cleanup_id": cleanup.id if cleanup else None,
     }
 
 
@@ -448,7 +462,7 @@ def start_job(project_id: str, body: JobInput, user: CurrentUser, db: DB):
         segment = db.get(Segment, body.segment_id)
         if not segment or segment.project_id != project_id:
             raise HTTPException(404, "Passage introuvable.")
-    options = body.model_dump(exclude={"operation", "autopilot"})
+    options = body.model_dump(exclude={"operation", "autopilot", "priority"})
     whole_book = not any(
         options.get(key) for key in ("chapter_id", "segment_id", "segment_ids", "refused_only")
     )
@@ -456,8 +470,23 @@ def start_job(project_id: str, body: JobInput, user: CurrentUser, db: DB):
         # Autopilot by default (project setting, else AUTOPILOT_ENABLED); `autopilot: false` opts out.
         if body.autopilot if body.autopilot is not None else autopilot_default(project):
             options.update(AUTOPILOT)
+    # Cost budget: the estimate against what remains, a cap already reached refuses (app.engines.budget).
+    estimated: tuple[str, ...] = ()
+    if whole_book and body.operation in {"analyze", "translate", "review"}:
+        estimated = ("analyze", "translate") if options.get("continue_pipeline") else (body.operation,)
+    if body.operation != "sync_memory":  # the only job that never calls a model
+        refusal, kept = budget_admission(db, project, estimated, provider_id=body.provider_id)
+        if refusal:
+            raise HTTPException(409, {"code": "budget_exceeded", "message": refusal})
+        if kept:
+            options["budget"] = kept
     try:
-        job = enqueue(db, project, body.operation, options)
+        priority = requested_priority(db, user, body.priority)
+        admit(db, project.owner_id)
+    except QueueRefused as exc:
+        raise HTTPException(exc.status, exc.detail) from None
+    try:
+        job = enqueue(db, project, body.operation, options, priority=priority)
     except ValueError as exc:  # A job is already held for this book: a state conflict, not bad input.
         raise HTTPException(409, str(exc)) from None
     if body.operation == "analyze" and body.force:
@@ -504,6 +533,11 @@ def control(
     job = db.scalar(select(Job).where(Job.id == job_id).with_for_update())
     if not job or job.project_id != project_id:
         raise HTTPException(404, "Travail introuvable.")
+    if action in {"resume", "retry"} and job.status not in ("pending", "waiting"):
+        try:
+            admit(db, project.owner_id)
+        except QueueRefused as exc:
+            raise HTTPException(exc.status, exc.detail) from None
     control_job(db, project, job, action)
     db.commit()
     return row(job)
@@ -525,6 +559,8 @@ def control_job(db, project: Project, job: Job, action: str) -> Job:
         raise HTTPException(409, "Un autre travail est déjà actif pour ce livre.")
     if action in {"resume", "retry"} and project.archived_at is not None:
         raise HTTPException(409, "Restaurez ce projet avant de reprendre un travail.")
+    if action in {"resume", "retry"} and (refusal := budget_resume_refusal(db, project, job)):
+        raise HTTPException(409, {"code": "budget_exceeded", "message": refusal})
     if action == "cancel" and job.status not in (*HELD, "failed"):
         raise HTTPException(409, "Ce travail est déjà terminé.")
     # Pausing a failed job would turn it back into a held job that blocks the book.
@@ -537,6 +573,7 @@ def control_job(db, project: Project, job: Job, action: str) -> Job:
     job.lease_owner, job.lease_until, job.error = "", 0, ""
     if action in {"resume", "retry"}:
         job.checkpoint = {**job.checkpoint, "consecutive_failures": 0}
+        job.queued_at = time.time()  # back in the fair queue, behind the jobs already waiting
     job.next_attempt, job.outage_count = 0, 0
     job.stop_reason = (
         "user_pause" if action == "pause" else "user_cancel" if action == "cancel" else "manual_resume"

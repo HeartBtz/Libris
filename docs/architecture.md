@@ -27,15 +27,16 @@ contributing, see [development](development.md).
 | `engines/epub` | ZIP preflight, EbookLib reading, lxml DOM, units with inline codes, segmentation, rebuilding a translated copy of the archive, EPUBCheck. |
 | `engines/series` | Series memory (canonical identities, links, relations, series glossary, Series Bible), rebuilt from the volumes (`refresh_series`), and the audit log. |
 | `engines/context` | Context selection for each model call: narrative query, local, external or hybrid memory, budget, inspector; series conventions inherited from earlier volumes (`series.py`); section order (`prefix.py`). |
-| `engines/memory` | Human decisions, characters, glossary, OpenViking events and catalogs, the send queue. |
+| `engines/memory` | Human decisions, characters, glossary, OpenViking events and catalogs, the send queue, the opt-in cleanup of deleted items. |
 | `engines/translation` | Analysis, translation, review, revision and polishing, global consistency, final review, repair in groups (`repair.py`), translation memory (`memory.py`), versions. |
 | `engines/autopilot` | The convergence loop (`loop.py`), recovery ladder (`recovery.py`), AI arbitration (`arbitration.py`), memory decisions (`memory.py`), provider fallback (`providers.py`), skipping optional steps (`degrade.py`) and the decision log (`decisions.py`). |
+| `engines/budget.py` | Cost budgets of books and API tokens: the estimate against the cap before a launch, the check before every model call of a job (cheaper provider or pause), token spend, the estimated against real cost of the reports. |
 | `engines/quality` | Deterministic checks: unit ids, markup codes, empty output, length, repetition, unchanged text, terminology. |
-| `engines/delivery` | Automation requests: upload intake (`intake.py`), always-terminal lifecycle (`lifecycle.py`), completion report (`report.py`), stored results (`results.py`), EPUB delivery with automatic repair (`epub.py`), signed webhooks (`webhooks.py`). |
+| `engines/delivery` | Automation requests: upload intake (`intake.py`), always-terminal lifecycle (`lifecycle.py`), completion report (`report.py`), stored results (`results.py`), EPUB delivery with automatic repair (`epub.py`), signed webhooks (`webhooks.py`) and batches of translated chapters (`chapter_events.py`). |
 | `engines/exports` | Text and Markdown renderings of a volume. |
-| `jobs` | Queue, leases and fencing (`queue.py`, `clock.py`), per-passage job state (`segment_state.py`), running work off the event loop (`concurrency.py`), automation request dispatch (`requests.py`), the worker (`worker.py`). |
+| `jobs` | Queue, leases and fencing (`queue.py`, `clock.py`), fair order, priorities and quotas (`fairness.py`), per-passage job state (`segment_state.py`), running work off the event loop (`concurrency.py`), automation request dispatch (`requests.py`), the scope of a volume follow-up (`follow_up.py`), the worker (`worker.py`). |
 | `providers` | Model calls (`llm.py`: structured output, validation, retries, cache, budget, traces), OpenViking client, SearXNG, Codex bridge. |
-| `api` | Interface routes, [automation API](api.md) (`v1.py`, `tokens.py`), administration settings. |
+| `api` | Interface routes, [automation API](api.md) (`v1.py`, `tokens.py`, and `v1_openapi.py`, which generates its published description `docs/openapi/libris-v1.json`), administration settings. |
 | `maintenance` | Retention, usage aggregation, request log compaction, provider comparison. |
 
 ## The path of a book
@@ -159,6 +160,7 @@ SQL tables, grouped by purpose. Column types for documents are SQLAlchemy `JSON`
 | `glossary` | Terms of a volume; `locked` terms are enforced; `series_override` marks a deliberate departure from the series term (audited). |
 | `bible_revisions` | Previous Book Bible versions (bounded by retention). |
 | `memory_outbox` | The OpenViking send queue; `uri` records where an entry was last written. |
+| `openviking_cleanups` | Opt-in removals of the OpenViking directories of deleted volumes and series, and of orphans: directories, state, attempts, lease and the log of what was removed. No foreign key: rows outlive the deleted items. |
 
 ### Series memory
 
@@ -167,19 +169,22 @@ SQL tables, grouped by purpose. Column types for documents are SQLAlchemy `JSON`
 | `series_entities` | Canonical identities of the series: characters, and places, organizations and objects named by the volumes' bibles. First appearance, aliases, profile, `merged_into_id` after a person's merge. |
 | `series_entity_links` | A volume's character attached to a series identity: `linked`, `proposed` (ambiguous: never merged automatically) or `rejected`; `human` when a person decided. |
 | `series_relations` | Relations between series identities, with evidence and first appearance. |
-| `series_glossary` | Series terms: `origin` is `volume` when aggregated from accepted volume terms, `human` for a person's decision (never rewritten by the aggregation). |
-| `audit_entries` | Merges, splits, link decisions, Series Bible edits, series terms, glossary overrides, API token creation and revocation. Never a secret. |
+| `series_glossary` | Series terms: `origin` is `volume` when aggregated from accepted volume terms, `human` for a person's decision or an imported file (never rewritten by the aggregation). |
+| `shared_glossaries`, `shared_glossary_terms` | Shared glossaries: a named terminology of one account for the series of a universe, with optional languages (a glossary with languages only applies to volumes of the same pair, compared on the primary subtag). |
+| `series_shared_glossaries` | The shared glossary a series follows (at most one per series). |
+| `audit_entries` | Merges, splits, link decisions, Series Bible edits, series terms, glossary overrides and imports, shared glossaries attached or detached, API token creation and revocation. Never a secret. |
 
 ### Jobs and runs
 
 | Table | Content |
 | --- | --- |
-| `jobs` | One job per launched operation: provider, options, status, lease (`lease_owner`, `lease_until`), `checkpoint`, `result` (the autopilot report), error and stop reason. |
+| `jobs` | One job per launched operation: provider, options, status, lease (`lease_owner`, `lease_until`), `checkpoint`, `result` (the autopilot report), error and stop reason; for the [fair queue](#fair-queue), `priority` (0 low, 1 normal, 2 high), the API token that asked for it (`token_id`), when it last entered the queue (`queued_at`) and when a worker last took it (`claimed_at`). |
 | `job_segment_state` | What a job settled passage by passage (see [below](#checkpoint-and-per-passage-state)). |
 | `events` | Progress events streamed to the interface (bounded by retention). |
 | `llm_requests` | Every model call: messages, answer, tokens, cost, status, context inspector. |
 | `usage_daily` | One row per UTC day, book, provider, operation, model, outcome and cache flag. Filled by the worker's hourly rollup of requests older than two hours (`app_settings["usage_rollup"]` is the watermark); statistics read the aggregates plus the requests since the watermark. A deleted provider keeps its history; rows follow their book. |
 | `quality_issues` | Findings of the checks and reviews, open until resolved. |
+| `passage_quality` | The [quality score](#passage-quality-scores) of each translated passage (or retained original), its band and the signals behind it. |
 | `autopilot_decisions` | The [decision log](autopilot.md#the-decision-log-and-the-report). |
 
 ### Accounts, automation and settings
@@ -189,9 +194,10 @@ SQL tables, grouped by purpose. Column types for documents are SQLAlchemy `JSON`
 | `users`, `login_sessions`, `memberships` | Accounts, sessions, and per-book sharing roles. |
 | `providers` | Model providers; API keys encrypted with `SECRET_KEY`. |
 | `prompts` | Prompt overrides saved from the interface. |
-| `api_tokens` | Owner, name, SHA-256 of the secret, displayable prefix, scopes, expiry, revocation, last use, optional webhook signing secret (encrypted). |
-| `translation_requests` | Automation requests: owner, token, `external_id`, `Idempotency-Key`, payload hash, series, volume, job, status, options (input kind, intake decisions), chapters, error, report, stored `artifact` (path, format, size, SHA-256) and webhook state. |
-| `app_settings` | Settings saved from the interface (autopilot, webhooks, OpenViking, SearXNG, provider recovery), watermarks and markers. |
+| `api_tokens` | Owner, name, SHA-256 of the secret, displayable prefix, scopes, expiry, revocation, last use, optional webhook signing secret (encrypted), queue limits (`max_priority`, `max_running`, `max_queued`), optional cost budget (`budget_amount`, `budget_period`: `month` or `total`). |
+| `translation_requests` | Automation requests: owner, token, `external_id`, `Idempotency-Key`, payload hash, series, volume, job, status, options (input kind, intake decisions), chapters, error, report, `cost` kept when it ends (counted by token budgets), stored `artifact` (path, format, size, SHA-256) and webhook state. |
+| `webhook_events` | Progress webhooks of a request (`chapters.translated`): batch number, chapter ids, state, attempts, next attempt, last error. |
+| `app_settings` | Settings saved from the interface (autopilot, webhooks, OpenViking, SearXNG, provider recovery, queue quotas, budgets), watermarks and markers. |
 
 ### JSON rather than JSONB
 
@@ -241,7 +247,27 @@ met in earlier volumes, under the names those volumes used). Term priority: expl
 validated human decision > locked volume term (or an audited `series_override`) > locked series term > accepted
 series term > automatic proposal; for one term, a locked choice beats any unlocked one, then the most
 recent volume wins. Locked series terms are checked in the output like the book's locked glossary,
-unless the book locks the same term differently. A validated human correction of a machine
+unless the book locks the same term differently.
+
+**Shared glossary.** A series can follow one shared glossary (the terminology of a universe common to
+several series). Its accepted terms are the broadest level: book > series (a person's series
+decisions, then earlier volumes) > shared glossary. A shared term only applies where the series does not
+decide the term, except that a locked shared term beats an unlocked term an earlier volume proposed; a
+person's series decision and a book term that is locked or marked `series_override` always win. Shared
+terms travel in `SERIES_CONVENTIONS.terms` with `origin: shared_glossary`; the locked ones are enforced
+and checked in the output like locked series terms, and the autopilot withdraws a proposed book term that
+contradicts one of them. `GET /api/projects/{id}/glossary/effective` shows, for each term, the level that
+wins and what it replaces.
+
+**Glossary files.** JSON, CSV and TBX files are read by `engines/memory/glossary_files.py` into the book,
+the series or a shared glossary. CSV: encoding from the byte order mark, then UTF-8, then Windows-1252;
+separator (`;`, `,` or tab) detected outside quoted cells; columns mapped from French or English headers, a
+file without header uses its first two columns, and an explicit column mapping can replace the detection.
+Every import can be previewed first: new terms, unchanged terms, conflicts with the terms in place (matched
+case-insensitively), repeated sources (the first row counts) and invalid rows, with the strategy applied to
+conflicts: `skip` (keep, the default), `replace` (unlocked terms only) or `replace_all`. Applying refuses a
+file with an invalid row unless `skip_invalid` is set. CSV exports can use `;` and a byte order mark for
+spreadsheets; a cell starting with `=`, `+`, `-` or `@` is quoted so that it never becomes a formula. A validated human correction of a machine
 translation records its short replacements and the names in the passage; a later volume that mentions
 those names receives them in `SERIES_CONVENTIONS.human_decisions`.
 
@@ -283,6 +309,30 @@ one process (heartbeat grace, call timeouts) use `time.monotonic()`.
 
 A job with no provider (deleted, or never chosen) is marked `blocked` with the reason instead of
 waiting forever.
+
+### Fair queue
+
+`claim` does not take the oldest job. It reads every job it may start and sorts them (`jobs/fairness.py`):
+
+1. running jobs whose lease expired (their worker stopped), since they already held a slot;
+2. the highest **effective priority**: the job's priority, plus one level for every
+   `QUEUE_PRIORITY_AGING_MINUTES` waited since it was queued (launch or resume), up to high;
+3. the account (the book's owner) with the fewest jobs running now, then the API token with the fewest;
+4. the account whose last job was taken the longest ago (`max(claimed_at)`), so accounts of equal load
+   take turns;
+5. the time the job was queued, then its creation.
+
+It then walks that order with the existing checks: the provider's `max_concurrency` (provider row locked with
+`SKIP LOCKED`), then the account's running quota and the token's own one, each counted under a `SKIP LOCKED`
+lock of the `users` or `api_tokens` row so that two workers cannot both take the last place. A job over a quota
+is skipped and stays `pending`; nothing about leases, checkpoints or `book_parallelism` changes. The waiting
+quota is checked where work enters the queue (a launch, a resume, an automation request, an import that starts
+its volumes), not by the worker: an accepted request always starts.
+
+`GET /api/queue` runs the same order without locks to tell each waiting job its place in its provider's line and
+what holds it (`provider_busy`, `account_limit`, `token_limit`, `retry_scheduled`, `provider_missing`, or
+`starting`). Quotas and aging are runtime settings (`app_settings["queue"]`, see
+[configuration](configuration.md#fair-queue)).
 
 ### Checkpoint and per-passage state
 
@@ -360,6 +410,12 @@ refused credentials make it `blocked`. Under the autopilot, the fallback chain t
 bounded wait ([autopilot](autopilot.md#fallback-providers-and-outages)). A database outage suspends the
 job as `waiting`; a worker shutdown puts it back to `pending`.
 
+Before each model call of a job, `engines/budget.guard` compares the spend of the book (usage aggregates
+plus the requests not rolled up yet) and of the API token that started it with their caps. Near a cap it
+changes the job's provider and puts it back to `pending`, or pauses it (`budget_exceeded`) with the same
+fenced transition as a user pause, then stops the running coroutine (`JobStopped`); calls already in
+flight finish and are recorded.
+
 ### Automation requests
 
 A request of the [automation API](api.md) is saved (row, payload file, chapters when the volume is
@@ -370,6 +426,66 @@ result, writing the report, failing stalled or overdue requests). The API also s
 before answering, so a client never waits for the next pass. Webhooks are sent by a separate worker
 loop, never by the API.
 
+## Passage quality scores
+
+Every translated passage, and every passage kept in its original, has a score from 0 to 100 in
+`passage_quality`. It is computed from what Libris already records, without any model call
+(`app/engines/quality/score.py`): the passage starts at 100 and loses points for each signal below,
+each signal capped so that one kind of problem cannot hide the others.
+
+| Signal | Points | Source |
+| --- | --- | --- |
+| `source_retained` | 60 | The passage kept its original text. |
+| `failed` | 40 | The passage is in error or was refused. |
+| `locked_term` | 20 each, at most 40 | Unresolved alert: a locked glossary term is missing. |
+| `alert_error` / `alert_warning` | 15 / 8 each, at most 30 / 24 | Other unresolved alerts of the checks and reviews (the length and failure alerts are counted by their own signals). |
+| `critique` | 10 per error, 5 per warning, at most 25 | Review critiques still open on the passage (not those queued for application). |
+| `doubt` | 5 each, at most 15 | Uncertainties the model reported. |
+| `length_ratio` | 15, or 5 | Translation length far from the source: outside 0.25–3.5 times (the automatic check's bounds), or outside 0.45–2.4 times for a non-ideographic source of more than 80 characters. |
+| `retry` | 3 per failed call, at most 12 | Model calls for the passage that ended in error, refusal, interruption or abandonment. |
+| `recovery` | 10 recovered, 12 previous translation kept; at most 20 | Recovery-ladder decisions of the autopilot. |
+| `open_points_closed` | 12 | The autopilot closed open points on the passage without a correction. |
+| `arbitration` | 3 applied or accepted, 2 rejected, 4 deferred; at most 12 | Arbitration decisions on the passage's critiques and doubts. |
+| `error_note` | 5 | A translated passage still carries an error message. |
+
+A passage validated by a person scores 100 (signal `validated`): someone read it. Bands: `good` from
+85, `fair` from 70, `weak` from 50, `poor` below. Passages under 70 that nobody validated are the
+"review these first" list.
+
+**Kept in step.** Session events in `app/models/quality.py` collect, at each flush, the passages whose
+scored columns changed, whose alerts were added, changed or deleted, which received an autopilot decision
+or a failed model call; bulk `UPDATE`/`DELETE` statements on passages and alerts are resolved to their
+passages before they run. The scores of the collected passages are recomputed in `before_commit`, in the
+same transaction, with an upsert (`INSERT … ON CONFLICT`), so concurrent writers never conflict on a
+row. A passage that loses its translation loses its score. Every reader first repairs what is missing
+or was computed on an older passage revision (books translated before the scores existed), so no
+migration of existing data is needed.
+
+**Where it is read.** `GET /api/projects/{id}/quality` and `GET /api/series/{id}/quality` (the
+series' readable, non-archived volumes) return the summary (`scored`, `average`, `minimum`, `bands`,
+a ten-bucket `histogram`, `to_review`), the chapters ranked weakest first (lowest average, then lowest
+passage; 100 at most, `chapters_total` counts them all), the 20 passages to review first with their
+signals and, for a series, each volume's figures. `GET /api/projects/{id}/quality/passages?chapter_id=`
+gives the editor each passage's score. The summary is also part of `GET /api/projects/{id}/completion`,
+of the autopilot report (`quality`) and of the [completion report](api.md#completion-report) of the
+automation API.
+
+Settling a running request whose client asked for `chapters.translated` first looks for the chapters
+of the request that now have every passage translated and records them as one batch in
+`webhook_events`; the webhook loop sends batches before final webhooks, with the same signature,
+allow-list and backoff.
+
+### Following up a volume
+
+New chapters sent to a volume that is already translated (an automation request, or an interface
+import into an existing volume or the continuous feed) are inserted by number, and the job started
+for them carries `follow_up_chapters`: the new or replaced chapters plus any chapter still missing a
+translation. Analysis and translation already skip finished passages; with this option the final
+review targets only passages of those chapters, and the consistency check samples only their
+occurrences, each against the first occurrence in the volume. Earlier chapters get no model call and
+keep their text; they only feed the context. When the scope would be the whole volume, the option is
+left out and the job behaves as a first translation.
+
 ## Exports and project archives
 
 `GET /api/projects/{id}/export/{format}`:
@@ -377,6 +493,7 @@ loop, never by the API.
 | Format | Sources | Content |
 | --- | --- | --- |
 | `epub` | EPUB only (`409` for other sources) | The EPUB rebuilt from the original, validated by EPUBCheck. |
+| `epub-bilingual` | All | A new EPUB 3 for proofreading: per chapter, each source paragraph with its translation, `layout=interleaved` (default) or `side-by-side`; validated by EPUBCheck. |
 | `txt` | All | One file: the volume title, then each chapter under its title, chapters separated by two blank lines. |
 | `txt-zip` | All | `chapters/NNN - Title.txt` (UTF-8, reading order, zero-padded, cleaned unique names) and `manifest.json` (SHA-256 of each file, incomplete chapters); `consolidated=true` adds the single file. |
 | `md` | All | `# Volume`, then `## Chapter` above each chapter. |
@@ -388,6 +505,15 @@ without it, an incomplete export answers `409`. `POST /api/exports/text` exports
 series) as one ZIP with a `NN - Title/` folder per volume, and `POST /api/exports/epub` several
 translated EPUB files. Text rendering follows the stored layout for text sources and gives one
 paragraph per unit for an EPUB; no internal `⟦…⟧` marker is ever written.
+
+The bilingual EPUB (`engines/exports/bilingual.py`) is written from the passages, not from the original
+file, so it exists for every source format. Source and translation are paired per original unit (the
+fragments of a long paragraph joined again); text chapters follow their stored layout (scene breaks
+written once, headings, list markers and quotations kept), EPUB chapters give one pair per unit, the
+chapter title becoming the page heading with its source below it. Images, links and inline styles are
+left out. Each text carries its `lang`/`xml:lang` and, for right-to-left languages, `dir="rtl"`; the
+stylesheet uses table display for the two columns and stacks them under 30 em. The same builder serves
+`GET /api/projects/{id}/export/epub-bilingual` and the `epub-bilingual` result format of `/api/v1`.
 
 ### Project archive (schema version 3)
 
@@ -472,8 +598,9 @@ columns deliberately left out; a test fails if a new column is neither archived 
 - Failed sign-ins are throttled per client and account (20 failures in five minutes) and per client
   (200). The throttle and the automation API rate limit live in each process's memory: they are not a
   complete internet-facing abuse control.
-- `/openapi.json` requires a session and can be disabled with `OPENAPI_ENABLED=false`. `/metrics`
-  exists only when `METRICS_TOKEN` is set, and requires it.
+- `/openapi.json` (every route) requires a session and can be disabled with `OPENAPI_ENABLED=false`. The
+  public description of the automation API alone is the file `docs/openapi/libris-v1.json`, not a route.
+  `/metrics` exists only when `METRICS_TOKEN` is set, and requires it.
 - Live event streams are bounded per account and per process.
 
 **Outbound connections**

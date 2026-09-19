@@ -25,7 +25,10 @@ import {
 } from "../ui";
 import { ApiTokens } from "./ApiTokens";
 import { AutopilotSettings, WebhookSettings } from "./AutomationSettings";
+import { BudgetSettings } from "./Budget";
+import { QueueSettings } from "./Queue";
 import { CodexConnection } from "./CodexConnection";
+import { OpenVikingCleanup } from "./OpenVikingCleanup";
 import { RecoverySettings } from "./Account";
 
 registerTranslations({
@@ -252,6 +255,8 @@ export function Settings({ run }: { run: Run }) {
             { id: "users", label: t("Utilisateurs") },
             { id: "autopilot", label: t("Pilote automatique") },
             { id: "recovery", label: t("Reprise automatique") },
+            { id: "queue", label: t("File d’attente") },
+            { id: "budget", label: t("Budgets") },
             { id: "api", label: t("API d’automatisation") },
           ]}
         />
@@ -259,15 +264,22 @@ export function Settings({ run }: { run: Run }) {
           {tab === "providers" ? (
             <ProviderSettings run={run} />
           ) : tab === "memory" ? (
-            <MemorySettings run={run} />
+            <div className="stack">
+              <MemorySettings run={run} />
+              <OpenVikingCleanup run={run} />
+            </div>
           ) : tab === "prompts" ? (
             <Prompts run={run} />
           ) : tab === "search" ? (
             <SearchSettings run={run} />
           ) : tab === "recovery" ? (
             <RecoverySettings run={run} />
+          ) : tab === "queue" ? (
+            <QueueSettings run={run} />
           ) : tab === "autopilot" ? (
             <AutopilotSettings run={run} />
+          ) : tab === "budget" ? (
+            <BudgetSettings run={run} />
           ) : tab === "api" ? (
             <div className="stack">
               <ApiTokens run={run} />

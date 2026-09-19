@@ -131,6 +131,8 @@ MESSAGES = {
     "OpenViking a signalé une erreur applicative.": "OpenViking reported an application error.",
     "Réponse read OpenViking inattendue.": "Unexpected OpenViking read response.",
     "Réponse search OpenViking inattendue.": "Unexpected OpenViking search response.",
+    "Réponse ls OpenViking inattendue.": "Unexpected OpenViking ls response.",
+    "La racine OpenViking a changé depuis la suppression.": "The OpenViking root changed since the deletion.",
     "Identités account/user requises pour le mode trusted.": "Account/user identities are required for trusted mode.",
     "Graphe d’identités importé incohérent ou cyclique.": "Imported identity graph is inconsistent or cyclic.",
     "Relation sans personnage dans l’archive.": "Relation without a character in the archive.",
@@ -323,16 +325,47 @@ MESSAGES = {
     "Requête annulée.": "Request cancelled.",
     "Impossible de reconstruire l’EPUB traduit.": "The translated EPUB cannot be rebuilt.",
     "EPUBCheck refuse l’EPUB traduit, même après réparation automatique.": "EPUBCheck rejects the translated EPUB, even after automatic repair.",
+    "EPUBCheck refuse l’EPUB bilingue de ce volume.": "EPUBCheck rejects the bilingual EPUB of this volume.",
     "Le fichier EPUB d’origine de ce volume est introuvable sur le serveur.": "The original EPUB file of this volume cannot be found on the server.",
     # Problems recorded on passages (GET /api/projects/{id}/issues)
     "Traduction refusée deux fois ; passage ignoré.": "Translation refused twice; passage skipped.",
     "Texte original conservé par décision humaine ; ce passage n’est pas traduit.": "Original text kept by a human decision; this passage is not translated.",
+    # OpenViking cleanup
+    "Nettoyage introuvable.": "Cleanup not found.",
+    "Aucun de ces dossiers n’est orphelin : rien n’est supprimé.": "None of these directories is an orphan: nothing is deleted.",
+    "Projet local supprimé. Ses documents OpenViking seront effacés par le worker.": "Local project deleted. Its OpenViking documents will be removed by the worker.",
+    "Série supprimée. Ses documents OpenViking seront effacés par le worker.": "Series deleted. Its OpenViking documents will be removed by the worker.",
+    "Série supprimée.": "Series deleted.",
+    # Follow-up of a series: new chapters sent over time
+    "Indiquez le numéro du volume, ou « latest: true » pour le dernier volume de la série.": "Give the volume number, or “latest: true” for the series' last volume.",
+    "Indiquez le numéro du volume ou « latest: true », pas les deux.": "Give the volume number or “latest: true”, not both.",
+    "Indiquez le numéro du volume (champ « volume »), ou « latest » pour le dernier volume de la série.": "Give the volume number (field “volume”), or “latest” for the series' last volume.",
+    "« volume=latest » vaut pour des chapitres TXT : un EPUB est un volume à lui seul.": "“volume=latest” is for TXT chapters: an EPUB is a volume on its own.",
+    "Aucune adresse de rappel.": "No callback address.",
+    "Le premier chapitre doit précéder le dernier.": "The first chapter must come before the last one.",
+    "Aucun chapitre de ce volume dans cet intervalle.": "No chapter of this volume in this range.",
+    # Glossary imports and shared glossaries
+    "Stratégie d’import inconnue : skip, replace ou replace_all.": "Unknown import strategy: skip, replace or replace_all.",
+    "Correspondance de colonnes invalide : un objet {champ: numéro de colonne} est attendu.": "Invalid column mapping: an object {field: column number} is expected.",
+    "Glossaire partagé introuvable.": "Shared glossary not found.",
+    "Le nom du glossaire est requis.": "The glossary name is required.",
+    "Ce terme existe déjà dans le glossaire partagé.": "This term already exists in the shared glossary.",
+    "Les langues de ce glossaire partagé ne correspondent pas à celles de la série.": "The languages of this shared glossary do not match those of the series.",
+    # Cost budgets
+    "Budget du livre": "Book budget",
+    "ce mois-ci": "this month",
+    "depuis sa création": "since it was created",
 }  # fmt: skip
 
 TEMPLATES = {
+    # Fair queue (app.jobs.fairness)
+    "Priorité « {requested} » refusée : « {ceiling} » au plus pour ce compte ou ce jeton.": "Priority “{requested}” refused: “{ceiling}” at most for this account or token.",
+    "File d’attente pleine pour ce compte : {limit} travaux en attente au plus. Réessayez quand l’un d’eux aura démarré.": "Queue full for this account: {limit} waiting jobs at most. Try again once one of them has started.",
+    "File d’attente pleine pour ce jeton : {limit} travaux en attente au plus. Réessayez quand l’un d’eux aura démarré.": "Queue full for this token: {limit} waiting jobs at most. Try again once one of them has started.",
     "Réponses invalides (jusqu’à {count} essais) ; passage ignoré, à reprendre ultérieurement.": "Invalid answers (up to {count} attempts); passage skipped, to be retried later.",
     "Hôte de webhook invalide : {value}": "Invalid webhook host: {value}",
     "Réseau privé invalide (notation CIDR attendue) : {value}": "Invalid private network (CIDR notation expected): {value}",
+    "Événement de webhook inconnu : {value}.": "Unknown webhook event: {value}.",
     "Cet EPUB est déjà importé dans « {title} ».": "This EPUB is already imported in “{title}”.",
     "Cet EPUB est déjà importé dans le projet archivé « {title} ». Restaurez-le depuis les archives.": "This EPUB is already imported in the archived project “{title}”. Restore it from the archives.",
     "Le fichier EPUB d’origine de « {title} » est introuvable sur le serveur : l’EPUB, l’archive de projet et l’aperçu sont indisponibles. Les exports TXT, Markdown et Book Bible restent possibles ; restaurez le dossier des livres (DATA_DIR/books) pour retrouver les autres.": "The original EPUB file of “{title}” cannot be found on the server: the EPUB, the project archive and the preview are unavailable. TXT, Markdown and Book Bible exports remain possible; restore the books folder (DATA_DIR/books) to get the others back.",
@@ -405,6 +438,20 @@ TEMPLATES = {
     "Requête toujours inachevée après {hours} h : délai maximal dépassé.": "Request still unfinished after {hours} h: maximum delay exceeded.",
     "L’hôte « {host} » n’est pas dans la liste des webhooks autorisés.": "The host “{host}” is not in the list of allowed webhooks.",
     "L’hôte « {host} » désigne une adresse privée ou réservée : webhook refusé.": "The host “{host}” points to a private or reserved address: webhook refused.",
+    "OpenViking n’a pas pu lister ses documents ({reason}). Rien n’a été supprimé.": "OpenViking could not list its documents ({reason}). Nothing was deleted.",
+    "Disposition bilingue inconnue : {layout}.": "Unknown bilingual layout: {layout}.",
+    # Glossary imports and shared glossaries
+    "Un glossaire partagé « {name} » existe déjà.": "A shared glossary “{name}” already exists.",
+    "Valeur non reconnue pour {field} : « {value} »": "Unrecognised value for {field}: “{value}”",
+    "Terme invalide : {problem}": "Invalid term: {problem}",
+    # Cost budgets
+    "Budget du jeton d’API « {name} »": "API token budget “{name}”",
+    "{label} atteint ({spent} sur {amount}) : relevez-le avant de lancer ou de reprendre un travail.": "{label} reached ({spent} of {amount}): raise it before starting or resuming a job.",
+    "{label} atteint à {percent} % ({spent} sur {amount}) : travail mis en pause. Relevez le budget, puis reprenez le travail.": "{label} at {percent}% ({spent} of {amount}): job paused. Raise the budget, then resume the job.",
+    "{label} atteint à {percent} % ({spent} sur {amount}) : le travail continue avec « {provider} », fournisseur moins cher.": "{label} at {percent}% ({spent} of {amount}): the job continues with “{provider}”, a cheaper provider.",
+    "Coût estimé {estimate} pour {remaining} restants ({label}) : lancement refusé. Relevez le budget ou lancez un travail plus petit.": "Estimated cost {estimate} for {remaining} left ({label}): launch refused. Raise the budget or start a smaller job.",
+    "Coût estimé {estimate} pour {remaining} restants ({label}) : le travail sera mis en pause près du plafond.": "Estimated cost {estimate} for {remaining} left ({label}): the job will be paused near the cap.",
+    "{label} atteint ({spent} sur {amount}, {period}) : requête refusée. Relevez le budget du jeton ou attendez la période suivante.": "{label} reached ({spent} of {amount}, {period}): request refused. Raise the token's budget or wait for the next period.",
 }  # fmt: skip
 
 

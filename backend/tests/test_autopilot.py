@@ -339,7 +339,11 @@ async def test_convergence_is_bounded_and_settles_what_stays_open(seeded, monkey
     job = await run(jid)
 
     assert job.status == "completed"
-    assert job.result["autopilot"] == {"outcome": "completed", "rounds": 2, "residuals": [], "reason": None}
+    report = dict(job.result["autopilot"])
+    quality = report.pop("quality")
+    assert report == {"outcome": "completed", "rounds": 2, "residuals": [], "reason": None}
+    # The points closed without a correction lower the passages' scores, and the report says so.
+    assert quality["scored"] > 0 and quality["minimum"] < 100
     with SessionLocal() as db:
         statuses = set(db.scalars(select(Segment.status).where(Segment.project_id == pid)))
         assert statuses == {"ok"}

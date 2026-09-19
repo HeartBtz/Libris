@@ -31,6 +31,8 @@ import { Bible, Glossary, Observability, ProjectSettings, Quality } from "./pane
 import { ExportMenu, exportFormats, exportName, exportPath } from "./ExportMenu";
 import type { ExportFormat, ExportOptions } from "./ExportMenu";
 import { AutopilotPanel, AutopilotStatus, autopilotOutcome, fetchAutopilot, phaseLabel } from "./Autopilot";
+import { BookBudget } from "./Budget";
+import { QueueHint } from "./Queue";
 
 const CharacterGraph = lazy(() => import("./CharacterGraph"));
 
@@ -118,6 +120,8 @@ registerTranslations({
   "{count} conservé en original": "{count} retained in the original",
   "{count} conservés en original": "{count} retained in the original",
   "Progression globale": "Overall progress",
+  "Budget atteint : travail en pause": "Budget reached: job paused",
+  "Relever le budget": "Raise the budget",
 });
 
 const stageLabels: Record<string, string> = {
@@ -135,7 +139,18 @@ const stageLabels: Record<string, string> = {
 
 const HELD = ["pending", "waiting", "blocked", "analyzing", "translating", "reviewing", "syncing", "paused"];
 
-export function Workspace({ id, user, run }: { id: string; user: User; run: Run }) {
+export function Workspace({
+  id,
+  user,
+  run,
+  passage,
+}: {
+  id: string;
+  user: User;
+  run: Run;
+  /** A passage to open in the editor once the book is loaded (`#project/<id>/passage/<segment>`). */
+  passage?: string;
+}) {
   const { t, tp } = useI18n();
   const { confirm } = useDialogs();
   const confirmLeave = useLeaveGuard();
@@ -225,6 +240,19 @@ export function Workspace({ id, user, run }: { id: string; user: User; run: Run 
       stream?.close();
     };
   }, [id]);
+  const pendingPassage = useRef(passage || "");
+  useEffect(() => {
+    // Opened from a link to one passage (the series quality dashboard): show it in the editor once.
+    const target = pendingPassage.current;
+    if (!project || !target) return;
+    pendingPassage.current = "";
+    void run(async () => {
+      const segment = await api<Segment>(`/segments/${target}`);
+      setChapter(segment.chapter_id);
+      setFocus({ segment: segment.id, filter: segment.retained_source ? "source_retained" : "" });
+      setTab("editor");
+    });
+  }, [project, run]);
   const refresh = () => setTick((value) => value + 1);
   if (!project)
     return (
@@ -319,7 +347,7 @@ export function Workspace({ id, user, run }: { id: string; user: User; run: Run 
     if (exportState === "running") return;
     setExportState("running");
     try {
-      await downloadGet(exportPath(id, format, options), exportName(project!.title, format));
+      await downloadGet(exportPath(id, format, options), exportName(project!.title, format, options));
       setExportState("done");
     } catch (error) {
       setExportState("error");
@@ -531,6 +559,7 @@ export function Workspace({ id, user, run }: { id: string; user: User; run: Run 
         }
       />
       <div className="workspace-notices">
+        <QueueHint projectId={id} job={job} refresh={tick} />
         <AutopilotStatus
           project={project}
           job={job}
@@ -558,7 +587,7 @@ export function Workspace({ id, user, run }: { id: string; user: User; run: Run 
             {t("Choisissez le modèle et les langues dans les réglages du livre.")}
           </Callout>
         )}
-        {job?.error && (
+        {job?.error && job.stop_reason !== "budget_exceeded" && (
           <Callout
             tone={job.status === "waiting" ? "warning" : "danger"}
             role="alert"
@@ -612,8 +641,22 @@ export function Workspace({ id, user, run }: { id: string; user: User; run: Run 
             )}
           </Callout>
         )}
-        {job?.status === "paused" && (
+        {job?.status === "paused" && job.stop_reason !== "budget_exceeded" && (
           <Callout tone="neutral">{t("Pause volontaire — utilisez Reprendre pour continuer.")}</Callout>
+        )}
+        {job?.status === "paused" && job.stop_reason === "budget_exceeded" && (
+          <Callout
+            tone="warning"
+            role="status"
+            title={t("Budget atteint : travail en pause")}
+            actions={
+              <Button onClick={() => void openTab("config")}>
+                {t("Relever le budget")}
+              </Button>
+            }
+          >
+            {job.error}
+          </Callout>
         )}
         {job?.status === "blocked" && job.stop_reason === "authentication_required" && user.admin && (
           <Callout tone="danger" actions={<a className="btn btn-sm btn-secondary" href="#settings">{t("Ouvrir les paramètres de connexion du provider")}</a>} />
@@ -653,7 +696,7 @@ export function Workspace({ id, user, run }: { id: string; user: User; run: Run 
         ) : tab === "glossary" ? (
           <Glossary project={project} run={run} tick={tick} />
         ) : tab === "quality" ? (
-          <Quality project={project} run={run} tick={tick} />
+          <Quality project={project} run={run} tick={tick} onOpenPassage={openPassage} />
         ) : tab === "completion" ? (
           <CompletionPanel project={project} run={run} refresh={refresh} tick={tick} />
         ) : tab === "autopilot" ? (
@@ -680,7 +723,10 @@ export function Workspace({ id, user, run }: { id: string; user: User; run: Run 
         ) : tab === "requests" ? (
           <Observability project={project} run={run} tick={tick} />
         ) : (
-          <ProjectSettings project={project} user={user} run={run} refresh={refresh} />
+          <div className="stack">
+            <BookBudget project={project} user={user} run={run} tick={tick} />
+            <ProjectSettings project={project} user={user} run={run} refresh={refresh} />
+          </div>
         )}
       </TabPanel>
     </Page>

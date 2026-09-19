@@ -101,3 +101,49 @@ def recovery_base_seconds(db: Session | None = None) -> int:
     if isinstance(value, int) and not isinstance(value, bool):
         return value
     return settings().provider_recovery_base_seconds
+
+
+# Fair queue (app.jobs.fairness): installation defaults from QUEUE_*, saved overrides and per-account
+# quotas in the AppSetting row "queue" (app.api.queue).
+QUEUE_KEY = "queue"
+QUEUE_FIELDS = ("max_running_per_account", "max_queued_per_account", "aging_minutes")
+
+
+def queue_defaults() -> dict:
+    config = settings()
+    return {
+        "max_running_per_account": config.queue_max_running_per_account,
+        "max_queued_per_account": config.queue_max_queued_per_account,
+        "aging_minutes": config.queue_priority_aging_minutes,
+    }
+
+
+def queue_config(db: Session | None = None) -> dict:
+    """The values in force, plus `accounts`: {user_id: {max_running, max_queued, max_priority}}."""
+    stored = saved(db, QUEUE_KEY)
+    accounts = stored.get("accounts")
+    return {
+        **queue_defaults(),
+        **{k: v for k, v in stored.items() if k in QUEUE_FIELDS},
+        "accounts": dict(accounts) if isinstance(accounts, dict) else {},
+    }
+
+
+# Cost budgets (app.engines.budget): BUDGET_* gives the defaults, the "budget" row saved from
+# Settings › Budgets wins over it until it is reset (app.api.budget).
+BUDGET_KEY = "budget"
+BUDGET_FIELDS = ("default_book", "switch_threshold", "on_estimate")
+
+
+def budget_defaults() -> dict:
+    config = settings()
+    return {
+        "default_book": config.budget_default_book,
+        "switch_threshold": config.budget_switch_threshold,
+        "on_estimate": config.budget_on_estimate,
+    }
+
+
+def budget_config(db: Session | None = None) -> dict:
+    stored = saved(db, BUDGET_KEY)
+    return {**budget_defaults(), **{k: v for k, v in stored.items() if k in BUDGET_FIELDS}}

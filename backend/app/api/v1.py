@@ -30,11 +30,29 @@ from app.api.providers import SHARED_FIELDS
 from app.api.tokens import Caller, require
 from app.config import API_RESULT_WAIT_CEILING, settings
 from app.db import SessionLocal
+from app.engines.budget import refuse_token_request
+from app.engines.delivery.chapter_events import summary as chapter_events_summary
+from app.engines.delivery.chapter_events import track_chapters
 from app.engines.delivery.epub import DeliveryFailed
-from app.engines.delivery.intake import UploadOptions, epub_digest, text_payload, upload_options
+from app.engines.delivery.intake import (
+    UploadOptions,
+    callback_events,
+    epub_digest,
+    text_payload,
+    upload_options,
+)
 from app.engines.delivery.lifecycle import ENDED, SUCCESS, finalize, refresh, settle
-from app.engines.delivery.results import FORMATS, MEDIA_TYPES, default_format, render, request_texts, stored
+from app.engines.delivery.results import (
+    FORMATS,
+    MEDIA_TYPES,
+    SCOPES,
+    default_format,
+    render,
+    request_texts,
+    stored,
+)
 from app.engines.delivery.webhooks import WebhookRefused, checked_url, require_signing
+from app.engines.exports.bilingual import LAYOUTS
 from app.engines.exports.text import TEXT_KINDS
 from app.engines.ingestion.naming import volume_from_name
 from app.engines.ingestion.payload import (
@@ -56,6 +74,9 @@ from app.engines.ingestion.store import (
     store_asset,
 )
 from app.i18n import english, preferred_language
+from app.jobs import clock
+from app.jobs.fairness import QueueRefused, admit, requested_priority, snapshot
+from app.jobs.fairness import label as priority_label
 from app.jobs.queue import HELD
 from app.jobs.requests import advance, busy, check_conflicts, public_status, volume_lock
 from app.models import (
@@ -168,27 +189,44 @@ def payload_series(db, owner_id: str, payload: TranslationPayload) -> Series:
     )  # fmt: skip
 
 
+def latest_volume(db, series: Series) -> tuple[Project | None, int]:
+    """The volume new chapters of a webnovel follow up: the last numbered one, else the series'
+    continuous chapter container; (None, 1) when the series has neither."""
+    lock(db, f"api-volume-latest:{series.id}")
+    project = db.scalar(
+        select(Project)
+        .where(Project.series_id == series.id, Project.volume_number.is_not(None))
+        .order_by(Project.volume_number.desc(), Project.created_at)
+        .limit(1)
+    ) or db.scalar(select(Project).where(Project.series_id == series.id, Project.project_kind == "serial").limit(1))
+    return project, (project.volume_number if project and project.volume_number else 1)
+
+
 def target_volume(db, owner_id: str, series: Series, payload: TranslationPayload) -> Project:
-    """Found by (series, volume external_id), then (series, number); otherwise created."""
+    """Found by (series, volume external_id), then (series, number); otherwise created.
+    `latest`: the series' last numbered volume, else its continuous chapter container, else volume 1."""
     volume = payload.volume
-    lock(db, f"api-volume-number:{series.id}:{volume.number}")
+    number = volume.number
     project = None
-    if volume.external_id:
+    if volume.latest:
+        project, number = latest_volume(db, series)
+    lock(db, f"api-volume-number:{series.id}:{number}")
+    if volume.external_id and project is None:
         project = db.scalar(
             select(Project).where(Project.series_id == series.id, Project.external_id == volume.external_id)
         )
     if project is None:
         project = db.scalar(
             select(Project)
-            .where(Project.series_id == series.id, Project.volume_number == volume.number)
+            .where(Project.series_id == series.id, Project.volume_number == number)
             .order_by(Project.created_at)
             .limit(1)
         )
-        if project and volume.external_id and project.external_id and project.external_id != volume.external_id:
-            raise HTTPException(
-                409, {"code": "volume_conflict",
-                      "message": f"Le volume {volume.number} de cette série a un autre identifiant externe."},
-            )  # fmt: skip
+    if project and volume.external_id and project.external_id and project.external_id != volume.external_id:
+        raise HTTPException(
+            409, {"code": "volume_conflict",
+                  "message": f"Le volume {number} de cette série a un autre identifiant externe."},
+        )  # fmt: skip
     if project is not None:
         if project.archived_at is not None:
             raise HTTPException(
@@ -205,11 +243,11 @@ def target_volume(db, owner_id: str, series: Series, payload: TranslationPayload
         return project
     project = Project(
         owner_id=owner_id,
-        title=(volume.title.strip() or f"{series.name} — {volume.number}")[:500],
+        title=(volume.title.strip() or f"{series.name} — {number}")[:500],
         author=payload.author[:500],
         source_language=payload.source_language,
         target_language=payload.target_language,
-        volume_number=volume.number,
+        volume_number=number,
         source_format="json",
         project_kind="volume",
         external_id=volume.external_id,
@@ -236,6 +274,32 @@ def check_start(db, caller: Caller, start: bool, provider_id: str | None) -> Non
         )  # fmt: skip
     if provider_id and not db.get(Provider, provider_id):
         raise HTTPException(422, {"code": "unknown_provider", "message": "Provider inconnu."})
+    refuse_token_request(db, caller.token, start)  # 402 once the token's cost budget is reached
+
+
+def queue_admission(db, caller: Caller, requested: str | None, start: bool) -> int:
+    """The request's priority (403 above the token's ceiling); 429 when its queue is full."""
+    try:
+        priority = requested_priority(db, caller.user, requested, caller.token)
+        if start:
+            admit(db, caller.user.id, caller.token)
+    except QueueRefused as exc:
+        raise HTTPException(exc.status, exc.detail) from None
+    return priority
+
+
+def queue_view(db, request: TranslationRequest, job: Job | None) -> dict | None:
+    """Where a request that has not started yet stands in the fair queue (app.jobs.fairness)."""
+    if request.status in ENDED:
+        return None
+    if job is None:
+        return {"position": None, "reason": "volume_busy" if request.options.get("start") else None}
+    if job.status not in ("pending", "waiting"):
+        return None
+    for entry in snapshot(db, clock.now(db), {job.project_id})["waiting"]:
+        if entry["job_id"] == job.id:
+            return {key: entry[key] for key in ("position", "reason", "effective_priority", "next_attempt")}
+    return None
 
 
 def check_callback(caller: Caller, url: str | None) -> None:
@@ -271,6 +335,7 @@ def create_request(
     if found:
         return replayed(found, digest), True
     check_start(db, caller, payload.pipeline.start, payload.pipeline.provider_id)
+    priority = queue_admission(db, caller, payload.pipeline.priority, payload.pipeline.start)
     check_callback(caller, payload.callback_url)
     files = Files()
     try:
@@ -299,9 +364,11 @@ def create_request(
                 "asset_id": asset.id,
                 "start": payload.pipeline.start,
                 "final_review": payload.pipeline.final_review,
+                "priority": priority,
                 "output_format": payload.output.format,
                 "ingested": False,
                 "decisions": decisions or [],
+                "callback_events": sorted(set(payload.callback_events)),
             },
             chapter_ids=[],
         )
@@ -358,6 +425,11 @@ def epub_volume(
         decisions.append({"project_id": same.id, "reason": "EPUB déjà dans la bibliothèque : son volume est repris"})
         return same, decisions
     number = options.volume
+    if number == "latest":
+        raise HTTPException(
+            422, {"code": "invalid_payload",
+                  "message": "« volume=latest » vaut pour des chapitres TXT : un EPUB est un volume à lui seul."},
+        )  # fmt: skip
     if series is not None:
         if number is None:
             number, decision = next_volume_number(db, series, name)
@@ -407,6 +479,7 @@ def create_epub_request(
     if found:
         return replayed(found, digest), True
     check_start(db, caller, options.start, options.provider_id)
+    priority = queue_admission(db, caller, options.priority, options.start)
     check_callback(caller, options.callback_url)
     files = Files()
     try:
@@ -418,6 +491,7 @@ def create_epub_request(
                 options.quality, options.context_backend,
             )  # fmt: skip
         project, decisions = epub_volume(db, owner_id, series, data, name, options, files)
+        reused = any(item.get("project_id") == project.id for item in decisions)
         apply_upload_options(db, project, options, decisions)
         need_provider(options.start, project)
         volume_lock(db, project.id)
@@ -444,15 +518,20 @@ def create_epub_request(
                 "asset_id": asset.id if asset else None,
                 "start": options.start,
                 "final_review": options.final_review,
+                "priority": priority,
                 "output_format": options.output_format or "epub",
                 "ingested": True,
                 "chapters": {"created": len(chapters), "unchanged": 0, "replaced": 0},
                 "decisions": decisions,
+                "callback_events": sorted(set(callback_events(options))),
+                # A known EPUB brings no new chapter: its volume is the one already made from it.
+                "new_chapter_ids": [] if reused else chapters,
             },
             chapter_ids=chapters,
         )
         db.add(request)
         db.flush()
+        track_chapters(db, request)
         advance(db, request, files)
         db.commit()
     except IntegrityError:
@@ -698,10 +777,13 @@ def detail_view(db, request: TranslationRequest, language: str) -> dict:
         "error": message_for(request.error or (job.error if job else ""), language),
         "stop_reason": job.stop_reason if job else "",
         "next_attempt": job.next_attempt if job else 0,
-        "chapters": {**(request.options.get("chapters") or {}), "items": chapters},
+        "chapters": {**(request.options.get("chapters") or {}), "items": chapters,
+                     "new": list(request.options.get("new_chapter_ids", request.chapter_ids) or [])},
         "options": {
             key: request.options.get(key) for key in ("start", "final_review", "output_format")
         },
+        "priority": priority_label(job.priority if job else request.options.get("priority", 1)),
+        "queue": queue_view(db, request, job),
         "result": artifact_view(request),
         "report": request.report,
         "webhook": {
@@ -710,6 +792,9 @@ def detail_view(db, request: TranslationRequest, language: str) -> dict:
             "error": request.webhook_error,
         }
         if request.callback_url
+        else None,
+        "chapter_events": chapter_events_summary(db, request)
+        if request.callback_url and request.options.get("callback_events")
         else None,
     }
 
@@ -778,6 +863,8 @@ def control_request(
         finalize(found, "cancelled", "Requête annulée.")
     else:
         project = db.get(Project, job.project_id)
+        if action == "resume" and job.status not in ("pending", "waiting"):
+            queue_admission(db, caller, None, True)
         control_job(db, project, job, action)
         if found.status not in ENDED:
             found.status = "running"
@@ -820,7 +907,10 @@ def not_ready(status: str, incomplete: list[str], error: str) -> HTTPException:
     )
 
 
-def result_response(db, request_id: str, caller: Caller, requested: str | None, partial: bool, accept: str):
+def result_response(
+    db, request_id: str, caller: Caller, requested: str | None, partial: bool, accept: str,
+    layout: str = "interleaved", scope: str = "request",
+):  # fmt: skip
     found = owned_request(db, request_id, caller)
     refresh(db, found.id)
     project = db.get(Project, found.project_id) if found.project_id else None
@@ -834,22 +924,27 @@ def result_response(db, request_id: str, caller: Caller, requested: str | None, 
                   "message": "Le format EPUB n’est disponible que pour un EPUB envoyé."},
         )  # fmt: skip
     status = public_status(found, job)
-    texts = request_texts(db, found, project)
+    texts = request_texts(db, found, project, scope)
     incomplete = [item.external_id or item.chapter_id for item in texts if not item.complete]
-    wanted = found.chapter_ids or []
+    wanted = (found.chapter_ids or []) if scope == "request" else [item.chapter_id for item in texts]
     if status in SUCCESS:
-        complete = status == "completed"
+        # Other scopes also cover chapters of earlier requests: complete when every one of them is.
+        complete = status == "completed" and (scope == "request" or not incomplete)
     else:
         # A request without a job ("imported") is complete when its chapters are all translated.
         complete = status == "imported" and bool(wanted) and not incomplete and len(texts) == len(wanted)
         if not complete and not partial:
             raise not_ready(status, incomplete, found.error)
-    content = stored(found) if (found.artifact or {}).get("format") == fmt else None
+    # The stored artifact covers the request scope; the bilingual EPUB is stored interleaved and the
+    # other layout is rendered on demand.
+    stored_layout = fmt != "epub-bilingual" or layout == "interleaved"
+    stored_format = (found.artifact or {}).get("format") == fmt and scope == "request" and stored_layout
+    content = stored(found) if stored_format else None
     if content is not None:
         filename = found.artifact.get("filename") or f"result.{fmt}"
     else:
         try:
-            rendered = render(db, found, project, job, fmt, status, found.report)
+            rendered = render(db, found, project, job, fmt, status, found.report, layout=layout, scope=scope)
         except DeliveryFailed as exc:
             raise HTTPException(
                 422, {"code": "delivery_failed", "message": exc.reason, "errors": exc.details}
@@ -874,11 +969,15 @@ async def translation_result(
     format: Literal[FORMATS] | None = None,  # noqa: A002 - the documented query parameter
     partial: bool = Query(default=False),
     wait: int = Query(default=0, ge=0, le=API_RESULT_WAIT_CEILING),
+    layout: Literal[LAYOUTS] = "interleaved",
+    scope: Literal[SCOPES] = "request",
 ):
     if wait:
         await wait_for_end(db, request_id, caller, wait)
     accept = http.headers.get("accept", "")
-    return await run_in_threadpool(result_response, db, request_id, caller, format, partial, accept)
+    return await run_in_threadpool(
+        result_response, db, request_id, caller, format, partial, accept, layout, scope
+    )
 
 
 def series_summary(db, series: Series) -> dict:

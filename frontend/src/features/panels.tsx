@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
-import { api, date, download, downloadGet, labels, send } from "../api";
+import { api, date, download, labels, send } from "../api";
 import { formatNumber, formatPercent, registerTranslations, useI18n } from "../i18n";
 import type { AutopilotView, Issue, LLMRequest, Project, ProviderSummary, Run, Term, User } from "../types";
+import { GlossaryExport, GlossaryImport, importSummary } from "./GlossaryImport";
+import { EffectiveGlossary } from "./GlossaryLevels";
 import {
   Badge,
   Button,
@@ -11,12 +13,10 @@ import {
   Dialog,
   EmptyState,
   Field,
-  FileButton,
   FormGrid,
   IconButton,
   Input,
   LoadingBlock,
-  Menu,
   SearchInput,
   Select,
   Stat,
@@ -32,6 +32,7 @@ import { MemoryPanel } from "./MemoryPanel";
 import { duration, projectProgress } from "./progress";
 import { fetchAutopilot } from "./Autopilot";
 import { ProviderChain } from "./ProviderChain";
+import { QualityDashboard } from "./QualityDashboard";
 
 registerTranslations({
   "{words} mots · {sections} sections · {images} images · {size} Mo":
@@ -98,8 +99,8 @@ registerTranslations({
   "Zone de danger": "Danger zone",
   "Supprimer ce projet": "Delete this project",
   "Supprimer ce projet ?": "Delete this project?",
-  "Le projet local, ses traductions et ses travaux seront supprimés. La mémoire OpenViking distante reste séparée. Exportez le projet pour en garder une copie.":
-    "The local project, its translations and its jobs will be deleted. Remote OpenViking memory remains separate. Export the project to keep a copy.",
+  "Le projet local, ses traductions et ses travaux seront supprimés. La mémoire OpenViking distante n’est effacée que si un administrateur a activé son nettoyage. Exportez le projet pour en garder une copie.":
+    "The local project, its translations and its jobs will be deleted. Remote OpenViking memory is removed only if an administrator switched its cleanup on. Export the project to keep a copy.",
   "Supprimer définitivement": "Delete permanently",
   "Seul le propriétaire du livre gère le partage et la suppression.": "Only the book's owner manages sharing and deletion.",
   "Choix terminologiques": "Terminology choices",
@@ -110,7 +111,6 @@ registerTranslations({
   "Importer un glossaire": "Import a glossary",
   Exporter: "Export",
   "Exporter le glossaire": "Export the glossary",
-  "{imported} termes importés, {skipped} ignorés (déjà présents).": "{imported} terms imported, {skipped} skipped (already present).",
   "Rechercher dans le glossaire": "Search glossary",
   "Rechercher un terme…": "Search for a term…",
   Source: "Source",
@@ -625,7 +625,7 @@ export function ProjectSettings({
                   const accepted = await confirm({
                     title: t("Supprimer ce projet ?"),
                     message: t(
-                      "Le projet local, ses traductions et ses travaux seront supprimés. La mémoire OpenViking distante reste séparée. Exportez le projet pour en garder une copie.",
+                      "Le projet local, ses traductions et ses travaux seront supprimés. La mémoire OpenViking distante n’est effacée que si un administrateur a activé son nettoyage. Exportez le projet pour en garder une copie.",
                     ),
                     confirmLabel: t("Supprimer définitivement"),
                     tone: "danger",
@@ -799,36 +799,15 @@ export function Glossary({ project, run, tick }: { project: Project; run: Run; t
           </p>
         </div>
         <div className="panel-actions">
-          <FileButton
-            label={t("Importer un glossaire")}
-            accept=".json,.csv,.tbx,.xml,.tsv,.txt"
-            onFiles={([file]) =>
-              void run(async () => {
-                const data = new FormData();
-                data.append("file", file);
-                const result = await api<{ imported: number; skipped: number }>(
-                  `/projects/${project.id}/glossary/import`,
-                  { method: "POST", body: data },
-                );
-                setMessage(t("{imported} termes importés, {skipped} ignorés (déjà présents).", result));
-                await load();
-              })
-            }
+          <GlossaryImport
+            endpoint={`/projects/${project.id}/glossary/import`}
+            run={run}
+            onImported={async (result) => {
+              setMessage(importSummary(t, result));
+              await load();
+            }}
           />
-          <Menu
-            label={t("Exporter le glossaire")}
-            trigger={(props) => (
-              <Button {...props} icon="download" iconAfter="chevronDown">
-                {t("Exporter")}
-              </Button>
-            )}
-            items={(["json", "csv", "tbx"] as const).map((format) => ({
-              label: format.toUpperCase(),
-              icon: "file" as const,
-              onSelect: () =>
-                void run(() => downloadGet(`/projects/${project.id}/glossary/export/${format}`, `glossary.${format}`)),
-            }))}
-          />
+          <GlossaryExport base={`/projects/${project.id}/glossary`} name="glossary" run={run} />
         </div>
       </div>
       {message && (
@@ -997,6 +976,7 @@ export function Glossary({ project, run, tick }: { project: Project; run: Run; t
           </Button>
         </form>
       </Card>
+      {inSeries && <EffectiveGlossary projectId={project.id} run={run} tick={tick} />}
     </section>
   );
 }
@@ -1291,7 +1271,17 @@ function CharacterForm({
   );
 }
 
-export function Quality({ project, run, tick }: { project: Project; run: Run; tick: number }) {
+export function Quality({
+  project,
+  run,
+  tick,
+  onOpenPassage,
+}: {
+  project: Project;
+  run: Run;
+  tick: number;
+  onOpenPassage?: (segmentId: string) => void;
+}) {
   const { t } = useI18n();
   const toast = useToast();
   const [issues, setIssues] = useState<Issue[] | null>(null);
@@ -1321,6 +1311,13 @@ export function Quality({ project, run, tick }: { project: Project; run: Run; ti
           </Button>
         </div>
       </div>
+      <QualityDashboard
+        scope="project"
+        id={project.id}
+        run={run}
+        tick={tick}
+        onOpenPassage={onOpenPassage && ((segmentId) => onOpenPassage(segmentId))}
+      />
       {issues === null ? (
         <LoadingBlock label={t("Relecture ciblée")} />
       ) : issues.length ? (

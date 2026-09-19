@@ -23,10 +23,39 @@ The automation API lives under `/api/v1` and is separate from the API used by th
 | `POST /api/v1/translation-requests/{id}/pause` | `jobs:control` | Pause the request's job |
 | `POST /api/v1/translation-requests/{id}/resume` | `jobs:control` | Resume it |
 | `POST /api/v1/translation-requests/{id}/cancel` | `jobs:control` | Cancel it |
-| `GET /api/v1/translation-requests/{id}/result` | `results:read` | Download the result (EPUB, JSON, TXT or ZIP) |
+| `GET /api/v1/translation-requests/{id}/result` | `results:read` | Download the result (EPUB, JSON, TXT or ZIP), for the request's chapters, only the new ones or the whole volume (`?scope=`) |
 | `GET /api/v1/providers` | `content:write` | List the providers a request may use |
 | `GET /api/v1/series` | `series:read` | List your series |
 | `GET /api/v1/series/{id}` | `series:read` | One series and its volumes |
+| `GET /api/v1/glossaries` | `series:read` | List your shared glossaries |
+| `POST /api/v1/glossaries` | `content:write` | Create a shared glossary |
+| `GET /api/v1/glossaries/{id}` | `series:read` | One shared glossary and its terms |
+| `GET /api/v1/glossaries/{id}/export/{format}` | `series:read` | Download it as JSON, CSV or TBX |
+| `POST /api/v1/glossaries/{id}/import` | `content:write` | Import a JSON, CSV or TBX file (`?dry_run=true` to preview) |
+| `GET /api/v1/series/{id}/shared-glossary` | `series:read` | The shared glossary a series follows |
+| `PUT /api/v1/series/{id}/shared-glossary` | `content:write` | Attach a series to a shared glossary, or detach it |
+
+## OpenAPI description and example client
+
+- **[`docs/openapi/libris-v1.json`](openapi/libris-v1.json)** describes `/api/v1` in OpenAPI 3.1: every
+  operation with its scope, parameters, bodies (JSON document, multipart upload, raw EPUB), answers, error
+  codes and examples, plus the webhook. Load it in any OpenAPI tool or client generator. It is generated
+  from the code and checked by the test suite, so it always matches the version of Libris it ships with.
+  The [website](https://libris-translate.com/api/reference/) shows it as a readable reference.
+- **[`examples/libris_client.py`](../examples/libris_client.py)** is a small client in Python with the
+  standard library only (Python 3.10 or newer, nothing to install). It sends an EPUB, TXT chapters or a JSON
+  document, waits with long polling, downloads the result, waits out `429` answers, and receives webhooks
+  after checking their signature:
+
+  ```bash
+  export LIBRIS_URL=https://libris.example.org LIBRIS_TOKEN=lbr_xxxxxxxx_...
+  python3 examples/libris_client.py epub book.epub --target-language fr --provider-id "$PROVIDER_ID" --out book.fr.epub
+  python3 examples/libris_client.py chapters "Chapter 1.txt" "Chapter 2.txt" --series "Web Saga" --volume 1 \
+    --source-language en --target-language fr --format txt-zip --out volume-1.zip
+  LIBRIS_WEBHOOK_SECRET=... python3 examples/libris_client.py webhooks --port 8080
+  ```
+
+  Its `LibrisClient` class can also be imported in your own code; run it with `--help` for every option.
 
 Every example on this page uses these shell variables:
 
@@ -42,7 +71,9 @@ export PROVIDER_ID=...                      # a provider id, see "Choosing a pro
    **Settings › Automation API**).
 2. Under **Create a token**, give it a name, tick the permissions it needs and choose an expiration
    (30, 90 or 365 days, or never).
-3. Optionally tick **Sign webhooks with a secret of this token** (see [Webhooks](#webhooks)).
+3. Optionally tick **Sign webhooks with a secret of this token** (see [Webhooks](#webhooks)), set its
+   **Queue** limits (see [Queue priority and quotas](#queue-priority-and-quotas)) and give it a **Token
+   budget** (see [Token budget](#token-budget)).
 4. Copy the secret now: it is displayed **once** and never again.
 
 A token acts on behalf of its owner: it only sees the owner's series and requests, and it stops
@@ -66,13 +97,56 @@ stores only its SHA-256 and compares it in constant time.
 
 ### Managing tokens from a script
 
-The interface manages tokens through three routes that use the **session cookie**, not a token:
+The interface manages tokens through these routes, which use the **session cookie**, not a token:
 
 | Route | Body and answer |
 | --- | --- |
-| `GET /api/tokens` | The caller's tokens: `id, name, prefix, scopes, created_at, expires_at, revoked_at, last_used_at, state, webhook_secret` (a boolean: whether the token has its own signing secret). |
-| `POST /api/tokens` | Body `{"name": "…", "scopes": ["…"], "expires_in_days": 90, "webhook_secret": false}`. `name` 1–100 characters, at least one scope, `expires_in_days` 1–3650 or `null` for no expiry. Answers `201` with the token view plus `token` (the secret) and, when asked, `webhook_secret` (the signing secret). This is the only answer that ever contains them. |
+| `GET /api/tokens` | The caller's tokens: `id, name, prefix, scopes, created_at, expires_at, revoked_at, last_used_at, state, webhook_secret` (a boolean: whether the token has its own signing secret), `max_priority`, `max_running`, `max_queued` (see [Queue priority and quotas](#queue-priority-and-quotas)) and `budget` (`null` without a cap, else `{amount, period, spent, resets_at}`, see [Token budget](#token-budget)). |
+| `POST /api/tokens` | Body `{"name": "…", "scopes": ["…"], "expires_in_days": 90, "webhook_secret": false, "budget_amount": null, "budget_period": "month"}`, optionally with `max_priority` (`low`, `normal` (default) or `high`), `max_running` (1–1000) and `max_queued` (1–100000). `name` 1–100 characters, at least one scope, `expires_in_days` 1–3650 or `null` for no expiry, `budget_amount` a positive cap or `null`, `budget_period` `month` or `total`. Answers `201` with the token view plus `token` (the secret) and, when asked, `webhook_secret` (the signing secret). This is the only answer that ever contains them. |
+| `PUT /api/tokens/{id}/queue` | Body `{"max_priority": "normal", "max_running": null, "max_queued": null}`: changes the token's queue limits without changing its secret; returns its view. |
+| `PUT /api/tokens/{id}/budget` | Body `{"amount": 50, "period": "month"}` (`amount: null` removes the cap). Returns the token view. Written to the audit log. |
 | `DELETE /api/tokens/{id}` | Revokes the token and returns its view. |
+
+### Queue priority and quotas
+
+Libris shares its providers between accounts with a fair queue: waiting jobs start by priority, then from the
+account (and the token) with the fewest jobs running, in turn between accounts (see
+[architecture](architecture.md#fair-queue)). A request may ask for a priority, `pipeline.priority` in a JSON
+document or the `priority` option of a file upload: `low`, `normal` (the default) or `high`.
+
+- The priority may not exceed the token's `max_priority` (`normal` unless set otherwise) nor the account's
+  ceiling (`high` for administrators and for accounts an administrator allowed in **Settings › Queue**,
+  `normal` otherwise). Above it, the request is refused with `403 priority_not_allowed` and `max_priority` in
+  the error. A token whose `max_priority` is `low` sends its requests at low priority by default.
+- `max_running` limits the token's jobs running at once: the next ones wait (`queue.reason` is
+  `token_limit`). The account's own limit (`QUEUE_MAX_RUNNING_PER_ACCOUNT` or its row in **Settings ›
+  Queue**) applies as well (`account_limit`).
+- `max_queued` limits the token's requests and jobs waiting to start. A new request over it, or over the
+  account's waiting quota, is refused with `429 queue_full` and `scope` (`token` or `account`) and `limit` in
+  the error; nothing is stored. Retry once one of them has started. A replay of an accepted request (same
+  `Idempotency-Key` or `external_id`) is still answered. Resuming a paused request counts as a new entry in
+  the queue.
+
+The priority does not change the request's content: sending the same request again with another priority is a
+replay of the first one.
+
+### Token budget
+
+A token may have a spending cap, in the currency the provider prices are entered in (the one of
+`usage.cost` in the reports). It counts the model calls of the requests made with the token, per
+calendar month (UTC, `period: "month"`) or over the token's whole life (`period: "total"`). A
+request that has ended counts with the cost kept on it, in the month it ended; a running one counts
+what its calls have cost so far.
+
+- Once the cap is reached, a new request that would start work (`start` true, the default) is refused
+  with `402 budget_exceeded`; the error carries `budget: {amount, spent, period, resets_at}`
+  (`resets_at`: start of the next month, `null` for a total cap). An import alone (`start: false`)
+  costs nothing and is still accepted.
+- A running request whose token nears its cap is handled like a book near its budget (see
+  [cost budgets](user-guide.fr.md#budgets-de-coût)): its job moves to a cheaper fallback provider,
+  or pauses with the stop reason `budget_exceeded`. `…/resume` answers `409 budget_exceeded` until the
+  cap is raised (`PUT /api/tokens/{id}/budget`). A request left paused longer than
+  `API_REQUEST_STALL_MINUTES` fails with that reason.
 
 ## Send a translation request
 
@@ -206,7 +280,7 @@ Each file becomes one chapter, and the request behaves exactly like the JSON doc
   "replace_changed_chapters": false,
   "discard_human": false,
   "pipeline": {"start": true, "provider_id": null, "quality": "high",
-               "context_backend": "hybrid", "final_review": true},
+               "context_backend": "hybrid", "final_review": true, "priority": "normal"},
   "output": {"format": "json"},
   "callback_url": "https://hooks.example.org/libris"
 }
@@ -230,7 +304,8 @@ curl -sS -X POST "$LIBRIS_URL/api/v1/translation-requests" \
 | --- | --- | --- |
 | `external_id` | no | Your identifier for the request: starts with a letter or digit, then letters, digits and `._:/-`, up to 200 characters. Unique per owner (see [Sending twice](#sending-the-same-request-twice)). |
 | `series` | yes | `id` (a series you own) **or** `name`. An unknown name is created when `create_if_missing` is true (the default), otherwise `404 series_not_found`. An archived series answers `409 series_archived`. |
-| `volume.number` | yes | 1–10000. |
+| `volume.number` | yes, unless `volume.latest` | 1–10000. |
+| `volume.latest` | no | Default `false`. `true` instead of a number: the chapters go to the series' last volume (the highest number; the series' continuous chapter feed when it has no numbered volume; volume 1, created, when it has neither). See [Following a series over time](#following-a-series-over-time). |
 | `volume.external_id`, `volume.title` | no | The volume is found by `external_id`, then by number within the series; otherwise it is created (title defaults to "Series — number"). A volume that came from an EPUB answers `409 volume_conflict`, and so does a volume with that number but another `external_id`. An archived volume answers `409 volume_archived`. |
 | `author` | no | Up to 500 characters. |
 | `source_language`, `target_language` | yes | BCP 47 tags such as `en`, `fr-FR`, `zh-Hant`, `es-419`. Applied to the volume. |
@@ -242,8 +317,10 @@ curl -sS -X POST "$LIBRIS_URL/api/v1/translation-requests" \
 | `pipeline.quality` | no | `fast`, `normal`, `high` or `maximum` (see [the autopilot guide](autopilot.md#what-each-quality-level-does)). |
 | `pipeline.context_backend` | no | `internal`, `openviking` or `hybrid` (see [OpenViking](openviking.md)). |
 | `pipeline.final_review` | no | Default `true`. `false` skips the final review. It never runs when the server sets `FINAL_REVIEW_ENABLED=false`. |
-| `output.format` | no | Default format of the result: `json`, `txt` or `txt-zip`. |
+| `pipeline.priority` | no | `low`, `normal` (default) or `high`, within the token's ceiling (see [Queue priority and quotas](#queue-priority-and-quotas)). |
+| `output.format` | no | Default format of the result: `json`, `txt`, `txt-zip` or `epub-bilingual`. |
 | `callback_url` | no | A webhook called when the request ends (see [Webhooks](#webhooks)). |
+| `callback_events` | no | Extra webhook events, on top of the final one: `["chapters.translated"]` sends a batch each time chapters of the request are translated (see [Batches of translated chapters](#batches-of-translated-chapters)). Needs `callback_url`. |
 
 Unknown fields are refused. Libris never downloads anything from a URL found in the document: text is
 taken as it is. Chapters go through the same text importer as TXT files (same passages, layout and
@@ -260,15 +337,16 @@ values count as "not given"; unknown options are refused.
 | Option | Meaning |
 | --- | --- |
 | `series` or `series_id` | The series by name (created when missing) or by id; not both. Required for TXT, optional for an EPUB (standalone volume otherwise). |
-| `volume` | Volume number (1–10000). Required for TXT. |
+| `volume` | Volume number (1–10000), or `latest` for the series' last volume (TXT only, see `volume.latest` above). Required for TXT. |
 | `external_id` | Your identifier of the request. |
 | `volume_external_id` | Your identifier of the volume. |
 | `title`, `author` | Volume title and author (an EPUB keeps its own otherwise). |
 | `source_language`, `target_language` | BCP 47 tags. Both required for TXT. |
-| `provider_id`, `quality`, `context_backend`, `final_review` | As in `pipeline` above. |
+| `provider_id`, `quality`, `context_backend`, `final_review`, `priority` | As in `pipeline` above. |
 | `start` | `true` (default) runs the whole pipeline; `false` only imports. |
-| `output_format` | `epub` (EPUB input only; the default for an EPUB), `json`, `txt` or `txt-zip`. |
+| `output_format` | `epub` (EPUB input only; the default for an EPUB), `json`, `txt`, `txt-zip` or `epub-bilingual`. |
 | `callback_url` | See [Webhooks](#webhooks). |
+| `callback_events` | Comma-separated extra events, for example `chapters.translated` (see `callback_events` above). |
 | `replace_changed_chapters`, `discard_human` | TXT only, as in the JSON document. |
 | `filename` | Raw EPUB body only: the file name, used to guess the volume number. |
 
@@ -285,6 +363,34 @@ file plus its options, `callback_url` excepted.
 
 Even without a key, sending chapters that are already in the volume with the same text never
 duplicates a series, a volume or a chapter: they are reported as `unchanged`.
+
+### Following a series over time
+
+A webnovel is translated as it is published: send each new batch of chapters as its own request, to
+the same series and volume (or with `volume.latest: true`, `volume=latest` for TXT files, to follow
+the series' last volume without tracking its number).
+
+```bash
+curl -sS -X POST "$LIBRIS_URL/api/v1/translation-requests" \
+  -H "Authorization: Bearer $LIBRIS_TOKEN" \
+  -F "files=@Chapter 51.txt" -F "files=@Chapter 52.txt" \
+  -F series="Web Saga" -F volume=latest \
+  -F source_language=en -F target_language=fr \
+  -F callback_url=https://hooks.example.org/libris -F callback_events=chapters.translated
+```
+
+- **Appended in order.** Chapters are placed by number among the chapters already in the volume and
+  matched by `external_id`, then by number: a chapter sent again with the same text is `unchanged`,
+  one with another text is refused unless `replace_changed_chapters` is true. Give numbers in the
+  file names (`Chapter 51.txt`): a file without a number is numbered within its own request only.
+- **Only the new chapters are translated.** Chapters already translated are neither translated nor
+  reviewed again: they give their context (glossary, characters, summaries and the previous
+  passages) to the new ones. The request's job covers the new or replaced chapters, plus any chapter
+  of the volume still missing a translation. The status document lists them in `chapters.new`.
+- **One request at a time per volume.** A request sent while the volume is busy waits (`queued`)
+  and starts after the running one.
+- **Updated results.** Each request's result can cover its own chapters, only the new ones, or the
+  whole volume (see `scope` in [Get the result](#get-the-result)).
 
 ## Follow a request
 
@@ -350,13 +456,16 @@ the autopilot reports that it failed, the request fails with the autopilot's rea
                "stages": [{"key": "translation", "done": 180, "total": 412, "percent": 44}]},
   "estimate": {"…": "…"},
   "error": "", "stop_reason": "", "next_attempt": 0,
-  "chapters": {"created": 3, "unchanged": 0, "replaced": 0,
+  "chapters": {"created": 3, "unchanged": 0, "replaced": 0, "new": ["…"],
                "items": [{"chapter_id": "…", "external_id": "chapter-001", "number": 1, "title": "Chapter 1",
                           "segments": 140, "translated": 60, "validated": 0, "flagged": 0, "complete": false}]},
   "options": {"start": true, "final_review": true, "output_format": "json"},
+  "priority": "normal",
+  "queue": null,
   "result": null,
   "report": null,
-  "webhook": {"state": "pending", "attempts": 0, "error": ""}
+  "webhook": {"state": "pending", "attempts": 0, "error": ""},
+  "chapter_events": null
 }
 ```
 
@@ -367,10 +476,13 @@ the autopilot reports that it failed, the request fails with the autopilot's rea
 | `progress` | `segments`, `translated` and `percent` for the request's chapters (every chapter for an EPUB), and `stages`, the volume's progress per stage. |
 | `estimate` | Remaining time and cost, once enough model calls have been observed; otherwise `null`. |
 | `error`, `stop_reason`, `next_attempt` | Why the job stopped or is waiting, and when it will retry (Unix time, `0` when not waiting). |
-| `chapters` | How many chapters were `created`, `unchanged` or `replaced`, and per chapter its passages, translated, validated and flagged counts, and whether it is `complete`. |
+| `priority` | The request's priority (`low`, `normal`, `high`), as changed by a person in the interface if it was. |
+| `queue` | While the request waits to start: `position` (its place in the line of its provider, 1 = next), `reason` (`starting`, `provider_busy`, `account_limit`, `token_limit`, `retry_scheduled`, `provider_missing`, or `volume_busy` while another job holds the volume), `effective_priority` (raised by waiting) and `next_attempt`. `null` once it runs or ended. |
+| `chapters` | How many chapters were `created`, `unchanged` or `replaced`, `new` (the ids of the created and replaced ones), and per chapter its passages, translated, validated and flagged counts, and whether it is `complete`. |
 | `result` | Once stored: `format`, `media_type`, `filename`, `size`, `sha256`, `created_at`. |
 | `report` | The [completion report](#completion-report), once the request ended. |
 | `webhook` | Only when a `callback_url` was given: `state` (`pending`, `delivered`, `failed`), `attempts`, last `error`. |
+| `chapter_events` | Only when `callback_events` was given: `batches` queued so far, how many are `delivered`, `pending` or `failed`, `waiting_chapters` (not translated yet) and the last `error`. |
 
 Times are Unix timestamps in seconds.
 
@@ -405,20 +517,42 @@ curl -sS "$LIBRIS_URL/api/v1/translation-requests/$REQUEST_ID/result?format=txt"
 curl -sS "$LIBRIS_URL/api/v1/translation-requests/$REQUEST_ID/result?format=txt-zip" \
   -H "Authorization: Bearer $LIBRIS_TOKEN" -o volume-12.zip
 
+# Bilingual EPUB for proofreading: each source paragraph with its translation (any input)
+curl -sS "$LIBRIS_URL/api/v1/translation-requests/$REQUEST_ID/result?format=epub-bilingual&layout=side-by-side" \
+  -H "Authorization: Bearer $LIBRIS_TOKEN" -o volume-12-bilingual.epub
+
 # Whatever is ready so far
 curl -sS "$LIBRIS_URL/api/v1/translation-requests/$REQUEST_ID/result?format=json&partial=true" \
   -H "Authorization: Bearer $LIBRIS_TOKEN"
 ```
 
-**Choosing the format.** `?format=` wins (`epub`, `json`, `txt`, `txt-zip`); otherwise the `Accept`
-header (`application/epub+zip`, `application/json`, `text/plain`, `application/zip`); otherwise the
-request's own format. `epub` exists only for a request that sent an EPUB (`409 format_unavailable`
-otherwise).
+**Choosing the format.** `?format=` wins (`epub`, `json`, `txt`, `txt-zip`, `epub-bilingual`);
+otherwise the `Accept` header (`application/epub+zip`, `application/json`, `text/plain`,
+`application/zip`); otherwise the request's own format. `epub` exists only for a request that sent an
+EPUB (`409 format_unavailable` otherwise).
 
-**What it covers.** The chapters of the request only, in reading order; for an EPUB, the whole book.
+**Bilingual EPUB.** `epub-bilingual` exists for every request, whatever was sent: a new EPUB 3 with
+one page per chapter, where each source paragraph is followed by its translation (`layout=interleaved`,
+the default) or placed next to it in two columns (`layout=side-by-side`; the columns stack on a narrow
+screen). It carries the text only (no image, no original styling) and is meant for proofreading on an
+e-reader. In a partial result, a passage without translation shows its source and an empty
+translation marked `—`. A stored bilingual result is the interleaved one; `layout=side-by-side` is
+rendered on demand. When EPUBCheck is installed and refuses the book, the answer is
+`422 delivery_failed`.
+
+**What it covers.** `?scope=` chooses, in reading order:
+
+| `scope` | Chapters |
+| --- | --- |
+| `request` (default) | The chapters the request sent, `unchanged` ones included; for an EPUB, the whole book. |
+| `new` | Only the chapters the request created or replaced: the new chapters of a follow-up. |
+| `volume` | Every chapter of the volume, those of earlier requests included: the updated volume. |
+
+The `epub` format is always the whole book. The JSON result says its `scope`. With `new` or `volume`,
+`complete` (and `X-Libris-Complete`) is true only when every chapter covered is fully translated.
 
 **Stored and rendered results.** When a request ends successfully, Libris builds its result once, in
-the request's default format, and stores it under `DATA_DIR/results/<request id>/`. That file is
+the request's default format and the `request` scope, and stores it under `DATA_DIR/results/<request id>/`. That file is
 served as is. Other formats are rendered on demand from the database. Stored files are removed after
 `RETENTION_RESULTS_DAYS` (30 days); asking again then renders the result from the database.
 
@@ -500,12 +634,24 @@ the stored ZIP, and in the webhook.
   "residuals_truncated": false,
   "usage": {"calls": 1290, "prompt_tokens": 2410000, "completion_tokens": 610000,
             "cached_calls": 12, "cost": 3.41},
+  "cost": {"estimated": 3.9, "actual": 3.41, "budget": 5.0, "book_spent": 4.62, "warning": null,
+           "paused_for_budget": false, "provider_switches": 0},
   "durations": {"total_seconds": 5230.1, "queued_seconds": 0.4, "job_seconds": 5211.8},
   "autopilot": {"outcome": "completed_with_residuals", "rounds": 2, "reason": null},
   "decisions": {"autopilot": 17,
                 "intake": [{"file": 2, "name": "Afterword.txt", "chapter_number": 3.0,
                             "confidence": "low", "reason": "…"}]},
-  "delivery": {"validation": {"available": true, "valid": true}, "repairs": [], "inherited_errors": []}
+  "delivery": {"validation": {"available": true, "valid": true}, "repairs": [], "inherited_errors": []},
+  "quality": {"scored": 411, "average": 91.4, "minimum": 40, "to_review": 6, "review_below": 70,
+              "bands": {"good": 380, "fair": 25, "weak": 5, "poor": 1},
+              "histogram": [0, 0, 0, 0, 1, 2, 3, 10, 35, 360],
+              "weakest_chapters": [{"chapter_id": "…", "title": "…", "external_id": null, "number": 12.0,
+                                    "project_id": "…", "passages": 38, "scored": 38, "average": 78.2,
+                                    "minimum": 40, "weak": 3, "…": "…"}],
+              "review_first": [{"segment_id": "…", "chapter_id": "…", "chapter_title": "…",
+                                "chapter_external_id": null, "position": 118, "score": 40, "band": "poor",
+                                "signals": [{"code": "source_retained", "count": 1, "penalty": 60}],
+                                "excerpt": "…", "…": "…"}]}
 }
 ```
 
@@ -515,9 +661,11 @@ the stored ZIP, and in the webhook.
 | `passages` | Counts over the request's passages (the whole book for an EPUB). |
 | `residuals` | Passages delivered in their source text, at most 500 (`residual_total` counts them all, `residuals_truncated` says when the list is cut). `reason` is the autopilot's when it recorded one, else the passage's last error, else `source_retained`, `untranslated`, `markup_mismatch` or `epubcheck_repair`. |
 | `usage` | Model calls of the request's job and their tokens. `cost` only counts calls with a known price, and is `null` when none had one. |
+| `cost` | The estimate made when the job started (`null` when none was made) against its real cost (`usage.cost`), the book's budget (`null` without one), what the book has cost in all, the warning given at launch when the estimate exceeded what was left, whether the job was paused by a budget and how many times it moved to a cheaper provider for one. |
 | `durations` | Seconds since the request was created, spent waiting for the volume, and spent in the job. |
 | `autopilot` | How the autopilot ended (`null` when it did not run). |
 | `decisions` | `autopilot`: the number of decisions the autopilot logged for the job; `intake`: the choices made when reading the upload (volume and chapter numbers, text encoding, reused EPUB). |
+| `quality` | Quality scores (0–100) of the request's translated passages, computed from the signals Libris records (checks, critiques, doubts, failed calls, recoveries, retained originals; see [the architecture](architecture.md#passage-quality-scores)): count, average, lowest, `bands` (`good` from 85, `fair` from 70, `weak` from 50, `poor` below), a ten-bucket `histogram`, `to_review` (below `review_below` and not validated by a person), the 10 weakest chapters and the 10 passages to review first with the signals that lowered them. `null` when the request has no volume. |
 | `delivery` | EPUB only: EPUBCheck `validation`, the `repairs` made (attempt, errors, files, passages restored), `inherited_errors`, and `errors` when the delivery failed. |
 
 The full log of autopilot decisions for a book is shown in the interface (the book's **Autopilot**
@@ -526,8 +674,9 @@ tab); see [the autopilot guide](autopilot.md#the-decision-log-and-the-report).
 ## Webhooks
 
 A request may name a `callback_url`. When it ends (any final status, and also `imported`), the
-**worker** sends one `POST` to that URL. The webhook is a convenience: the status document stays the
-reference, and you can always poll it.
+**worker** sends one `POST` to that URL; with `callback_events`, it also sends one per
+[batch of translated chapters](#batches-of-translated-chapters) before. The webhook is a
+convenience: the status document stays the reference, and you can always poll it.
 
 ### Enabling webhooks (administrators)
 
@@ -574,7 +723,8 @@ The signature uses the token's own webhook secret when it has one, otherwise the
 
 ### Verifying a webhook
 
-Check the signature over the raw body, and refuse old timestamps to block replays:
+Check the signature over the raw body, and refuse old timestamps to block replays (the example client
+does the same in `verify_signature` and serves it with its `webhooks` command):
 
 ```python
 import hashlib
@@ -611,6 +761,36 @@ The name is resolved again before every call, and the call goes to the address j
 original name in the `Host` header and the TLS server name), so a DNS answer that changes in between
 cannot redirect it. Proxy environment variables are ignored.
 
+### Batches of translated chapters
+
+A request whose `callback_events` contains `chapters.translated` also gets one webhook per batch of
+chapters whose passages all have a translation, while the job runs: a client can publish chapters one
+batch at a time instead of waiting for the whole request. Chapters already translated when the
+request was imported are not announced. The request's final `translation_request.finished` webhook
+is sent as usual.
+
+```json
+{
+  "event": "chapters.translated",
+  "request_id": "…", "external_id": "…", "series_id": "…", "project_id": "…",
+  "batch": 2,
+  "chapters": [{"chapter_id": "…", "external_id": "chapter-052", "number": 52, "title": "Chapter 52"}],
+  "announced": 2, "total": 3,
+  "status_url": "/api/v1/translation-requests/…",
+  "result_url": "/api/v1/translation-requests/…/result?partial=true",
+  "created_at": 1790000000.0
+}
+```
+
+`batch` counts from 1 per request; `announced` is the number of chapters announced so far, `total` the
+number of chapters in the request. Batches use the same allowed hosts, signature, headers and retries
+as the final webhook, with `X-Libris-Event: chapters.translated` and `X-Libris-Delivery:
+<request id>:chapters.translated:<batch>:<attempt>`. They are sent before the final webhook when
+both are due, but a batch that is retried can arrive after it: order them by `batch`. A batch is a
+draft: until the request ends, the final review may still improve its chapters. Fetch them with
+`?partial=true&scope=new` (or `format=json`, which gives each chapter with its `chapter_id`); the
+final result stays the reference.
+
 ## List your series
 
 ```bash
@@ -622,6 +802,64 @@ The list is sorted by name and gives `id, name, kind, source_language, target_la
 volumes, created_at, updated_at`. The detail adds `volume_list`, sorted by volume number, with
 `project_id, title, volume_number, external_id, source_format, project_kind, status, chapters`. Only
 series the token's owner owns are visible; volumes shared with them are not.
+
+## Shared glossaries
+
+A shared glossary is the terminology of a universe common to several of your series (places, titles,
+spells…). Each series follows at most one; its accepted terms reach every volume of the series, after the
+book's and the series' own terms: book > series > shared glossary. A locked shared term is enforced and
+checked in every passage, and beats an unlocked term an earlier volume proposed; a person's series decision
+or a volume's deliberate override always wins. The same glossaries are managed in the interface
+(**Glossaires partagés**).
+
+```bash
+# Create one; languages are optional (with them, it only applies to volumes of the same pair).
+curl -sS "$LIBRIS_URL/api/v1/glossaries" -H "Authorization: Bearer $LIBRIS_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "Glass Road universe", "source_language": "en", "target_language": "fr"}'
+
+# Preview an import, then apply it.
+curl -sS "$LIBRIS_URL/api/v1/glossaries/$GLOSSARY_ID/import?dry_run=true" \
+  -H "Authorization: Bearer $LIBRIS_TOKEN" -F file=@universe.csv -F strategy=replace
+curl -sS "$LIBRIS_URL/api/v1/glossaries/$GLOSSARY_ID/import" \
+  -H "Authorization: Bearer $LIBRIS_TOKEN" -F file=@universe.csv -F strategy=replace
+
+# Make a series follow it (send {"glossary_id": null} to detach).
+curl -sS -X PUT "$LIBRIS_URL/api/v1/series/$SERIES_ID/shared-glossary" \
+  -H "Authorization: Bearer $LIBRIS_TOKEN" -H "Content-Type: application/json" \
+  -d "{\"glossary_id\": \"$GLOSSARY_ID\"}"
+
+# Download it; for spreadsheets: CSV with semicolons and a byte order mark.
+curl -sS "$LIBRIS_URL/api/v1/glossaries/$GLOSSARY_ID/export/csv?delimiter=semicolon&bom=true" \
+  -H "Authorization: Bearer $LIBRIS_TOKEN" -o universe.csv
+```
+
+A glossary gives `id, name, description, source_language, target_language, created_at, updated_at,
+term_count, locked_count, series` (the series that follow it, `id` and `name`) and, for one glossary,
+`terms` with `id, source, translation, category, description, locked, accepted`. Only accepted terms are
+applied.
+
+**Files.** JSON (a list of terms with the fields above), CSV or TBX (v2 and v3). CSV files may carry a byte
+order mark or come from Excel on Windows; the separator (`;`, `,` or tab) is detected, and headers are
+recognised in French or English (`source`, `terme source`, `traduction`, `target`, `catégorie`, `notes`,
+`verrouillé`, `accepté`…); a file without header uses its first two columns. Form fields of an import:
+
+| Field | Values | Default |
+| --- | --- | --- |
+| `file` | The glossary file (2 MB at most) | required |
+| `strategy` | `skip` keeps terms in place; `replace` replaces unlocked terms that differ; `replace_all` replaces locked ones too | `skip` |
+| `delimiter` | `semicolon`, `comma` or `tab` | detected |
+| `mapping` | JSON object from field to column number (from 0), for example `{"source": 0, "translation": 2}` | from the headers |
+| `header` | `true` or `false`: whether the first row holds column names | detected |
+| `skip_invalid` | `true` leaves invalid rows out instead of refusing the file | `false` |
+
+The answer is the import report: `format`, `encoding`, `delimiter`, `columns` (the first row), `header`,
+`mapping`, `strategy`, `counts` (`terms, new, unchanged, conflicts, replaced, kept, duplicates, errors`), the
+lists `new`, `conflicts` (with `existing`, `incoming`, the differing `fields`, `locked` and the `action`
+`replace` or `keep`), `duplicates` (a source repeated in the file: the first row counts) and `errors` (`line`,
+`message`), each cut to 200 items (`truncated`), and `applied`. An applied import adds `imported`,
+`replaced` and `skipped`. Sources are matched case-insensitively. A preview (`dry_run=true`) lists invalid
+rows instead of refusing the file.
 
 ## Errors
 
@@ -638,21 +876,27 @@ Validation errors never echo the submitted values, so book text is never sent ba
 | --- | --- | --- |
 | 401 | `missing_token`, `invalid_token`, `revoked_token`, `expired_token`, `inactive_account` | No token, or a bad one (header `WWW-Authenticate: Bearer`). |
 | 401 | `unauthorized` | A request with a body but no `Authorization: Bearer` header. |
+| 402 | `budget_exceeded` (with `budget`) | The token's cost budget is reached: a request that would start work is refused (see [Token budget](#token-budget)). |
 | 403 | `insufficient_scope` (with `scope`) | The token lacks a permission. |
 | 403 | `forbidden` | A browser request from another site (see below). |
-| 404 | `request_not_found`, `series_not_found`, `volume_not_found`, `not_found` | Unknown, or owned by someone else. |
+| 403 | `priority_not_allowed` (with `max_priority`) | The priority asked for is above the token's or the account's ceiling. |
+| 404 | `request_not_found`, `series_not_found`, `volume_not_found`, `glossary_not_found`, `not_found` | Unknown, or owned by someone else. |
 | 409 | `idempotency_conflict` (with `request_id`) | Same key or `external_id`, different content. |
 | 409 | `chapter_conflict` (with `conflicts`) | Chapters exist with another text; send `replace_changed_chapters`. |
 | 409 | `conflict` (with `protected_segments`) | A replacement would drop human edits; send `discard_human`. |
 | 409 | `volume_conflict`, `series_archived`, `volume_archived` | The target volume cannot take this content. |
 | 409 | `result_not_ready`, `request_failed`, `request_cancelled`, `format_unavailable` | The result cannot be served (see [Get the result](#get-the-result)). |
 | 409 | `not_started`, `conflict` | Pause, resume or cancel not allowed in the current state. |
-| 413 | `payload_too_large` | The body is above the size limit. |
+| 409 | `glossary_exists`, `language_mismatch` | A shared glossary of that name exists; its languages differ from the series'. |
+| 409 | `budget_exceeded` | Resuming a job paused by a book or token budget that is still reached. |
+| 413 | `payload_too_large`, `glossary_too_large` | The body is above the size limit. |
 | 415 | `unsupported_media_type` | Neither JSON, EPUB nor multipart. |
 | 422 | `invalid_payload` (with `errors: [{loc, msg, type}]`) | The document or the upload is invalid. |
 | 422 | `invalid_request` (with `errors`) | A bad query parameter (for example `format`, `wait`). |
 | 422 | `invalid_idempotency_key`, `unknown_provider`, `provider_required`, `invalid_epub`, `callback_refused`, `delivery_failed` | See the sections above. |
+| 422 | `invalid_glossary`, `invalid_strategy`, `invalid_mapping`, `invalid_name` | The glossary file, its import options or the glossary name (see [Shared glossaries](#shared-glossaries)). |
 | 429 | `rate_limited` | Too many calls for this token (header `Retry-After`). |
+| 429 | `queue_full` (with `scope`, `limit`) | The token or the account already has its quota of requests waiting (see [Queue priority and quotas](#queue-priority-and-quotas)). |
 | 500 | `server_error` | Unexpected failure; the message carries a diagnostic reference for the server logs. |
 
 Server-to-server clients do not send an `Origin` header and are accepted. A browser page on another
@@ -672,6 +916,7 @@ site is refused like for the interface (`ALLOWED_ORIGINS`, `Sec-Fetch-Site`).
 | `DELIVERY_REPAIR_ATTEMPTS` | 3 | EPUBCheck repair rounds of a delivered EPUB. |
 | `RETENTION_RESULTS_DAYS` | 30 | Days a stored result file is kept (it can be rendered again afterwards). |
 | `API_WEBHOOK_*` | see [Webhooks](#enabling-webhooks-administrators) | Webhook hosts, networks, secret, attempts and timeout. |
+| `QUEUE_*` | see [configuration](configuration.md#fair-queue) | Jobs per account running and waiting, priority aging; a token can have lower limits of its own. |
 
 An EPUB is also bounded by the archive limits of every import (`MAX_UNPACKED_MB`, `MAX_ENTRIES`,
 `MAX_COMPRESSION_RATIO`). All settings are described in [the configuration reference](configuration.md).

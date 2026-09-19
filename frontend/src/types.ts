@@ -501,3 +501,81 @@ export interface AutopilotView {
   report: (AutopilotResult & { job_id: string; status: string; finished_at: number | null }) | null;
   decisions: { items: AutopilotDecision[]; total: number; limit: number; offset: number };
 }
+/** Glossary files and shared glossaries. */
+export type GlossaryField = "source" | "translation" | "category" | "description" | "locked" | "accepted";
+export type GlossaryImportStrategy = "skip" | "replace" | "replace_all";
+export interface GlossaryTermValues {
+  source: string;
+  translation: string;
+  category: string;
+  description: string;
+  locked: boolean;
+  accepted: boolean;
+}
+export interface GlossaryConflict {
+  line: number;
+  source: string;
+  existing: Omit<GlossaryTermValues, "source">;
+  incoming: Omit<GlossaryTermValues, "source">;
+  fields: GlossaryField[];
+  locked: boolean;
+  action: "replace" | "keep";
+}
+export interface GlossaryImportReport {
+  format: "json" | "csv" | "tbx";
+  encoding: string;
+  delimiter: string | null;
+  /** CSV: the first row's cells, whether it is a header, and the column of each field. */
+  columns: string[];
+  header: boolean;
+  mapping: Partial<Record<GlossaryField, number>>;
+  strategy: GlossaryImportStrategy;
+  counts: {
+    terms: number;
+    new: number;
+    unchanged: number;
+    conflicts: number;
+    replaced: number;
+    kept: number;
+    duplicates: number;
+    errors: number;
+  };
+  new: (GlossaryTermValues & { line: number })[];
+  conflicts: GlossaryConflict[];
+  duplicates: { line: number; source: string; first_line: number }[];
+  errors: { line: number; message: string }[];
+  truncated: boolean;
+  applied: boolean;
+  imported?: number;
+  replaced?: number;
+  skipped?: number;
+}
+export interface SharedGlossaryTerm extends GlossaryTermValues {
+  id: string;
+  glossary_id: string;
+}
+export interface SharedGlossary {
+  id: string;
+  name: string;
+  description: string;
+  source_language: string | null;
+  target_language: string | null;
+  created_at: number;
+  updated_at: number;
+  term_count: number;
+  locked_count: number;
+  series: { id: string; name: string }[];
+  terms?: SharedGlossaryTerm[];
+}
+export interface EffectiveTermLevel {
+  level: "book" | "series" | "shared";
+  translation: string;
+  locked: boolean;
+  /** book | series_override | series_decision | volume | shared_glossary */
+  origin: string;
+  volume: number | null;
+}
+export interface EffectiveTerm extends EffectiveTermLevel {
+  source: string;
+  overridden: EffectiveTermLevel[];
+}

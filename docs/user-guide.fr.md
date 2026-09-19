@@ -23,10 +23,12 @@ française.
 9. [Réglages d’un livre](#réglages-dun-livre)
 10. [Exporter](#exporter)
 11. [Les séries](#les-séries)
-12. [Mon compte et les jetons d’API](#mon-compte-et-les-jetons-dapi)
-13. [Paramètres de l’installation (administrateurs)](#paramètres-de-linstallation-administrateurs)
-14. [Comprendre la traduction](#comprendre-la-traduction)
-15. [Questions fréquentes](#questions-fréquentes)
+12. [Glossaires partagés](#glossaires-partagés)
+13. [La file d’attente](#la-file-dattente)
+14. [Mon compte et les jetons d’API](#mon-compte-et-les-jetons-dapi)
+15. [Paramètres de l’installation (administrateurs)](#paramètres-de-linstallation-administrateurs)
+16. [Comprendre la traduction](#comprendre-la-traduction)
+17. [Questions fréquentes](#questions-fréquentes)
 
 ## Premiers pas
 
@@ -42,8 +44,8 @@ Libris vous ramène à cet écran avec le message « Votre session a expiré ou 
 
 ### Se repérer
 
-La **barre latérale** à gauche mène à la **Bibliothèque** et, pour les administrateurs, aux **Statistiques** et
-aux **Paramètres**. Le bouton en haut de la barre la réduit à une colonne d’icônes (**Réduire la barre
+La **barre latérale** à gauche mène à la **Bibliothèque**, à la **File d’attente** et, pour les administrateurs,
+aux **Statistiques** et aux **Paramètres**. Le bouton en haut de la barre la réduit à une colonne d’icônes (**Réduire la barre
 latérale**). Sur téléphone ou fenêtre étroite, elle devient un menu qui s’ouvre avec le bouton **Menu** en haut
 de l’écran.
 
@@ -153,8 +155,9 @@ Un compte rendu indique ensuite, livre par livre, ce qui a été fait.
 
 **Archiver** retire un livre de la bibliothèque active sans rien effacer : EPUB, traductions, mémoire et
 historique sont conservés. Le filtre **Archives** les retrouve, et **Restaurer** les remet en place. Seul un
-livre archivé peut être supprimé depuis la bibliothèque ; la suppression est définitive et ne touche pas une
-éventuelle mémoire OpenViking distante. Seul le propriétaire d’un livre peut l’archiver ou le supprimer.
+livre archivé peut être supprimé depuis la bibliothèque ; la suppression est définitive. Une éventuelle
+mémoire OpenViking distante n’est effacée que si un administrateur a activé son nettoyage (voir
+[Mémoire · OpenViking](#mémoire--openviking)). Seul le propriétaire d’un livre peut l’archiver ou le supprimer.
 
 ## Ajouter du contenu
 
@@ -254,6 +257,19 @@ Trois boutons terminent l’import :
 L’écran final résume l’import et liste les **Décisions automatiques** prises sur les numéros, avec leur raison.
 **Ouvrir le volume** ou **Ouvrir la série** vous y emmène.
 
+### Suivre une série au fil des chapitres
+
+Pour un webnovel publié au fil de l’eau, importez chaque nouveau lot de chapitres dans la même série, vers le
+**Flux continu de la série** ou le **Volume existant** qui les reçoit déjà. Les chapitres se rangent d’après leur
+numéro parmi ceux déjà présents ; un chapitre identique est ignoré. Le récapitulatif le rappelle : seuls les
+chapitres nouveaux ou remplacés sont traduits et relus (avec ceux du volume qui n’auraient pas encore de
+traduction). Les chapitres déjà traduits ne sont ni retraduits ni relus : ils servent de contexte (glossaire,
+personnages, résumés, passages précédents), sans nouvel appel au modèle. Pour ne télécharger ensuite que les
+nouveaux chapitres, utilisez l’intervalle de chapitres des [options d’export](#exporter).
+
+Un script peut faire de même par l’API d’automatisation (voir
+[Suivre une série dans le temps](api.md#following-a-series-over-time)).
+
 ## La page d’un livre
 
 Cliquez sur un livre pour ouvrir sa page. Le fil d’Ariane ramène à la bibliothèque ou à la série.
@@ -314,6 +330,13 @@ Des bandeaux apparaissent sous l’en-tête quand quelque chose mérite votre at
   passage à traiter** vous y mène, et vous pouvez **Compléter la Book Bible manuellement** si le refus a eu
   lieu pendant l’analyse.
 - **Pause volontaire — utilisez Reprendre pour continuer.**
+- **Ce travail attend son tour dans la file d’attente.** : sa position et ce qui le retient (fournisseur
+  occupé, nombre de travaux simultanés du compte ou du jeton atteint) ; **Voir la file d’attente** ouvre la
+  [file d’attente](#la-file-dattente).
+- **Budget atteint : travail en pause** : le livre (ou le jeton d’API qui a lancé la requête) a atteint son
+  budget ; le message donne la dépense et le plafond. **Relever le budget** ouvre les réglages du livre ; une
+  fois le budget relevé, **Reprendre** continue là où le travail s’était arrêté (voir [Budgets de
+  coût](#budgets-de-coût)).
 - **Intervention requise** : par exemple, la connexion Codex doit être renouvelée (**Ouvrir les paramètres de
   connexion du provider**, pour un administrateur).
 
@@ -325,7 +348,7 @@ Des bandeaux apparaissent sous l’en-tête quand quelque chose mérite votre at
 | **Pilote automatique** | Rapport final et journal des décisions (livres suivis par le pilote) |
 | **Journal des relectures** | Remarques, doutes et alertes sur les passages, et décisions de l’IA |
 | **Bilan & récupération** | Ce qui manque, et la relance de passages choisis |
-| **Qualité** | Signaux de relecture ciblée et contrôle global de cohérence |
+| **Qualité** | Scores de qualité des passages (chapitres et passages à relire en priorité), signaux de relecture ciblée et contrôle global de cohérence |
 | **Book Bible** | Résumé, fiches personnages, maintenance de la mémoire |
 | **Personnages** | Graphe des personnages et de leurs relations |
 | **Glossaire** | Choix terminologiques du livre |
@@ -393,7 +416,7 @@ Au-dessus des passages :
 - **Retraduire la section**, après confirmation.
 
 Chaque passage affiche son numéro, son état (**Validé humainement**, **Original conservé automatiquement**,
-**Correction humaine protégée** ou sa version), ses éventuelles **Consignes** et le badge **Non enregistré** tant
+**Correction humaine protégée** ou sa version), son [score de qualité](#qualité), ses éventuelles **Consignes** et le badge **Non enregistré** tant
 que votre saisie n’est pas enregistrée.
 
 **Corriger une traduction.** Modifiez le texte, puis **Enregistrer** (`Ctrl`/`⌘` + `S`) ou **Valider**
@@ -465,7 +488,27 @@ retraités, et une traduction réussie remplace l’original conservé. Un passa
 
 ### Qualité
 
-L’onglet **Qualité** liste les signaux de **Relecture ciblée** produits par les contrôles : ils orientent votre
+L’onglet **Qualité** commence par le **Score de qualité des passages** : chaque passage traduit reçoit un score
+de 0 à 100, calculé sans appel au modèle à partir de ce que Libris a déjà enregistré (alertes des contrôles,
+termes verrouillés non respectés, critiques de relecture ouvertes, doutes du modèle, longueur inhabituelle,
+appels au modèle échoués, récupérations et arbitrages du pilote automatique, points clos sans correction,
+original conservé). Un passage validé par une personne vaut 100. Le score est recalculé dès que le passage
+ou l’un de ces signaux change.
+
+- **Score moyen**, **Passages notés**, **À relire** (sous 70 et non validés) et **Score le plus bas**, puis la
+  **Répartition des scores** : **Bon** (85 et plus), **Correct** (70 à 84), **Faible** (50 à 69),
+  **Insuffisant** (moins de 50).
+- **À relire en priorité** : les passages les plus faibles d’abord, avec les signaux qui ont fait baisser
+  leur score ; **Ouvrir dans l’éditeur** affiche le passage dans l’onglet **Traduction**.
+- **Chapitres, du plus faible au plus solide** : moyenne, score le plus bas, nombre de passages faibles et
+  passages notés de chaque chapitre.
+
+Dans l’éditeur, chaque passage noté affiche son score à côté de son état ; le survol détaille les signaux.
+L’onglet **Bilan & récupération** reprend le résumé (**Qualité des passages**), comme le rapport du pilote
+automatique et le rapport de fin d’une requête de l’API. Le score oriente la relecture ; il ne mesure pas à
+lui seul la qualité littéraire.
+
+Plus bas, l’onglet liste les signaux de **Relecture ciblée** produits par les contrôles : ils orientent votre
 relecture mais ne mesurent pas à eux seuls la qualité littéraire. **Contrôle global de cohérence** met en file
 une vérification de la terminologie et des personnages sur tout le livre ; **Marquer comme traité** range un
 signal réglé.
@@ -520,16 +563,37 @@ Les termes proposés par l’analyse portent **À relire** et ne sont pas accept
 humain** crée un terme verrouillé. Quand vous changez ou supprimez un terme, les passages concernés sont marqués
 à réévaluer.
 
-**Importer un glossaire** accepte JSON, CSV (séparateur `;` ou `,`, en-têtes français ou anglais comme « Terme
-source ; Traduction ») et TBX, le format d’échange des outils de traduction. L’import reconnaît le format au
-contenu et ne remplace jamais un terme déjà présent. **Exporter le glossaire** produit ces trois formats ; en TBX,
-un terme verrouillé est *preferred*, un terme accepté *admitted* et une proposition non acceptée *deprecated*.
+**Importer un glossaire** accepte JSON, CSV (séparateur `;`, `,` ou tabulation, en-têtes français ou anglais
+comme « Terme source ; Traduction », fichier UTF-8 avec ou sans BOM, ou enregistré par Excel sous Windows) et TBX,
+le format d’échange des outils de traduction. L’import reconnaît le format au contenu, puis ouvre un **Aperçu de
+l’import** sans rien enregistrer :
+
+- le format, l’encodage et le séparateur détectés, et le nombre de termes lus ;
+- les **nouveaux** termes, les termes **identiques**, les **conflits** avec un terme déjà présent (même source, à
+  la casse près), les **doublons** du fichier (seule la première ligne compte) et les **lignes invalides**, qui
+  seront ignorées ;
+- pour un CSV, les **Colonnes** : choisissez quelle colonne contient l’expression source, la traduction, la
+  catégorie, la description et les cases Verrouillé / Accepté, le **Séparateur**, et si **La première ligne
+  contient les noms de colonnes** ; l’aperçu se met à jour ;
+- **En cas de conflit** : **Garder les termes en place** (par défaut), **Remplacer les termes non verrouillés** ou
+  **Tout remplacer, termes verrouillés compris**. Le tableau des conflits indique pour chacun **Remplacé** ou
+  **Conservé**.
+
+**Appliquer l’import** enregistre ces décisions ; les passages concernés sont marqués à réévaluer.
+**Exporter le glossaire** produit JSON, CSV, **CSV (tableur, point-virgule)** (avec BOM, s’ouvre directement dans
+Excel) et TBX ; en TBX, un terme verrouillé est *preferred*, un terme accepté *admitted* et une proposition non
+acceptée *deprecated*.
+
+Dans une série, la carte **Termes appliqués à ce livre** montre les termes que la traduction reçoit de la série
+ou d’un glossaire partagé, avec leur niveau (**Livre**, **Vol. n**, **Décision de série**, **Glossaire partagé**,
+**Dérogation**) et la traduction qu’ils remplacent.
 
 ## Réglages d’un livre
 
 L’onglet **Réglages** regroupe la configuration du livre. Mettez le travail en pause avant de modifier la
 stratégie ou les langues ; **Enregistrer les réglages** applique les changements.
 
+- **Budget du livre**, en tête de l’onglet : voir [Budgets de coût](#budgets-de-coût).
 - **Livre** : nombre de mots, sections, images et taille ; **Titre à l’export**, **Auteur**, **Série** et
   **Numéro du volume**. Changer le nom de série d’un EPUB le rattache à cette série (créée si besoin) ; le vider
   en fait un volume unique. Les chapitres d’une webnovel restent dans leur série.
@@ -559,6 +623,30 @@ stratégie ou les langues ; **Enregistrer les réglages** applique les changemen
   préformaté, formules MathML…), et le **Rapport de validation à l’import**.
 - **Zone de danger** (propriétaire seulement) : **Supprimer ce projet**, définitivement.
 
+### Budgets de coût
+
+Un livre peut avoir un plafond de dépense, dans la devise où les prix des fournisseurs sont saisis (celle de
+l’estimation). Il couvre tout ce que le livre a coûté, tous travaux confondus.
+
+La carte **Budget du livre** montre un badge (**Sans budget**, **Dans le budget**, **Proche du plafond**,
+**Plafond atteint**), le **Dépensé**, le **Plafond** et le **Reste**, une jauge, le seuil de bascule et ce que
+fait un lancement dont l’estimation dépasse le reste. Pour le **Dernier travail**, elle compare le **Coût
+estimé** au lancement et le **Coût réel**, et indique les bascules vers un fournisseur moins cher. Le
+propriétaire choisit **Budget de ce livre** : **Réglage de l’installation** (le plafond par défaut, s’il y en
+a un), **Plafond propre** (avec son **Montant du plafond**) ou **Aucun budget pour ce livre**, puis
+**Enregistrer le budget**.
+
+- **Avant un lancement**, la fenêtre de confirmation affiche l’estimation et ce qui reste du budget. Si
+  l’estimation dépasse le reste, le travail est lancé avec un avertissement, ou refusé si l’installation le
+  demande. Un budget déjà atteint refuse tout lancement.
+- **Pendant le travail**, Libris compare la dépense réelle au plafond avant chaque appel au modèle. À partir du
+  seuil de bascule (90 % par défaut), le travail passe au premier fournisseur de secours moins cher du livre ou
+  de l’installation ; sans fournisseur moins cher, il se met en pause. Au plafond, seul un fournisseur sans prix
+  peut continuer. Chaque bascule ou pause est consignée dans le journal du pilote automatique.
+- **Reprendre** un travail mis en pause par le budget est refusé tant que le budget n’est pas relevé.
+
+Un fournisseur sans prix compte pour 0 : la carte le signale, car le budget ne peut pas l’arrêter.
+
 ### Observabilité
 
 L’onglet **Observabilité** montre les **Estimations du travail actif** (temps restant, coût consommé et restant,
@@ -573,8 +661,8 @@ Le menu **Exporter** de l’en-tête propose les formats adaptés à la source d
 
 | Volume | Formats |
 | --- | --- |
-| EPUB | **EPUB traduit**, **Texte**, Markdown, Book Bible JSON, **Projet complet (.zip)**, **EPUB partiel · originaux conservés** |
-| Chapitres (TXT, Markdown, HTML, DOCX ou JSON) | **Chapitres (.zip, un fichier par chapitre)**, **Texte consolidé (.txt)**, Markdown, Book Bible JSON, **Projet complet (.zip)** |
+| EPUB | **EPUB traduit**, **EPUB bilingue (relecture)**, **Texte**, Markdown, Book Bible JSON, **Projet complet (.zip)**, **EPUB partiel · originaux conservés** |
+| Chapitres (TXT, Markdown, HTML, DOCX ou JSON) | **Chapitres (.zip, un fichier par chapitre)**, **Texte consolidé (.txt)**, Markdown, **EPUB bilingue (relecture)**, Book Bible JSON, **Projet complet (.zip)** |
 
 - L’**EPUB traduit** reprend la structure, les styles et les ressources de l’original ; il est vérifié par
   EPUBCheck et refusé s’il n’est pas conforme. Vers l’arabe, l’hébreu, le persan ou l’ourdou, il est écrit de
@@ -582,6 +670,11 @@ Le menu **Exporter** de l’en-tête propose les formats adaptés à la source d
 - Le **ZIP de chapitres** contient un fichier UTF-8 par chapitre (`chapters/001 - Titre.txt`, dans l’ordre de
   lecture) et un `manifest.json` (titre, série, numéro de volume, langues et, pour chaque chapitre, son numéro,
   son titre, son empreinte SHA-256 et s’il est complet). Chaque fichier garde la mise en page de la source.
+- L’**EPUB bilingue (relecture)** sert à relire sur liseuse : chaque paragraphe original est suivi de sa
+  traduction, chapitre par chapitre, avec une table des matières. Il existe pour tous les volumes, quelle que
+  soit leur source. Il ne contient que le texte (ni images ni mise en forme de l’original) ; l’original est en
+  italique, plus petit, marqué d’un filet, et chaque texte porte sa langue pour la césure et la synthèse vocale.
+  Il est vérifié par EPUBCheck comme l’EPUB traduit.
 - Le **Texte consolidé** réunit les chapitres sous leur titre ; le **Markdown** met un titre `##` au-dessus de
   chacun.
 - Le **Projet complet** est une sauvegarde de tout le travail du livre (statuts, validations, historique,
@@ -591,7 +684,13 @@ dans [architecture.md](architecture.md#project-archive-schema-version-3).
 
 **Options d’export…** permet de choisir un format et deux options : **Compléter avec le texte original** (les
 passages non traduits gardent leur texte source) et, pour le ZIP, **Ajouter le texte consolidé au ZIP**. Sans la
-première option, l’export d’une traduction incomplète est refusé.
+première option, l’export d’une traduction incomplète est refusé. Pour l’**EPUB bilingue**, la **Disposition**
+choisit entre **Alternée** (l’original, puis sa traduction ; le choix du menu) et **Côte à côte** (deux colonnes,
+qui passent l’une sous l’autre sur un petit écran) ; un passage non traduit y garde son original et une
+traduction vide marquée d’un tiret.
+Pour un volume de chapitres, **Du chapitre** et
+**Au chapitre** (facultatifs, bornes comprises) limitent le ZIP, le texte et le Markdown aux chapitres dont le
+numéro est dans l’intervalle, par exemple les nouveaux chapitres d’un suivi ; le nom du fichier le rappelle.
 
 **Rapport de couverture** ouvre, dans un nouvel onglet, le détail de ce qui est traduit ou non.
 
@@ -609,8 +708,9 @@ lecture seule et ne montre que les volumes partagés.
 | **Volumes** | **Ordre de lecture** : numéros modifiables, **Monter** / **Descendre**, **Renuméroter dans cet ordre**, **Enregistrer la numérotation** ; **Rattacher un volume unique** ; **Détacher de la série** |
 | **Chapitres** | Webnovels et volumes texte : progression de chaque chapitre, **Filtrer par volume** |
 | **Importer** | L’assistant d’import, déjà positionné sur la série (propriétaire seulement) |
+| **Qualité** | Scores de qualité de tous les volumes non archivés : résumé, **À relire en priorité** (chaque passage s’ouvre dans l’éditeur de son volume), **Chapitres, du plus faible au plus solide** et **Volumes de la série** avec leur moyenne |
 | **Series Bible** | Univers, conventions, chronologie, personnages et relations de la série |
-| **Glossaire** | **Glossaire de série** et **Dérogations des volumes** |
+| **Glossaire** | **Glossaire partagé** suivi, **Glossaire de série** et **Dérogations des volumes** |
 | **Identités** | Personnages, lieux, organisations et objets reconnus d’un volume à l’autre |
 | **Relations** | Les liens entre identités |
 | **Mémoire** | État OpenViking de la série, volume par volume |
@@ -633,6 +733,14 @@ alors à jour identités et glossaire sans la remplacer) ; **Rendre aux volumes*
 volume. Un terme verrouillé dans un volume antérieur est contrôlé comme un terme verrouillé du livre, sauf si le
 livre verrouille lui-même une autre traduction. **Ajouter un terme de série**, le verrouiller, le modifier ou le
 supprimer ; la liste des **Dérogations des volumes** montre les volumes qui gardent leur propre traduction.
+**Importer un glossaire** et **Exporter** fonctionnent comme pour un livre (aperçu, colonnes, conflits) ; les
+termes importés comptent comme des décisions de la série.
+
+**Glossaire partagé.** La carte **Glossaire partagé** rattache la série à un glossaire partagé (voir
+[Glossaires partagés](#glossaires-partagés)) : choisissez-le dans **Glossaire partagé suivi**, puis
+**Enregistrer** ; **Aucun** le détache. Ordre de priorité : le livre, puis la série, puis le glossaire partagé. Un
+terme verrouillé d’un niveau plus large l’emporte sur un terme non verrouillé proposé automatiquement ; une
+dérogation du volume ou une décision de série l’emporte toujours.
 
 **Identités.** Libris propose de relier les personnages (et lieux, organisations, objets) d’un volume à l’autre,
 avec la première apparition et la confiance. Rien n’est fusionné sans vous : **Confirmer le lien**, **Rejeter le
@@ -650,6 +758,51 @@ les volumes existants gardent leurs réglages.
 **Gestion.** **Archiver la série** retire la série et ses volumes de la bibliothèque active sans rien supprimer ;
 **Restaurer la série** les ramène. **Supprimer la série** n’est possible que pour une série vide. Le **Journal de
 la série** liste les décisions qui l’engagent : fusions, séparations, glossaire, dérogations.
+
+## Glossaires partagés
+
+**Glossaires partagés** (barre latérale) réunit la terminologie commune à plusieurs séries d’un même univers
+(noms de lieux, titres, sorts…). Chaque compte a ses propres glossaires partagés.
+
+- **Nouveau glossaire** : un nom, une description et, facultativement, les langues source et cible. Avec des
+  langues, le glossaire ne s’applique qu’aux volumes de la même paire de langues, et une série d’une autre paire
+  ne peut pas le suivre.
+- Ouvrir un glossaire affiche les **Séries qui le suivent** et ses **Termes** : traduction, catégorie,
+  **Verrouillé**, **Accepté**, **Ajouter un terme**. Seuls les termes acceptés sont appliqués ; un terme
+  verrouillé est imposé et contrôlé dans chaque passage, comme un terme verrouillé du livre.
+- **Importer un glossaire** (même aperçu que pour un livre) et **Exporter** (JSON, CSV, CSV pour tableur, TBX).
+- **Supprimer le glossaire** supprime ses termes ; les séries qui le suivaient n’en reçoivent plus.
+
+Une série suit un glossaire partagé depuis son onglet **Glossaire**. Le pilote automatique respecte les termes
+verrouillés : une proposition de l’analyse qui les contredit est retirée.
+
+## La file d’attente
+
+Quand plusieurs livres attendent, Libris ne les démarre pas simplement du plus ancien au plus récent. Il prend
+d’abord les travaux de **priorité** la plus haute, puis ceux du compte qui a le moins de travaux en cours, à tour
+de rôle entre les comptes : le premier livre d’une personne n’attend pas derrière les dix livres d’une autre. Un
+travail qui attend longtemps monte d’un niveau de priorité (toutes les 60 minutes par défaut), si bien qu’un
+travail de priorité basse finit toujours par passer. La capacité de chaque provider (**Livres en parallèle**)
+reste la limite principale.
+
+La page **File d’attente** (barre latérale) montre :
+
+- en haut, **Vos travaux en cours** et **Vos travaux en attente**, avec les limites de votre compte (« sans
+  limite » ou « N au plus »), et votre **Priorité maximale** ;
+- **En attente** : chaque travail avec sa **Position** dans la file de son provider (1 : le prochain à démarrer
+  quand une place se libère), sa priorité (« Basse → Normale (relevée par l’attente) » quand l’attente l’a
+  relevée), depuis quand il attend, et la raison : provider occupé, nombre de travaux simultanés du compte ou du
+  jeton atteint, nouvel essai prévu après une panne, ou aucun provider choisi ;
+- **En cours** : les travaux qui tournent.
+
+Vous voyez vos livres et ceux qu’on partage avec vous ; un administrateur voit tous les comptes. Le menu
+**Priorité** d’un travail le fait passer en **Basse**, **Normale** ou, pour un administrateur (ou un compte
+qu’il y autorise), **Haute**. La page se met à jour toutes les 10 secondes.
+
+Si l’administrateur a limité le nombre de travaux **en attente** de votre compte, lancer un travail de plus est
+refusé avec le message « File d’attente pleine pour ce compte… » : réessayez quand l’un d’eux a démarré. Un
+import qui démarre ses volumes est conservé, mais les volumes en trop ne sont pas lancés (un avertissement le
+dit) ; lancez-les plus tard depuis leur page.
 
 ## Mon compte et les jetons d’API
 
@@ -672,9 +825,18 @@ compte** ou, pour un administrateur, depuis **Paramètres → API d’automatisa
    et une **Expiration** (30, 90 ou 365 jours, ou Jamais).
 2. Cochez au besoin **Signer les webhooks avec un secret propre à ce jeton** : les requêtes qui donnent une
    adresse de rappel préviendront votre serveur à leur fin, avec une signature HMAC-SHA256 (voir [webhooks](api.md#webhooks)).
-3. Copiez le secret (`lbr_…`) : **il n’est affiché qu’une fois**. Libris n’en garde qu’une empreinte.
+3. Au besoin, réglez sa **File d’attente** : la **Priorité maximale des requêtes** que le jeton peut demander
+   (Basse, Normale ou Haute si votre compte y a droit), et des limites propres au jeton, plus basses que celles
+   du compte : **Travaux simultanés au plus** (les suivants attendent) et **Requêtes en attente au plus** (au-delà,
+   l’API répond 429). Vides, seules les limites du compte s’appliquent.
+4. Donnez-lui au besoin un **Budget du jeton**, **Par mois** ou **Sur toute la vie du jeton** : une fois le
+   plafond atteint, les requêtes qui lanceraient du travail sont refusées (erreur 402), et un travail en cours
+   se met en pause près du plafond comme pour un livre.
+5. Copiez le secret (`lbr_…`) : **il n’est affiché qu’une fois**. Libris n’en garde qu’une empreinte.
 
-La liste montre pour chaque jeton sa date de création, d’expiration et de dernière utilisation. **Révoquer**
+La liste montre pour chaque jeton sa date de création, d’expiration et de dernière utilisation, ses limites
+de file d’attente quand il en a, et sa dépense face à son budget (« Budget : 3,20 sur 10,00 ce mois-ci ») ;
+**Modifier le budget** le change. **Révoquer**
 est définitif : les clients qui l’utilisent reçoivent une erreur 401. La référence complète de l’API, avec des
 exemples `curl`, est dans [api.md](api.md).
 
@@ -718,6 +880,20 @@ requêtes et leur coût), **Budget retrieval**, **Score minimal**, **Timeout** e
 (**Recherche sémantique (find)**, **Recherche approfondie (search)**). Un bouton teste la connexion. Détails dans
 [openviking.md](openviking.md).
 
+La carte **Nettoyage d’OpenViking** règle ce que devient la mémoire distante d’un livre supprimé :
+
+- **Effacer les documents OpenViking à la suppression** (désactivé par défaut, ou selon
+  `OPENVIKING_CLEANUP_ON_DELETE`) : supprimer un volume ou une série efface aussi ses documents dans OpenViking.
+  La suppression reste immédiate ; le worker efface les documents ensuite, réessaie si OpenViking ne répond pas,
+  et ne touche jamais que le dossier de l’élément supprimé. **Revenir à la valeur de l’environnement** oublie le
+  réglage enregistré ;
+- **Chercher les orphelins (essai à blanc)** liste, sans rien effacer, les dossiers de volumes et de séries
+  supprimés ou déplacés avant l’activation du nettoyage, avec leur raison. **Effacer ces dossiers** les fait
+  effacer après confirmation ; chacun est revérifié dans la base avant d’être effacé ;
+- **Journal des nettoyages** : chaque nettoyage, son état (en attente, en cours, terminé), ses tentatives, la
+  dernière erreur et, dans **Détail des dossiers**, les documents effacés. **Réessayer maintenant** relance un
+  nettoyage en attente sans attendre son délai.
+
 ### SearXNG
 
 **Recherche web · SearXNG** : l’**URL de l’instance SearXNG** et **Activer la recherche pendant la revue
@@ -755,6 +931,14 @@ automatiques** (entre 0 et 1 ; en dessous, la proposition est refusée ou laiss�
 est consignée). Elles s’appliquent aux décisions suivantes sans redémarrage ; **Revenir aux valeurs de
 l’environnement** efface ce qui a été enregistré ici.
 
+### Budgets
+
+Les **Budgets de l’installation** : le **Plafond par défaut d’un livre** (0 : aucun), appliqué aux livres qui
+n’ont pas le leur ; le **Seuil de bascule (%)**, de 50 à 100, à partir duquel un travail passe à un
+fournisseur moins cher ou se met en pause ; et l’**Estimation au-dessus du reste** : **Avertir et lancer** ou
+**Refuser le lancement**. Sans valeur enregistrée ici, les variables `BUDGET_*` s’appliquent ; **Revenir aux
+valeurs de l’environnement** efface ce qui a été enregistré. Voir [Budgets de coût](#budgets-de-coût).
+
 ### Reprise automatique
 
 Le **Délai de reprise (secondes)** après une panne réseau, un timeout ou une erreur temporaire (de 5 à 3 600).
@@ -764,6 +948,21 @@ défaut) qui s’applique ; elle est rappelée sous le champ, et un badge indiqu
 confirmation. Le travail reprend depuis son dernier point enregistré. Le délai demandé par le provider et sa
 capacité restent prioritaires ; les pauses manuelles et les erreurs d’authentification attendent toujours une
 personne.
+
+### File d’attente
+
+Les règles de la [file d’attente](#la-file-dattente) pour toute l’installation : **Travaux simultanés par
+compte** (au-delà, les suivants attendent leur tour ; 0 : sans limite), **Travaux en attente par compte**
+(au-delà, un nouveau travail ou une requête d’API est refusé ; 0 : sans limite) et **Relèvement de priorité
+(minutes)** (0 : jamais). Sous chaque champ, la valeur de l’installation (`QUEUE_*`) est rappelée ; un badge
+indique **Valeurs enregistrées ici** ou **Valeurs de l’environnement**.
+
+**Quotas par compte** : **Ajouter un compte** crée une ligne où fixer ses propres **Travaux simultanés**,
+**Travaux en attente** et sa **Priorité maximale** (Haute l’autorise à demander la priorité haute, réservée
+sinon aux administrateurs). Un champ vide reprend la valeur de l’installation, 0 retire la limite pour ce
+compte ; l’icône corbeille retire la ligne. **Enregistrer la file d’attente** applique les valeurs aux
+prochaines décisions, sans redémarrage ; **Revenir aux valeurs de l’environnement** oublie tout, après
+confirmation.
 
 ### API d’automatisation
 

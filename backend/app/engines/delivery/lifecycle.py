@@ -17,6 +17,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.config import settings
+from app.engines.delivery.chapter_events import announce
 from app.engines.delivery.epub import DeliveryFailed
 from app.engines.delivery.report import autopilot_report, build_report
 from app.engines.delivery.results import default_format, render, store
@@ -41,6 +42,8 @@ def finalize(
     request.finished_at = time.time()
     request.report = report
     request.artifact = artifact
+    # Kept for the token budgets, which still count it once the model calls are purged.
+    request.cost = float((report.get("usage") or {}).get("cost") or 0) if report else None
     if request.callback_url:
         request.webhook_state, request.webhook_attempts, request.webhook_next_attempt = "pending", 0, 0
         request.webhook_error = ""
@@ -127,6 +130,8 @@ def settle(db: Session, request: TranslationRequest, now: float | None = None) -
     if request.status != "running":
         return
     now = now or time.time()
+    # Chapters translated since the last pass are announced first, the last ones before the end.
+    announce(db, request)
     job = db.get(Job, request.job_id or "")
     if job is None:
         fail(db, request, "Le travail de cette requête a été supprimé.")

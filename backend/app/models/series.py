@@ -163,6 +163,14 @@ class ApiToken(Identified, Base):
     last_used_at: Mapped[float | None] = mapped_column(Float)
     # Signs the webhooks of this token's requests (HMAC-SHA256), encrypted with SECRET_KEY; shown once.
     webhook_secret: Mapped[str | None] = mapped_column(Text)
+    # Fair queue: highest priority this token may ask for, and its own quotas (NULL: the account's).
+    max_priority: Mapped[str] = mapped_column(String(10), default="normal", server_default="normal")
+    max_running: Mapped[int | None] = mapped_column(Integer)
+    max_queued: Mapped[int | None] = mapped_column(Integer)
+    # Spending cap of the requests made with this token, in the currency of the provider prices
+    # (app.engines.budget); None: no cap. Counted per calendar month (UTC) or over the token's life.
+    budget_amount: Mapped[float | None] = mapped_column(Float)
+    budget_period: Mapped[str] = mapped_column(String(10), default="month", server_default="month")
 
 
 LIVE_REQUEST = "status IN ('queued','running')"
@@ -182,6 +190,7 @@ class TranslationRequest(Identified, Base):
             postgresql_where=text(LIVE_REQUEST),
             sqlite_where=text(LIVE_REQUEST),
         ),
+        Index("ix_translation_requests_token", "token_id"),
         Index(
             "ix_translation_requests_webhook",
             "webhook_next_attempt",
@@ -207,6 +216,9 @@ class TranslationRequest(Identified, Base):
     finished_at: Mapped[float | None] = mapped_column(Float)
     # Completion report and stored result (app.engines.delivery), written when the request ends.
     report: Mapped[dict | None] = mapped_column(JSON)
+    # What the request's job cost (the report's usage.cost), kept when the request ends: token budgets
+    # still count it once the model calls themselves are purged.
+    cost: Mapped[float | None] = mapped_column(Float)
     artifact: Mapped[dict | None] = mapped_column(JSON)
     # Webhook: "" (none) | pending | delivered | failed; sent by the worker, never by the API.
     callback_url: Mapped[str | None] = mapped_column(String(2000))
@@ -227,3 +239,35 @@ class ImportSession(Identified, Base):
     # The commit's answer, returned again when the same commit is repeated.
     result: Mapped[dict | None] = mapped_column(JSON)
     expires_at: Mapped[float] = mapped_column(Float, index=True)
+
+
+PENDING_EVENT = "state = 'pending'"
+
+
+class WebhookEvent(Identified, Base):
+    """A progress webhook of a request (`chapters.translated`): one row per batch, sent by the worker with
+    the signing, allow-list and retries of the request's final webhook."""
+
+    __tablename__ = "webhook_events"
+    __table_args__ = (
+        UniqueConstraint("request_id", "sequence", name="uq_webhook_event_sequence"),
+        Index(
+            "ix_webhook_events_due",
+            "next_attempt",
+            postgresql_where=text(PENDING_EVENT),
+            sqlite_where=text(PENDING_EVENT),
+        ),
+    )
+    request_id: Mapped[str] = mapped_column(
+        ForeignKey("translation_requests.id", ondelete="CASCADE"), index=True
+    )
+    event: Mapped[str] = mapped_column(String(50))
+    # 1, 2, 3… per request, in the order the batches were found.
+    sequence: Mapped[int] = mapped_column(Integer)
+    chapter_ids: Mapped[list] = mapped_column(JSON, default=list)
+    # pending | delivered | failed
+    state: Mapped[str] = mapped_column(String(20), default="pending")
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    next_attempt: Mapped[float] = mapped_column(Float, default=0)
+    error: Mapped[str] = mapped_column(Text, default="")
+    delivered_at: Mapped[float | None] = mapped_column(Float)

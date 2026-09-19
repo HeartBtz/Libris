@@ -28,6 +28,7 @@ import {
 import { BatchActions } from "./BatchActions";
 import { BookProgress } from "./BookProgress";
 import { ImportWizard } from "./ImportWizard";
+import { QualityDashboard } from "./QualityDashboard";
 import { seriesStatus } from "./Library";
 import {
   SeriesBible,
@@ -47,6 +48,7 @@ registerTranslations({
   "Retour à la bibliothèque": "Back to the library",
   "Navigation de la série": "Series navigation",
   "Tableau de bord": "Dashboard",
+  Qualité: "Quality",
   Volumes: "Volumes",
   Chapitres: "Chapters",
   Importer: "Import",
@@ -158,7 +160,8 @@ type TabId =
   | "relations"
   | "memory"
   | "settings"
-  | "manage";
+  | "manage"
+  | "quality";
 
 export function SeriesPage({ id, user, run }: { id: string; user: User; run: Run }) {
   const { t, tp } = useI18n();
@@ -212,6 +215,7 @@ export function SeriesPage({ id, user, run }: { id: string; user: User; run: Run
     { id: "volumes", label: t("Volumes"), count: series.volume_list.length },
     ...(textual ? [{ id: "chapters" as const, label: t("Chapitres"), count: series.chapters }] : []),
     ...(owner ? [{ id: "import" as const, label: t("Importer") }] : []),
+    { id: "quality", label: t("Qualité") },
     { id: "bible", label: t("Series Bible"), groupStart: true },
     { id: "glossary", label: t("Glossaire") },
     { id: "identities", label: t("Identités") },
@@ -301,6 +305,8 @@ export function SeriesPage({ id, user, run }: { id: string; user: User; run: Run
               </div>
             </div>
           </Card>
+        ) : tab === "quality" ? (
+          <QualityDashboard scope="series" id={series.id} run={run} />
         ) : tab === "bible" ? (
           <SeriesBible series={series} owner={owner} run={run} refresh={refresh} />
         ) : tab === "glossary" ? (

@@ -39,6 +39,8 @@ variables:
           - prompts/**/*
           - scripts/**/*
           - deploy/**/*
+          - examples/**/*
+          - docs/openapi/**/*
           - Dockerfile
           - .dockerignore
           - docker-compose.yml

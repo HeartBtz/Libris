@@ -8,6 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.engines.epub.text import plain
+from app.engines.memory.glossaries import add_shared_terms
 from app.languages import primary
 from app.models import Entity, Glossary, Memory, Project, SeriesEntity, SeriesEntityLink, SeriesTerm
 
@@ -26,6 +27,8 @@ class InheritedTerm:
     source: str
     translation: str
     locked: bool = True
+    # series (its glossary or an earlier volume) | shared_glossary
+    origin: str = "series"
 
 
 def series_key(name: str) -> str:
@@ -60,9 +63,12 @@ def prior_volumes(db: Session, project: Project) -> list[Project]:
     ]
 
 
-def series_terms(db: Session, prior: list[Project], project: Project | None = None) -> list[dict]:
+def series_terms(
+    db: Session, prior: list[Project], project: Project | None = None, shared: bool = True
+) -> list[dict]:
     """One entry per source term: a person's series decision first, then a locked choice beats any
-    unlocked one, then the latest volume wins. Nothing a later volume introduced is ever offered."""
+    unlocked one, then the latest volume wins. Nothing a later volume introduced is ever offered.
+    The shared glossary the series follows comes last (app.engines.memory.glossaries)."""
     chosen: dict[str, dict] = {}
     if project is not None and project.series_id:
         for term in db.scalars(
@@ -86,7 +92,7 @@ def series_terms(db: Session, prior: list[Project], project: Project | None = No
                 },
             )
     if not prior:
-        return list(chosen.values())
+        return add_shared_terms(db, project if shared else None, chosen)
     volumes = {candidate.id: candidate for candidate in prior}
     rank = {candidate.id: index for index, candidate in enumerate(prior)}
     terms = db.scalars(
@@ -104,7 +110,7 @@ def series_terms(db: Session, prior: list[Project], project: Project | None = No
                 "source_project": volumes[term.project_id].title,
             },
         )
-    return list(chosen.values())
+    return add_shared_terms(db, project if shared else None, chosen)
 
 
 def enforced_glossary(db: Session, project: Project) -> list:
@@ -117,7 +123,7 @@ def enforced_glossary(db: Session, project: Project) -> list:
     )
     decided_here = {term.source.casefold() for term in local if term.locked or term.series_override}
     inherited = [
-        InheritedTerm(term["source"], term["translation"])
+        InheritedTerm(term["source"], term["translation"], origin=term.get("origin") or "series")
         for term in series_terms(db, prior_volumes(db, project), project)
         if term["locked"] and term["source"].casefold() not in decided_here
     ]

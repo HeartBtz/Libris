@@ -85,11 +85,21 @@ Two limits decide how much work runs at once:
   provider's capacity, shared between the books using it. `1` processes one passage at a time. Passage analysis
   and the Book Bible synthesis always run in order.
 
+When books wait, they do not start oldest first: the [fair queue](architecture.md#fair-queue) takes the highest
+priority, then the account with the fewest jobs running, in turn between accounts, so one person's backlog does
+not hold everyone else back. On a shared installation, **Settings › Queue** (or `QUEUE_*`, see
+[configuration](configuration.md#fair-queue)) can also cap each account's running and waiting jobs. The **Queue**
+page shows each waiting job's place and what holds it.
+
 A book stays **queued** while its provider has no free slot. To change a book's provider mid-way, pause it, choose
 the new provider in its configuration and resume: the rest of the book uses the new one.
 
 One worker is enough for most installations. It renews a 60-second lease on each job; if the worker stops
 abruptly, another start picks the job up after the lease expires.
+
+The worker also sends memory updates to OpenViking and, when the [cleanup](openviking.md#cleanup-of-deleted-volumes-and-series)
+is on, removes the OpenViking documents of deleted volumes and series. A removal holds a 5-minute lease too;
+a waiting one is visible, with its last error, in **Settings › Memory · OpenViking › Cleanup log**.
 
 ## Monitoring
 
@@ -239,6 +249,12 @@ Three things reduce what you pay:
 Other levers: a lower quality level on books that do not need it, `FINAL_REVIEW_ENABLED=false`, and the per-book
 estimate shown before each launch.
 
+To cap what a book or an integration may spend, give it a budget: a book's own cap, the installation default
+(`BUDGET_DEFAULT_BOOK` or **Settings › Budgets**) or an API token's monthly or total cap. Near the cap, a job moves
+to a cheaper fallback provider, or pauses until the cap is raised; see the
+[user guide](user-guide.fr.md#budgets-de-coût). Budgets only see calls made with a price: give every paid
+provider its input and output prices.
+
 ### Measure a configuration
 
 `scripts/measure_prompt_cost.py` runs the translation pipeline on a synthetic book against a simulated provider (no
@@ -275,7 +291,8 @@ statistics under the operation `provider_comparison`.
 
 | Symptom | Cause and fix |
 | --- | --- |
-| A book stays **queued** | The worker is not running (`docker compose ps worker`), or its provider has no free **Concurrent books** slot. |
+| A book stays **queued** | The worker is not running (`docker compose ps worker`), or its provider has no free **Concurrent books** slot, or its account (or API token) already runs its quota of jobs. The **Queue** page gives the reason for each job. |
+| Launching answers "Queue full" (HTTP 429 `queue_full`) | The account or the API token already has its quota of waiting jobs (**Settings › Queue**, `QUEUE_MAX_QUEUED_PER_ACCOUNT`, or the token's own limit). Wait until one starts, or raise the quota. |
 | A book is **waiting** | The provider is unreachable, timed out or answered 429/5xx. Libris retries on its own: first after the **Automatic recovery** delay (`PROVIDER_RECOVERY_BASE_SECONDS`, 60 seconds by default), then doubling up to an hour; a provider's `Retry-After` is respected up to 24 hours. Under the autopilot, after `AUTOPILOT_OUTAGE_MAX_RETRIES` waits it switches to the next fallback provider. |
 | A book is **blocked** | The provider rejected the credentials. Fix the key or sign in again, then resume. Under the autopilot, the next fallback provider takes over, or the job fails if none is left. |
 | A book **failed** with "providers exhausted" | Every provider in the autopilot chain was unavailable. Add a fallback provider in **Settings › Autopilot**, then resume. |

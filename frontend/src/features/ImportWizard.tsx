@@ -38,6 +38,8 @@ import {
 } from "../ui";
 
 registerTranslations({
+  "Suite d’un volume : seuls les chapitres nouveaux ou remplacés sont traduits et relus. Les chapitres déjà traduits servent de contexte, sans nouvel appel au modèle.":
+    "Follow-up of a volume: only new or replaced chapters are translated and reviewed. Chapters already translated serve as context, with no new model call.",
   "Ajouter du contenu": "Add content",
   "Étapes de l’import": "Import steps",
   "Étape {current} sur {total}": "Step {current} of {total}",
@@ -1445,6 +1447,13 @@ export function ImportWizard({
               <dt>{t("Fichiers ignorés")}</dt>
               <dd className="tabular">{skipped}</dd>
             </dl>
+            {chapters && (targetMode === "volume" || (targetMode === "serial" && !!serial)) && (
+              <p className="field-hint">
+                {t(
+                  "Suite d’un volume : seuls les chapitres nouveaux ou remplacés sont traduits et relus. Les chapitres déjà traduits servent de contexte, sans nouvel appel au modèle.",
+                )}
+              </p>
+            )}
           </section>
           <section className="stack-sm" aria-label={t("Réglages de traduction")}>
             <h3 className="wizard-subtitle">{t("Réglages de traduction")}</h3>

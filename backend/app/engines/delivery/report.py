@@ -5,6 +5,8 @@ import time
 
 from sqlalchemy import case, func, literal_column, select
 
+from app.engines.budget import cost_report
+from app.engines.quality import score as quality
 from app.models import AutopilotDecision, Chapter, Job, Project, RequestLog, Segment, TranslationRequest
 
 REPORT_VERSION = 1
@@ -67,6 +69,16 @@ def usage(db, job: Job | None) -> dict:
         # Only calls made with a known price are counted; None when none had one.
         "cost": round(float(cost), 6) if priced else None,
     }
+
+
+def quality_report(db, request: TranslationRequest, project: Project | None) -> dict | None:
+    """Passage scores of what the request covers: distribution, weakest chapters and passages."""
+    if project is None:
+        return None
+    quality.repair(db, [project.id])
+    if request.options.get("input") == "epub":
+        return quality.report(db, project_ids=[project.id])
+    return quality.report(db, chapter_ids=list(request.chapter_ids or []))
 
 
 def build_report(
@@ -149,6 +161,8 @@ def build_report(
         "residuals": residuals,
         "residuals_truncated": residual_total > len(residuals),
         "usage": usage(db, job),
+        # Estimated against real cost, with the book's budget (app.engines.budget).
+        "cost": cost_report(db, job),
         "durations": {
             "total_seconds": round(now - request.created_at, 3),
             "queued_seconds": round(started - request.created_at, 3) if started else None,
@@ -162,4 +176,5 @@ def build_report(
             "intake": list(request.options.get("decisions") or []),
         },
         "delivery": {key: value for key, value in (delivery or {}).items() if key != "fallbacks"} or None,
+        "quality": quality_report(db, request, project),
     }

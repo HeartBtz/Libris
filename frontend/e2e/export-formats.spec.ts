@@ -84,7 +84,9 @@ test("a TXT volume offers chapter files and text formats with their options", as
   await expect(menu.getByRole("menuitem", { name: "Chapters (.zip, one file per chapter)" })).toBeVisible();
   await expect(menu.getByRole("menuitem", { name: "Consolidated text (.txt)" })).toBeVisible();
   await expect(menu.getByRole("menuitem", { name: "Markdown" })).toBeVisible();
-  await expect(menu.getByRole("menuitem", { name: /EPUB/ })).toHaveCount(0);
+  // A text volume has no rebuilt EPUB, only the bilingual proofreading copy.
+  await expect(menu.getByRole("menuitem", { name: /EPUB/ })).toHaveCount(1);
+  await expect(menu.getByRole("menuitem", { name: "Bilingual EPUB (proofreading)" })).toBeVisible();
   const plain = page.waitForEvent("download");
   await menu.getByRole("menuitem", { name: "Chapters (.zip, one file per chapter)" }).click();
   expect((await plain).suggestedFilename()).toBe("Glass Road One - chapitres.zip");
@@ -122,8 +124,93 @@ test("an EPUB volume keeps its EPUB exports", async ({ page }) => {
   await expect(menu.getByRole("menuitem", { name: "Translated EPUB", exact: true })).toBeVisible();
   await expect(menu.getByRole("menuitem", { name: "Text", exact: true })).toBeVisible();
   await expect(menu.getByRole("menuitem", { name: /Chapters/ })).toHaveCount(0);
+  await page.getByRole("menuitem", { name: "Export options…" }).click();
+  await expect(page.getByRole("dialog", { name: "Export options" }).getByLabel("From chapter")).toHaveCount(0);
+  await page.getByRole("dialog", { name: "Export options" }).getByRole("button", { name: "Cancel" }).click();
+  await page.getByRole("button", { name: "Export", exact: true }).click();
   const download = page.waitForEvent("download");
   await menu.getByRole("menuitem", { name: "Partial EPUB · originals retained" }).click();
   expect((await download).suggestedFilename()).toBe("Tide Lighthouse.epub");
   expect(exports).toEqual(["/api/projects/epub/export/epub?allow_source=true"]);
+});
+
+test("the bilingual EPUB is offered for every volume, with its layout option", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  const exports = await mockServer(page);
+  await page.goto(`${base}/#project/epub`);
+  await expect(page.getByRole("heading", { level: 1 })).toContainText("Tide Lighthouse");
+  await page.getByRole("button", { name: "Export", exact: true }).click();
+  const direct = page.waitForEvent("download");
+  await page.getByRole("menuitem", { name: "Bilingual EPUB (proofreading)" }).click();
+  expect((await direct).suggestedFilename()).toBe("Tide Lighthouse - bilingue.epub");
+
+  await page.goto(`${base}/#project/txt`);
+  await expect(page.getByRole("heading", { level: 1 })).toContainText("Glass Road One");
+  await page.getByRole("button", { name: "Export", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Export options…" }).click();
+  const dialog = page.getByRole("dialog", { name: "Export options" });
+  await expect(dialog.getByLabel("Layout")).toHaveCount(0);
+  await dialog.getByLabel("Format").selectOption("epub-bilingual");
+  await expect(dialog.getByLabel("Layout")).toHaveValue("interleaved");
+  await dialog.getByLabel("Layout").selectOption("side-by-side");
+  await dialog.getByLabel("Fill in with the original text").check();
+  const withOptions = page.waitForEvent("download");
+  await dialog.getByRole("button", { name: "Export", exact: true }).click();
+  expect((await withOptions).suggestedFilename()).toBe("Glass Road One - bilingue.epub");
+
+  expect(exports).toEqual([
+    "/api/projects/epub/export/epub-bilingual",
+    "/api/projects/txt/export/epub-bilingual?allow_source=true&layout=side-by-side",
+  ]);
+  expect(errors).toEqual([]);
+});
+
+test("the bilingual options fit a phone screen", async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 740 });
+  await mockServer(page);
+  await page.goto(`${base}/#project/txt`);
+  await expect(page.getByRole("heading", { level: 1 })).toContainText("Glass Road One");
+  await page.getByRole("button", { name: "Export", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Export options…" }).click();
+  const dialog = page.getByRole("dialog", { name: "Export options" });
+  await dialog.getByLabel("Format").selectOption("epub-bilingual");
+  const layout = dialog.getByLabel("Layout");
+  await expect(layout).toBeVisible();
+  // Measured once the dialog's opening animation is over.
+  await expect(async () => expect((await layout.boundingBox())!.height).toBeGreaterThanOrEqual(40)).toPass();
+  const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+  expect(overflow).toBeLessThanOrEqual(0);
+});
+
+test("a TXT volume exports only a range of chapters, the new ones of a follow-up", async ({ page }) => {
+  const exports = await mockServer(page);
+  await page.goto(`${base}/#project/txt`);
+  await expect(page.getByRole("heading", { level: 1 })).toContainText("Glass Road One");
+  await page.getByRole("button", { name: "Export", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Export options…" }).click();
+  const dialog = page.getByRole("dialog", { name: "Export options" });
+  await dialog.getByLabel("From chapter").fill("51");
+  await dialog.getByLabel("To chapter").fill("55");
+  const download = page.waitForEvent("download");
+  await dialog.getByRole("button", { name: "Export", exact: true }).click();
+  expect((await download).suggestedFilename()).toBe("Glass Road One - 51-55 - chapitres.zip");
+  // Formats without chapters have no range.
+  await page.getByRole("button", { name: "Export", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Export options…" }).click();
+  await dialog.getByLabel("Format").selectOption("bible");
+  await expect(dialog.getByLabel("From chapter")).toHaveCount(0);
+  await dialog.getByRole("button", { name: "Cancel" }).click();
+  // Small screens: the dialog and its fields stay inside the viewport.
+  await page.setViewportSize({ width: 360, height: 740 });
+  await page.getByRole("button", { name: "Export", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Export options…" }).click();
+  await dialog.getByLabel("Format").selectOption("txt");
+  const field = dialog.getByLabel("To chapter");
+  // Measured once the opening animation of the dialog is over.
+  await expect.poll(async () => (await field.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(40);
+  const box = await field.boundingBox();
+  expect(box && box.x + box.width).toBeLessThanOrEqual(360);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(360);
+  expect(exports).toEqual(["/api/projects/txt/export/txt-zip?from_chapter=51&to_chapter=55"]);
 });

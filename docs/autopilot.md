@@ -47,8 +47,9 @@ Whether a book uses it is decided in this order:
 4. **Convergence rounds.** At most `AUTOPILOT_MAX_ROUNDS` rounds (3 by default), each made of:
    1. the [recovery ladder](#the-recovery-ladder) for every failed or untranslated passage;
    2. on the first round, at high or maximum quality, a **global consistency** check across the book;
-   3. the [final review](#the-final-review): the whole book on the first round, then only the passages
-      still open and those recovered during the round;
+   3. the [final review](#the-final-review): the whole book on the first round (only the new chapters
+      when the job [follows up a volume](#following-up-a-volume)), then only the passages still open
+      and those recovered during the round;
    4. [AI arbitration](#ai-arbitration) of everything still open.
 
    The loop stops as soon as no passage is failed or open.
@@ -135,6 +136,14 @@ provider setting is not changed.
 When no provider in the chain answers, the job ends **failed** with the reason
 (`stop_reason = providers_exhausted`): it never waits forever.
 
+The same chain serves the [cost budgets](user-guide.fr.md#budgets-de-coût), with or without the
+autopilot: when a book's or an API token's spending reaches the switch threshold
+(`BUDGET_SWITCH_THRESHOLD`, 90 % by default), the job moves to the first provider of the chain that is
+cheaper than its own (compared on a typical call of 14 000 input and 1 000 output tokens) and logs it
+(stage `budget`, action `fallback_provider`, `stop_reason = budget_fallback`). With no cheaper provider
+left, or at the cap itself unless a provider without a price is available, the job pauses
+(`stop_reason = budget_exceeded`, action `paused`) and resumes once the budget is raised.
+
 ## AI arbitration
 
 Open points are what a person used to arbitrate: the reviewers' remarks, the model's doubts
@@ -171,6 +180,15 @@ it once at the end, and **Review log › Start AI review** runs it on demand on 
 check. `FINAL_REVIEW_ENABLED=false` turns off the automatic review (the button still works), and an
 API request can skip it with `final_review: false`.
 
+### Following up a volume
+
+When new chapters are added to a volume that is already translated (a webnovel sent over time, by an
+import into an existing volume or by the [automation API](api.md#following-a-series-over-time)), the
+job covers only the new or replaced chapters and any chapter still missing a translation: the global
+consistency check samples only their occurrences, and the final review reads only their passages.
+Chapters already delivered are neither translated nor reviewed again; they give their context to the
+new ones.
+
 ### Optional web search (SearXNG)
 
 When an administrator configures a SearXNG instance (**Settings › SearXNG**, see
@@ -196,7 +214,7 @@ Without any model call, from evidence already in the database:
 
 | Proposal | Decision | Threshold (setting) |
 | --- | --- | --- |
-| Proposed glossary term | Confidence from its occurrences in the source text (none: 0; one: 0.6; two: 0.8; three or more: 1). Accepted at or above the threshold, otherwise removed. | `AUTOPILOT_GLOSSARY_MIN_CONFIDENCE` (0.75) |
+| Proposed glossary term | A proposal that contradicts a locked term the volume inherits (series or shared glossary) is removed. Otherwise, confidence from its occurrences in the source text (none: 0; one: 0.6; two: 0.8; three or more: 1). Accepted at or above the threshold, otherwise removed. | `AUTOPILOT_GLOSSARY_MIN_CONFIDENCE` (0.75) |
 | Ambiguous series identity link | Confidence = shared names / all names, adjusted by gender. The best candidate is linked if it reaches the threshold with a lead of at least 0.1; otherwise all candidates are rejected and the character stays specific to the volume. Two identities are never merged. | `AUTOPILOT_IDENTITY_MIN_CONFIDENCE` (0.8) |
 | Book Bible | Validated when the share of analysed passages reaches the threshold. | `AUTOPILOT_BIBLE_MIN_COVERAGE` (0.8) |
 | Chapter whose context is outdated (an earlier chapter's source changed) | The flag is cleared when the job translated or reviewed enough of its passages again. | `AUTOPILOT_STALE_MIN_COVERAGE` (0.5) |
@@ -227,13 +245,22 @@ The report stored on the job looks like this:
   "outcome": "completed_with_residuals",
   "rounds": 2,
   "residuals": [{"segment_id": "…", "chapter_id": "…", "reason": "Texte original conservé automatiquement : …"}],
-  "reason": "1 passage(s) conservé(s) dans la langue d’origine faute de traduction valide."
+  "reason": "1 passage(s) conservé(s) dans la langue d’origine faute de traduction valide.",
+  "quality": {"scored": 411, "average": 91.4, "minimum": 40, "to_review": 6, "review_below": 70,
+              "bands": {"good": 380, "fair": 25, "weak": 5, "poor": 1}, "histogram": [0, 0, 0, 0, 1, 2, 3, 10, 35, 360]}
 }
 ```
 
-`outcome` is `completed`, `completed_with_residuals` or `failed`.
+`outcome` is `completed`, `completed_with_residuals` or `failed`. `quality` sums up the passage
+[quality scores](architecture.md#passage-quality-scores) once the run is settled: the recovery steps,
+the arbitrations and the points closed without a correction all lower a passage's score, so the
+book's **Quality** tab lists first the passages the autopilot had the most trouble with.
 
 ### Cost
+
+The report of the last run (`GET /api/projects/{id}/autopilot`) and the completion report of an
+automation request carry `cost`: the estimate made when the job started against its real cost, with
+the book's budget and the budget switches (see [the API reference](api.md#completion-report)).
 
 The autopilot only spends calls where something is wrong. The recovery ladder only concerns failed
 passages; arbitration makes one call per passage that has open points; later rounds only review the
@@ -312,6 +339,7 @@ yourself. The pipeline then behaves like this:
 | Situation | What happens |
 | --- | --- |
 | You pause | `paused`; it resumes only when you resume it. |
+| A book or API token budget is reached | The job moves to a cheaper fallback provider (`budget_fallback`), else `paused` with `stop_reason = budget_exceeded`; resuming is refused until the budget is raised. |
 | You cancel | `cancelled`; saved results are kept, and the book can be launched again. |
 | The worker stops cleanly | Calls in flight are interrupted; the job goes back to `pending` at its checkpoint. |
 | The worker crashes | Another worker takes the job over once its 60-second lease expires. |

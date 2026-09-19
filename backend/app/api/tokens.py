@@ -54,7 +54,9 @@ def state(token: ApiToken, now: float | None = None) -> str:
     return "active"
 
 
-def token_view(token: ApiToken) -> dict:
+def token_view(token: ApiToken, db=None) -> dict:
+    from app.engines.budget import token_view as budget_view
+
     return {
         "id": token.id,
         "name": token.name,
@@ -66,6 +68,11 @@ def token_view(token: ApiToken) -> dict:
         "last_used_at": token.last_used_at,
         "state": state(token),
         "webhook_secret": bool(token.webhook_secret),
+        "max_priority": token.max_priority or "normal",
+        "max_running": token.max_running,
+        "max_queued": token.max_queued,
+        # Cost budget of the token's requests, with what the current period has spent (app.engines.budget).
+        "budget": budget_view(db, token) if db is not None else None,
     }
 
 
@@ -75,12 +82,38 @@ class TokenInput(StrictModel):
     expires_in_days: int | None = Field(default=None, ge=1, le=3650)
     # A secret of its own to sign the webhooks of this token's requests, shown once like the token.
     webhook_secret: bool = False
+    # Spending cap of the token's requests, in the currency of the provider prices; None: no cap.
+    budget_amount: float | None = Field(default=None, gt=0, le=1_000_000_000)
+    budget_period: Literal["month", "total"] = "month"
+    # Fair queue (app.jobs.fairness): highest priority its requests may ask for (within the account's),
+    # and quotas of its own below the account's (null: the account's only).
+    max_priority: Literal["low", "normal", "high"] = "normal"
+    max_running: int | None = Field(default=None, ge=1, le=1000)
+    max_queued: int | None = Field(default=None, ge=1, le=100_000)
+
+
+class TokenQueueInput(StrictModel):
+    max_priority: Literal["low", "normal", "high"] = "normal"
+    max_running: int | None = Field(default=None, ge=1, le=1000)
+    max_queued: int | None = Field(default=None, ge=1, le=100_000)
+
+
+def check_ceiling(db, user: User, max_priority: str) -> None:
+    from app.jobs.fairness import allowed_priority, label, level
+
+    ceiling = allowed_priority(db, user)
+    if level(max_priority) > ceiling:
+        raise HTTPException(
+            403, {"code": "priority_not_allowed",
+                  "message": f"Priorité « {max_priority} » refusée : « {label(ceiling)} » au plus pour ce compte "
+                  "ou ce jeton.", "max_priority": label(ceiling)},
+        )  # fmt: skip
 
 
 @router.get("")
 def list_tokens(user: CurrentUser, db: DB):
     tokens = db.scalars(select(ApiToken).where(ApiToken.owner_id == user.id).order_by(ApiToken.created_at.desc()))
-    return [token_view(token) for token in tokens]
+    return [token_view(token, db) for token in tokens]
 
 
 @router.post("", status_code=201)
@@ -93,6 +126,7 @@ def create_token(body: TokenInput, user: CurrentUser, db: DB):
     )
     if live >= MAX_TOKENS:
         raise HTTPException(409, f"Au plus {MAX_TOKENS} jetons non révoqués par compte : révoquez-en un.")
+    check_ceiling(db, user, body.max_priority)
     secret, prefix = new_token()
     signing = secrets.token_urlsafe(32) if body.webhook_secret else ""
     token = ApiToken(
@@ -103,6 +137,11 @@ def create_token(body: TokenInput, user: CurrentUser, db: DB):
         scopes=[scope for scope in SCOPES if scope in body.scopes],
         expires_at=time.time() + body.expires_in_days * 86400 if body.expires_in_days else None,
         webhook_secret=encrypt(signing) if signing else None,
+        max_priority=body.max_priority,
+        max_running=body.max_running,
+        max_queued=body.max_queued,
+        budget_amount=body.budget_amount,
+        budget_period=body.budget_period,
     )
     db.add(token)
     db.flush()
@@ -112,7 +151,7 @@ def create_token(body: TokenInput, user: CurrentUser, db: DB):
     )  # fmt: skip
     db.commit()
     # The only answer that ever carries the secret (and the webhook signing secret).
-    return {**token_view(token), "token": secret, **({"webhook_secret": signing} if signing else {})}
+    return {**token_view(token, db), "token": secret, **({"webhook_secret": signing} if signing else {})}
 
 
 @router.delete("/{token_id}")
@@ -125,7 +164,21 @@ def revoke_token(token_id: str, user: CurrentUser, db: DB):
         audit(db, owner_id=user.id, actor_id=user.id, action="api_token_revoked", token_id=token.id,
               name=token.name, prefix=token.prefix)  # fmt: skip
         db.commit()
-    return token_view(token)
+    return token_view(token, db)
+
+
+@router.put("/{token_id}/queue")
+def set_token_queue(token_id: str, body: TokenQueueInput, user: CurrentUser, db: DB):
+    """Changes the priority ceiling and quotas of a token without changing its secret."""
+    token = db.get(ApiToken, token_id)
+    if not token or token.owner_id != user.id:
+        raise HTTPException(404, "Jeton introuvable.")
+    check_ceiling(db, user, body.max_priority)
+    token.max_priority, token.max_running, token.max_queued = body.max_priority, body.max_running, body.max_queued
+    audit(db, owner_id=user.id, actor_id=user.id, action="api_token_queue", token_id=token.id,
+          max_priority=body.max_priority, max_running=body.max_running, max_queued=body.max_queued)  # fmt: skip
+    db.commit()
+    return token_view(token, db)
 
 
 class RateLimiter:

@@ -32,6 +32,7 @@ from app.engines.epub import inspect_archive, rebuild
 from app.engines.epub.archive import relative_resource, xml
 from app.engines.epub.check import epubcheck
 from app.engines.epub.text import tag
+from app.engines.exports.bilingual import LAYOUTS, build_bilingual_epub, volume_pairs
 from app.engines.exports.text import (
     ChapterText,
     chapters_zip,
@@ -138,6 +139,14 @@ def translated_epub(db, project, segments: list[Segment]) -> bytes:
     return validated_epub(content, project.title)
 
 
+def bilingual_epub(db, project, allow_source: bool, layout: str) -> bytes:
+    """The bilingual proofreading copy; unfinished passages only with `allow_source`."""
+    chapters = volume_pairs(db, project)
+    if not allow_source and not all(item.complete for item in chapters):
+        raise HTTPException(409, "La traduction n’est pas encore complète.")
+    return validated_epub(build_bilingual_epub(project, chapters, layout), project.title)
+
+
 def unique_epub_name(title: str, used: set[str]) -> str:
     base = re.sub(r"[^\w .()#-]", "_", title, flags=re.UNICODE).strip(" .")[:180] or "livre"
     name, number = f"{base}.epub", 2
@@ -184,8 +193,28 @@ def export_epubs(body: BatchExportInput, user: CurrentUser, db: DB):
         raise
 
 
-def exported_texts(db, project, allow_source: bool) -> list[ChapterText]:
-    texts = volume_texts(db, project)
+def chapter_range(texts: list[ChapterText], first: float | None, last: float | None) -> list[ChapterText]:
+    """Chapters numbered from `first` to `last` (both included): the new chapters of a follow-up.
+    Unnumbered chapters are kept only when no bound is given."""
+    if first is None and last is None:
+        return texts
+    if first is not None and last is not None and first > last:
+        raise HTTPException(422, "Le premier chapitre doit précéder le dernier.")
+    chosen = [
+        item for item in texts
+        if item.number is not None
+        and (first is None or item.number >= first)
+        and (last is None or item.number <= last)
+    ]  # fmt: skip
+    if not chosen:
+        raise HTTPException(404, "Aucun chapitre de ce volume dans cet intervalle.")
+    return chosen
+
+
+def exported_texts(
+    db, project, allow_source: bool, first: float | None = None, last: float | None = None
+) -> list[ChapterText]:
+    texts = chapter_range(volume_texts(db, project), first, last)
     if not allow_source and not all(item.complete for item in texts):
         raise HTTPException(409, "La traduction n’est pas encore complète.")
     return texts
@@ -232,17 +261,29 @@ def export_texts(body: TextBatchExportInput, user: CurrentUser, db: DB):
 @router.get("/projects/{pid}/export/{format}")
 def export(
     pid: str,
-    format: Literal["epub", "txt", "txt-zip", "md", "bible", "project"],
+    format: Literal["epub", "epub-bilingual", "txt", "txt-zip", "md", "bible", "project"],
     user: CurrentUser,
     db: DB,
     allow_source: bool = False,
     consolidated_text: bool = Query(False, alias="consolidated"),
+    layout: Literal[LAYOUTS] = "interleaved",
+    from_chapter: float | None = Query(None, ge=0, le=100000),
+    to_chapter: float | None = Query(None, ge=0, le=100000),
 ):
     """`txt`: every chapter under its heading in one file; `txt-zip`: one UTF-8 file per chapter and
     a manifest with checksums (plus the single file with `consolidated=true`); `md`: Markdown with a
-    `##` heading per chapter. `allow_source=true` exports an unfinished translation, originals kept."""
+    `##` heading per chapter; `epub-bilingual`: source and translation paragraph by paragraph
+    (`layout=interleaved` or `side-by-side`), for any volume. `allow_source=true` exports an
+    unfinished translation, originals kept. `from_chapter` / `to_chapter` limit the text formats to a
+    range of chapter numbers."""
     project = access(db, pid, user)
-    if format == "bible":
+    if format == "epub-bilingual":
+        content, mime, filename = (
+            bilingual_epub(db, project, allow_source, layout),
+            "application/epub+zip",
+            "bilingual.epub",
+        )
+    elif format == "bible":
         content, mime, filename = (
             json.dumps(canonical_bible(db, project), ensure_ascii=False, indent=2),
             "application/json",
@@ -280,7 +321,7 @@ def export(
             "translated-partial-with-originals.epub" if allow_source else "translated.epub",
         )
     else:
-        texts = exported_texts(db, project, allow_source)
+        texts = exported_texts(db, project, allow_source, from_chapter, to_chapter)
         partial = "-partial-with-originals" if allow_source and not all(item.complete for item in texts) else ""
         if format == "txt-zip":
             content, mime, filename = (

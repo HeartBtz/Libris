@@ -18,10 +18,12 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.db import SessionLocal
 from app.diagnostics import safe_trace
+from app.engines.delivery.chapter_events import track_chapters
 from app.engines.delivery.lifecycle import ENDED, fail, finalize, settle
 from app.engines.ingestion.payload import PayloadRejected, TranslationPayload, payload_chapters
 from app.engines.ingestion.store import Files, add_chapters, asset_file, conflicts, lock, read_asset
 from app.engines.series.bible import refresh_series
+from app.jobs.follow_up import follow_up_options
 from app.jobs.launch import launch
 from app.jobs.queue import ACTIVE, HELD, RUNNING
 from app.models import Chapter, Job, Project, SourceAsset, TranslationRequest
@@ -103,7 +105,9 @@ def ingest(db: Session, request: TranslationRequest, project: Project, payload: 
     project.updated_at = time.time()
     counts = {status: sum(1 for o in outcomes if o.status == status) for status in ("created", "unchanged", "replaced")}
     request.chapter_ids = [outcome.chapter_id for outcome in outcomes]
-    request.options = {**request.options, "ingested": True, "chapters": counts}
+    fresh = [outcome.chapter_id for outcome in outcomes if outcome.status != "unchanged"]
+    request.options = {**request.options, "ingested": True, "chapters": counts, "new_chapter_ids": fresh}
+    track_chapters(db, request)
     refresh_series(db, project.series_id)
 
 
@@ -123,9 +127,13 @@ def advance(db: Session, request: TranslationRequest, files: Files, payload: Tra
         return
     if busy(db, project, HELD):
         return
+    options = {"final_review": bool(request.options.get("final_review", True)), "translation_request": request.id}
+    if request.options.get("input") != "epub":
+        # Chapters sent to a volume already translated: only them (and anything unfinished) are worked on.
+        options.update(follow_up_options(db, project, request.options.get("new_chapter_ids") or []))
     job, reason = launch(
-        db, project, "pipeline",
-        {"final_review": bool(request.options.get("final_review", True)), "translation_request": request.id},
+        db, project, "pipeline", options,
+        priority=int(request.options.get("priority", 1)), token_id=request.token_id,
     )  # fmt: skip
     if job is None:
         fail(db, request, reason)

@@ -52,7 +52,8 @@ def estimate(pid, operation, username="tester"):
         return client.get(f"/api/projects/{pid}/estimate", params={"operation": operation})
 
 
-def test_default_estimate_without_history(seeded):
+def test_default_estimate_without_history(seeded, monkeypatch):
+    monkeypatch.setattr(settings(), "analysis_mode", "strict")  # the parallel plan: test_parallel_analysis.py
     pid, _, provider_id = seeded
     with SessionLocal() as db:
         db.get(Provider, provider_id).input_cost, db.get(Provider, provider_id).output_cost = 2.0, 8.0
@@ -82,7 +83,8 @@ def test_default_estimate_without_history(seeded):
         assert db.query(RequestLog).count() == before  # never asks the model
 
 
-def test_done_and_validated_passages_are_excluded(seeded):
+def test_done_and_validated_passages_are_excluded(seeded, monkeypatch):
+    monkeypatch.setattr(settings(), "analysis_mode", "strict")
     pid, user_id, provider_id = seeded
     with SessionLocal() as db:
         project, segments = book(db, user_id, provider_id, 6, quality="normal")

@@ -250,7 +250,8 @@ async def test_a_hostile_book_reaches_an_output_without_any_human_action(seeded,
         assert db.get(Project, pid).bible_validated is True  # six passages of seven analysed
         decisions = list(db.scalars(select(AutopilotDecision).where(AutopilotDecision.project_id == pid)))
         actions = {(d.stage, d.kind, d.action) for d in decisions}
-        assert ("analysis", "chapter_analysis", "skipped") in actions
+        # The refused passage's analysis (its extraction in the default parallel mode) is skipped.
+        assert {("analysis", "chapter_analysis", "skipped"), ("analysis", "chapter_extraction", "skipped")} & actions
         assert ("provider", "outage", "fallback_provider") in actions
         assert ("recovery", "failed_passage", "recovered") in actions
         assert ("recovery", "failed_passage", "source_retained") in actions

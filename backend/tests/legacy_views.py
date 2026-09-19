@@ -247,8 +247,12 @@ def project_progress(db, project: Project, stats: dict) -> dict:
         "revised": sum(1 for value in outcomes.values() if value.get("revised")),
         "failed": sum(value == "failed" for value in outcome_for.values()),
     }
+    from app.progress import analysis_phase
+
     return {
         "active_stage": active,
+        # Added with the parallel analysis: where a running analysis is (None otherwise).
+        "analysis_phase": analysis_phase(active_job),
         "state": job.status if job else project.status,
         "operation": job.operation if job else None,
         "job_id": job.id if job else None,

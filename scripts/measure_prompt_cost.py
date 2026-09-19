@@ -70,9 +70,40 @@ PASSAGE_OPERATIONS = (
 )
 NAMES = ["Alice", "Bob", "Carol", "Dmitri", "Elena", "Farid"]
 TERMS = [
-    f"Order of the {word}" for word in ("Silver", "Glass", "Ash", "Tide", "Crown", "Lantern", "Salt", "Iron")
+    f"Order of the {word}"
+    for word in ("Silver", "Glass", "Ash", "Tide", "Crown", "Lantern", "Salt", "Iron")
 ]
-WORDS = ["the", "tower", "wind", "river", "lantern", "stone", "quietly", "remembered", "promise", "shadow", "garden", "letter", "morning", "bridge", "silence", "answered", "city", "market", "hand", "winter", "door", "voice", "old", "road", "storm", "light", "ember", "harbor", "mirror"]
+WORDS = [
+    "the",
+    "tower",
+    "wind",
+    "river",
+    "lantern",
+    "stone",
+    "quietly",
+    "remembered",
+    "promise",
+    "shadow",
+    "garden",
+    "letter",
+    "morning",
+    "bridge",
+    "silence",
+    "answered",
+    "city",
+    "market",
+    "hand",
+    "winter",
+    "door",
+    "voice",
+    "old",
+    "road",
+    "storm",
+    "light",
+    "ember",
+    "harbor",
+    "mirror",
+]
 
 
 def prose(rng: random.Random, sentences: int) -> str:
@@ -87,22 +118,30 @@ def prose(rng: random.Random, sentences: int) -> str:
     return " ".join(out)
 
 
-def synthetic_book(chapters: int, paragraphs: int, passage_chars: int) -> ImportedVolume:
+def synthetic_book(
+    chapters: int, paragraphs: int, passage_chars: int
+) -> ImportedVolume:
     rng = random.Random(7)
     items = []
     for number in range(1, chapters + 1):
         text = "\n\n".join(prose(rng, rng.randint(3, 7)) for _ in range(paragraphs))
         chapter, _ = text_chapter(
-            text, title=f"Chapter {number}", resource=f"txt/measure-{number}", max_chars=passage_chars
+            text,
+            title=f"Chapter {number}",
+            resource=f"txt/measure-{number}",
+            max_chars=passage_chars,
         )
         chapter.number = number
         items.append(chapter)
-    return ImportedVolume(title="Measured Book", author="Synthetic", language="en", chapters=items)
+    return ImportedVolume(
+        title="Measured Book", author="Synthetic", language="en", chapters=items
+    )
 
 
 def bible() -> dict:
     guidelines = [
-        f"Guideline {n}: keep the narrator's restraint and the period vocabulary." for n in range(25)
+        f"Guideline {n}: keep the narrator's restraint and the period vocabulary."
+        for n in range(25)
     ]
     return {
         "title": "Measured Book",
@@ -116,13 +155,23 @@ def bible() -> dict:
 def mock_completion(review_issues: float):
     def respond(request: httpx.Request) -> httpx.Response:
         body = json.loads(request.content)
-        name = body.get("response_format", {}).get("json_schema", {}).get("name", "TranslationResult")
+        name = (
+            body.get("response_format", {})
+            .get("json_schema", {})
+            .get("name", "TranslationResult")
+        )
         text = "\n".join(m["content"] for m in body["messages"])
         target = None
         if "<TARGET_TEXT>" in text:
-            target = json.loads(text.split("<TARGET_TEXT>\n", 1)[1].split("\n</TARGET_TEXT>", 1)[0])
+            target = json.loads(
+                text.split("<TARGET_TEXT>\n", 1)[1].split("\n</TARGET_TEXT>", 1)[0]
+            )
         # Same passage, same verdict: the review finds something on a stable share of the passages.
-        digest = int(hashlib.sha256(target[0]["id"].encode()).hexdigest(), 16) if target else 0
+        digest = (
+            int(hashlib.sha256(target[0]["id"].encode()).hexdigest(), 16)
+            if target
+            else 0
+        )
         flagged = target is not None and digest % 1000 < review_issues * 1000
         issue = {
             "unit_id": target[0]["id"] if target else "",
@@ -143,12 +192,25 @@ def mock_completion(review_issues: float):
                 "uncertainties": [],
             }
         else:
-            result = {"units": units, "new_terms": [], "events": [], "uncertainties": []}
+            result = {
+                "units": units,
+                "new_terms": [],
+                "events": [],
+                "uncertainties": [],
+            }
         return httpx.Response(
             200,
             json={
-                "choices": [{"finish_reason": "stop", "message": {"content": json.dumps(result)}}],
-                "usage": {"prompt_tokens": len(text) // 4, "completion_tokens": len(json.dumps(result)) // 4},
+                "choices": [
+                    {
+                        "finish_reason": "stop",
+                        "message": {"content": json.dumps(result)},
+                    }
+                ],
+                "usage": {
+                    "prompt_tokens": len(text) // 4,
+                    "completion_tokens": len(json.dumps(result)) // 4,
+                },
             },
         )
 
@@ -189,7 +251,11 @@ async def run(args) -> dict:
         db.flush()
         volume = synthetic_book(args.chapters, args.paragraphs, args.passage_chars)
         project = create_volume(db, user.id, volume, Files(), source_format="txt")
-        project.provider_id, project.quality, project.target_language = provider.id, args.quality, "fr"
+        project.provider_id, project.quality, project.target_language = (
+            provider.id,
+            args.quality,
+            "fr",
+        )
         project.bible, project.bible_validated = bible(), True
         project.config = {"review_mode": args.review_mode} if args.review_mode else {}
         for index, term in enumerate(TERMS):
@@ -208,7 +274,9 @@ async def run(args) -> dict:
             side_effect=mock_completion(args.review_issues)
         )
         with SessionLocal() as db:
-            enqueue(db, db.get(Project, project_id), "translate", {"final_review": False})
+            enqueue(
+                db, db.get(Project, project_id), "translate", {"final_review": False}
+            )
             db.commit()
         await execute(*claim())
     with SessionLocal() as db:
@@ -217,7 +285,10 @@ async def run(args) -> dict:
         logs = list(
             db.scalars(
                 select(RequestLog)
-                .where(RequestLog.operation.in_(PASSAGE_OPERATIONS), RequestLog.cached.is_(False))
+                .where(
+                    RequestLog.operation.in_(PASSAGE_OPERATIONS),
+                    RequestLog.cached.is_(False),
+                )
                 .order_by(RequestLog.created_at)
             )
         )
@@ -233,7 +304,9 @@ async def run(args) -> dict:
         if earlier:
             # The section in which this request first differs from the closest earlier one.
             opened = [
-                part.split(">", 1)[0] for part in text[:shared].split("\n<")[1:] if not part.startswith("/")
+                part.split(">", 1)[0]
+                for part in text[:shared].split("\n<")[1:]
+                if not part.startswith("/")
             ]
             where = f"{log.operation}:{opened[-1] if opened else 'system prompt'}"
             divergence[where] = divergence.get(where, 0) + 1
@@ -257,15 +330,24 @@ async def run(args) -> dict:
         "uncached_input_tokens_per_passage": round(uncached / passages),
         "input_tokens_per_1000_source_chars": round(total / source_chars * 1000),
         "uncached_tokens_per_1000_source_chars": round(uncached / source_chars * 1000),
-        "first_difference_in": dict(sorted(divergence.items(), key=lambda item: -item[1])),
+        "first_difference_in": dict(
+            sorted(divergence.items(), key=lambda item: -item[1])
+        ),
     }
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    parser.add_argument("--quality", choices=("fast", "normal", "high", "maximum"), default="high")
+    parser.add_argument(
+        "--quality", choices=("fast", "normal", "high", "maximum"), default="high"
+    )
     parser.add_argument("--passage-chars", type=int, default=3500)
-    parser.add_argument("--review-issues", type=float, default=0.5, help="share of passages the review flags")
+    parser.add_argument(
+        "--review-issues",
+        type=float,
+        default=0.5,
+        help="share of passages the review flags",
+    )
     parser.add_argument("--review-mode", choices=("separate", "fused"), default=None)
     parser.add_argument("--chapters", type=int, default=3)
     parser.add_argument("--paragraphs", type=int, default=40)

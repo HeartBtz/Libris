@@ -15,10 +15,11 @@ from app.models import AppSetting, Project, RequestLog, UsageDaily
 from app.progress import book_facts
 
 DAY = 86400
-NOW = time.time()
 
 
-def seed(pid: str, provider_id: str) -> None:
+def seed(pid: str, provider_id: str) -> float:
+    """Requests of the last 40 days; returns the time they are relative to."""
+    now = time.time()
     rows = [
         # (age in days, operation, status, cached, prompt, completion, input price)
         (40, "translation", "success", False, 1000, 400, 2.0),
@@ -37,10 +38,11 @@ def seed(pid: str, provider_id: str) -> None:
                     project_id=pid, provider_id=provider_id, operation=operation, model="test-model",
                     fingerprint=f"{age}{operation}{status}", status=status, cached=cached, parameters={},
                     messages=[], prompt_tokens=prompt, completion_tokens=completion, duration=2.5,
-                    input_cost=price, output_cost=price and price * 4, created_at=NOW - age * DAY - 60,
+                    input_cost=price, output_cost=price and price * 4, created_at=now - age * DAY - 60,
                 )
             )  # fmt: skip
         db.commit()
+    return now
 
 
 def figures(pid: str) -> dict:
@@ -68,21 +70,21 @@ def figures(pid: str) -> dict:
 
 def test_statistics_are_the_same_before_and_after_the_rollup(seeded):
     pid, _, provider_id = seeded
-    seed(pid, provider_id)
+    now = seed(pid, provider_id)
     before = figures(pid)
     assert before["metrics"]["requests"] == 8 and before["metrics"]["active"] == 1
     assert before["metrics"]["cache_hits"] == 1 and before["metrics"]["errors"] == 1
     assert before["metrics"]["wasted_input_tokens"] == 1600
-    assert usage.rollup(NOW, dry_run=True) == 6
+    assert usage.rollup(now, dry_run=True) == 6
     with SessionLocal() as db:
         assert db.get(AppSetting, usage.KEY) is None  # a dry run writes nothing
-    assert usage.rollup(NOW) == 6
-    assert usage.rollup(NOW) == 0  # idempotent: the watermark moved
+    assert usage.rollup(now) == 6
+    assert usage.rollup(now) == 0  # idempotent: the watermark moved
     with SessionLocal() as db:
         rows = list(db.scalars(select(UsageDaily)))
         assert sum(row.requests for row in rows) == 6
         assert len({row.day for row in rows}) == 3  # one day per window
-        assert usage.watermark(db) == pytest.approx(NOW - usage.ROLLUP_DELAY)
+        assert usage.watermark(db) == pytest.approx(now - usage.ROLLUP_DELAY)
     after = figures(pid)
     assert after == before
 
@@ -101,15 +103,14 @@ def test_old_request_rows_can_go_once_counted(seeded, monkeypatch):
 
 def test_request_rows_are_kept_without_a_rollup(seeded, monkeypatch):
     pid, _, provider_id = seeded
-    seed(pid, provider_id)
+    now = seed(pid, provider_id)
     monkeypatch.setattr(settings(), "retention_request_rows_days", 30)
-    assert retention.request_rows(30, False, NOW) == 0  # nothing counted in the aggregates yet
+    assert retention.request_rows(30, False, now) == 0  # nothing counted in the aggregates yet
 
 
 def test_aggregates_follow_their_book(seeded):
     pid, _, provider_id = seeded
-    seed(pid, provider_id)
-    usage.rollup(NOW)
+    usage.rollup(seed(pid, provider_id))
     with SessionLocal() as db:
         db.delete(db.get(Project, pid))
         db.commit()
@@ -117,15 +118,15 @@ def test_aggregates_follow_their_book(seeded):
 
 
 def test_first_rollup_without_requests_starts_the_watermark_now(seeded):
-    assert usage.rollup(NOW) == 0
+    now = time.time()
+    assert usage.rollup(now) == 0
     with SessionLocal() as db:
-        assert usage.watermark(db) == pytest.approx(NOW - usage.ROLLUP_DELAY)
+        assert usage.watermark(db) == pytest.approx(now - usage.ROLLUP_DELAY)
 
 
 def test_requests_restored_from_an_archive_are_counted(seeded):
     pid, _, provider_id = seeded
-    seed(pid, provider_id)
-    usage.rollup(NOW)
+    usage.rollup(seed(pid, provider_id))
     with TestClient(app) as client:
         login = {"username": "tester", "password": "test-password-123456789"}
         assert client.post("/api/auth/login", json=login).status_code == 200

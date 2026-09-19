@@ -96,6 +96,11 @@ if args[0] == "inspect":
     done("healthy" if "Health" in args[2] else "running")
 if args[0] == "wait":
     done(str(state.get("migration_exit", 0)))
+if args[0] == "run" and "cat" in args:
+    img = image(args[4]) or next((i for i in state["images"].values() if i["id"] == args[4]), {})
+    sys.stdout.write(img.get("compose", ""))  # the Compose file the image carries, byte for byte
+    save()
+    sys.exit(0 if img.get("compose") else 1)
 if args[0] == "run":
     done(image(args[4])["head"])  # `alembic heads | sed` runs inside the image
 done("unexpected call", 1)
@@ -311,3 +316,66 @@ def test_a_failed_migration_stops_the_deployment_and_keeps_the_services_stopped(
     assert result.returncode != 0
     assert "Migration exited with status 1" in result.stderr
     assert (base / "current-version").read_text() != "0.6.0\n"
+
+
+NEW_COMPOSE = "services:\n  api: {read_only: true}\n"
+
+
+def with_new_version(state_file, compose=NEW_COMPOSE, head=HEAD):
+    new = "3" * 40
+    state = json.loads(state_file.read_text())
+    state["images"]["new"] = {**image_state(new, "0.6.0", head), "compose": compose}
+    state["images"]["new-codex"] = {**image_state(new, "0.6.0"), "id": "sha256:c333333333333"}
+    state["tags"].update({f"libris-production:{new}": "new", f"libris-codex-production:{new}": "new-codex"})
+    state_file.write_text(json.dumps(state))
+    return (new, "0.6.0", "sha256:333333333333", "sha256:c333333333333")
+
+
+def test_the_deployment_installs_the_compose_file_of_its_version(tmp_path, health):
+    answer, url = health
+    answer["version"] = "0.6.0"
+    base, state_file, env = production(tmp_path)
+    arguments = with_new_version(state_file)
+    result = run({**env, "LIBRIS_PRODUCTION_HEALTH_URL": url}, *arguments)
+    assert result.returncode == 0, result.stderr
+    assert "differs from the Compose file of 0.6.0" in result.stdout and "+  api: {read_only: true}" in result.stdout
+    assert (base / "docker-compose.yml").read_text() == NEW_COMPOSE
+    assert (base / "docker-compose.yml.before-0.6.0").read_text() == "services: {}\n"
+    # Installed only once the services are stopped: the dump ran with the file in place until then.
+    calls = json.loads(state_file.read_text())["calls"]
+    assert any(call[:1] == ["run"] and "cat" in call for call in calls)
+    # The deployed version's file is now the reference: no drift.
+    assert run(env, "--check-compose").returncode == 0
+
+
+def test_a_failed_deployment_puts_the_previous_compose_file_back(tmp_path, health):
+    answer, url = health
+    answer["version"] = "0.5.0"  # the new version never answers its own version: health fails
+    base, state_file, env = production(tmp_path)
+    arguments = with_new_version(state_file)
+    result = run({**env, "LIBRIS_PRODUCTION_HEALTH_URL": url}, *arguments)
+    assert result.returncode != 0
+    assert "previous images restored" in result.stderr
+    assert (base / "docker-compose.yml").read_text() == "services: {}\n"
+
+
+def test_drift_of_the_installed_compose_file_is_reported(tmp_path):
+    base, state_file, env = production(tmp_path)
+    state = json.loads(state_file.read_text())
+    state["images"]["current"]["compose"] = "services: {}\n"
+    state_file.write_text(json.dumps(state))
+    assert run(env, "--check-compose").returncode == 0
+    (base / "docker-compose.yml").write_text("services: {edited: by hand}\n")
+    result = run(env, "--check-compose")
+    assert result.returncode == 1 and "Drift" in result.stdout and "+services: {}" in result.stdout
+
+
+def test_an_image_without_compose_file_keeps_the_installed_one(tmp_path, health):
+    answer, url = health
+    answer["version"] = "0.6.0"
+    base, state_file, env = production(tmp_path)
+    arguments = with_new_version(state_file, compose="")
+    result = run({**env, "LIBRIS_PRODUCTION_HEALTH_URL": url}, *arguments)
+    assert result.returncode == 0, result.stderr
+    assert "carries no Compose file" in result.stderr
+    assert (base / "docker-compose.yml").read_text() == "services: {}\n"

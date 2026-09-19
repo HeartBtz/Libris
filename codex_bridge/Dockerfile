@@ -15,9 +15,11 @@ ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
 RUN apt-get update && apt-get install -y --no-install-recommends libstdc++6 libpcre2-8-0 ca-certificates && rm -rf /var/lib/apt/lists/*
 COPY --from=codex /usr/local/bin/node /usr/local/bin/node
 COPY --from=codex /opt/codex /opt/codex
+COPY codex_bridge/requirements.lock /tmp/requirements.lock
+# Every file checked against the hash recorded in the lock (scripts/hash_lock.py).
 RUN ln -s /opt/codex/node_modules/.bin/codex /usr/local/bin/codex && codex --version \
-    && pip install --no-cache-dir fastapi==0.141.1 uvicorn==0.52.4 \
-    && pip uninstall -y pip
+    && pip install --no-cache-dir --require-hashes -r /tmp/requirements.lock \
+    && rm /tmp/requirements.lock && pip uninstall -y pip
 WORKDIR /service
 COPY codex_bridge/ /service/codex_bridge/
 RUN useradd --uid 10002 --create-home bridge && mkdir /state && chown bridge:bridge /state && chmod -R a+rX /service

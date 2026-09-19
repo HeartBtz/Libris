@@ -1,0 +1,76 @@
+#!/usr/bin/env bash
+# Removes what Libris CI jobs leave behind on the shell runner (CT105) once no container uses it:
+# anonymous volumes (images that declare a VOLUME, e.g. postgres, create one per `docker run`) and the
+# volumes and networks of `libris-e2e-<job>` Compose projects. The jobs' own after_script removes
+# them in the normal case; a killed runner, a lost after_script or a volume detached late does not.
+#
+# Only unused (dangling) objects older than LIBRIS_PRUNE_MIN_AGE_HOURS (default 6, longer than any
+# job) are touched: a job that just created a volume and not yet its container keeps it. Named
+# volumes of other projects, images and build cache are never removed here.
+#
+#   libris-runner-prune --dry-run   # list what would be removed
+#   libris-runner-prune             # remove it
+set -euo pipefail
+
+dry_run=false
+case "${1:-}" in
+"") ;;
+--dry-run) dry_run=true ;;
+*) echo "Usage: libris-runner-prune [--dry-run]" >&2; exit 64 ;;
+esac
+min_age_hours="${LIBRIS_PRUNE_MIN_AGE_HOURS:-6}"
+[[ "$min_age_hours" =~ ^[0-9]+$ ]] || { echo "LIBRIS_PRUNE_MIN_AGE_HOURS must be a whole number of hours" >&2; exit 64; }
+cutoff=$(( $(date +%s) - min_age_hours * 3600 ))
+removed=0
+kept=0
+
+older_than_cutoff() {
+	local created
+	created="$(date -d "$1" +%s 2>/dev/null)" || return 1
+	(( created < cutoff ))
+}
+
+remove() {
+	local kind="$1" name="$2"
+	if [[ "$dry_run" == true ]]; then
+		echo "Would remove $kind $name"
+	elif docker "$kind" rm "$name" >/dev/null 2>&1; then
+		echo "Removed $kind $name"
+	else
+		# Taken by a container in the meantime, or already gone: not an error.
+		return 0
+	fi
+	removed=$((removed + 1))
+}
+
+while read -r name; do
+	[[ -n "$name" ]] || continue
+	read -r created project < <(docker volume inspect --format \
+		'{{.CreatedAt}} {{index .Labels "com.docker.compose.project"}}' "$name" 2>/dev/null || echo "")
+	[[ -n "${created:-}" ]] || continue
+	anonymous=false
+	[[ "$name" =~ ^[0-9a-f]{64}$ ]] && anonymous=true
+	if [[ "$anonymous" == false && "${project:-}" != libris-e2e-* ]]; then
+		continue
+	fi
+	if older_than_cutoff "$created"; then
+		remove volume "$name"
+	else
+		kept=$((kept + 1))
+	fi
+done < <(docker volume ls --quiet --filter dangling=true)
+
+# Compose networks of end-to-end jobs whose containers are gone.
+while read -r name; do
+	[[ -n "$name" ]] || continue
+	read -r created containers < <(docker network inspect --format '{{.Created.Unix}} {{len .Containers}}' "$name" 2>/dev/null || echo "")
+	[[ "${created:-}" =~ ^[0-9]+$ && "${containers:-1}" == 0 ]] || continue
+	if (( created < cutoff )); then
+		remove network "$name"
+	else
+		kept=$((kept + 1))
+	fi
+done < <(docker network ls --filter label=com.docker.compose.project --format '{{.Name}}' | grep '^libris-e2e-' || true)
+
+verb=$([[ "$dry_run" == true ]] && echo "would be" || echo "were")
+echo "$removed unused Libris CI volume(s) and network(s) $verb removed; $kept too recent kept."

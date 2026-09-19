@@ -82,7 +82,7 @@ class Settings(BaseSettings):
         return self.api_max_payload_mb or self.max_upload_mb
 
     def prepare(self) -> None:
-        for name in ("books", "projects", "exports", "sources", "staging"):
+        for name in ("books", "projects", "exports", "sources", "staging", "tmp"):
             (self.data_dir / name).mkdir(parents=True, exist_ok=True)
         if len(self.secret_key) < 32:
             raise RuntimeError("SECRET_KEY doit contenir au moins 32 caractères (voir .env.example).")

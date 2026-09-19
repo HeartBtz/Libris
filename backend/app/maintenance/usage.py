@@ -46,8 +46,6 @@ def request_cost():
 def request_column(name: str):
     if name == "provider_id":
         return func.coalesce(RequestLog.provider_id, "")
-    if name == "day":
-        raise ValueError("day is not a request column")
     return getattr(RequestLog, name)
 
 

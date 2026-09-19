@@ -285,6 +285,14 @@ MESSAGES = {
     "Archive de projet invalide : des chapitres en feuilleton appartiennent à une série.": "Invalid project archive: serialized chapters belong to a series.",
     "Structure du projet incompatible avec ses fichiers sources.": "Project structure incompatible with its source files.",
     "Le texte source du projet ne correspond pas à ses fichiers sources.": "The project's source text does not match its source files.",
+    # Markdown, HTML and DOCX chapters; fused review and revision
+    "Les tableaux Markdown sont conservés tels quels, sans traduction.": "Markdown tables are kept as they are, untranslated.",
+    "Les déclarations d’entités ne sont pas autorisées dans un fichier HTML.": "Entity declarations are not allowed in an HTML file.",
+    "Fichier HTML illisible.": "Unreadable HTML file.",
+    "Ce fichier n’est pas un document Word (DOCX).": "This file is not a Word document (DOCX).",
+    "Document Word sans contenu.": "Word document without content.",
+    "Problème signalé sur un paragraphe absent de TARGET_TEXT.": "Issue reported on a paragraph that is not in TARGET_TEXT.",
+    "Aucun problème signalé : units doit rester vide.": "No issue reported: units must stay empty.",
 }  # fmt: skip
 
 TEMPLATES = {
@@ -353,6 +361,7 @@ TEMPLATES = {
     "La série « {name} » a déjà ses chapitres en feuilleton : cette archive ne peut pas y être restaurée.": "The series “{name}” already has its serialized chapters: this archive cannot be restored into it.",
     "La série « {name} » contient déjà le volume d’identifiant « {id} ».": "The series “{name}” already contains the volume with identifier “{id}”.",
     "Le texte source du chapitre « {title} » est illisible : {error}": "The source text of chapter “{title}” cannot be read: {error}",
+    "Document Word illisible : {error}": "Unreadable Word document: {error}",
 }  # fmt: skip
 
 

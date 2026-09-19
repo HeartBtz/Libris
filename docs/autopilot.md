@@ -114,9 +114,9 @@ any time; your version then replaces it like any human correction.
 
 ## Fallback providers and outages
 
-When the book's provider stops answering, Libris tries other providers, in this order:
+When a provider stops answering, Libris moves along a chain of providers, in this order:
 
-1. the job's provider;
+1. the provider the job is using;
 2. the book's provider;
 3. the book's own fallback providers (book **Settings** › **Autopilot** › **Fallback providers**);
 4. the installation's fallback providers (**Settings › Autopilot**, or `AUTOPILOT_FALLBACK_PROVIDERS`,
@@ -239,7 +239,8 @@ passages still open or just recovered. The memory decisions make no call at all.
 
 Administrators set the installation's behaviour in **Settings › Autopilot**. Values saved there apply
 to the next decision without a restart and win over the environment variables until you choose **Go
-back to the environment values**.
+back to the environment values** (see
+[settings changed in the interface](configuration.md#settings-changed-in-the-interface)).
 
 | Setting | Environment variable | Default |
 | --- | --- | --- |
@@ -284,12 +285,44 @@ yourself. The pipeline then behaves like this:
   not change.
 - **Provider outages** are waited out with growing delays for as long as needed, and a provider that
   refuses its credentials blocks the job until you fix it and resume.
-- **Open points** stay in **Review log** and **Quality** for you to accept or reject. When you accept
-  a free-form suggestion that did not keep the passage's internal markers, Libris asks the book's
-  provider for a structured correction of that paragraph only, checks it, and keeps the current text
-  if the answer is invalid or the passage changed meanwhile.
+- **Open points** wait in the **Review log**. Each AI remark shows its doubt and proposed correction.
+  **Accept this proposal** replaces only the paragraph concerned and keeps the EPUB markers; **Reject
+  this proposal** keeps the current text. Both create a protected human correction; once the last
+  proposal of a passage is decided and nothing else is open, the passage leaves the queue. The queue
+  stays stable while jobs run, so drafts are not lost. Final editorial validation remains a separate
+  action. When you accept a free-form suggestion that did not keep the internal markers, Libris asks
+  the book's provider for a structured correction of that paragraph only, checks it, and keeps the
+  current text if the answer is invalid or the passage changed meanwhile.
+- **A refused or failed passage** can be resolved in the editor in three ways: type a human
+  translation; give a **Human analysis** (a summary useful for continuity) in the inspector; or choose
+  **Retain source for export**. Retaining the source does not replace a missing analysis. When the
+  Book Bible synthesis itself is refused, validating a human Book Bible with a non-empty summary lets
+  the job resume.
+- **Exports.** A normal EPUB export requires a complete translation. **Partial EPUB · originals
+  retained** puts the source text where the translation is missing, under a distinct file name. The
+  **Coverage report** lists passages without analysis, without translation and kept in the original;
+  a retained original is never presented as a validated translation.
 
-In every mode, a pause, a cancellation or a worker restart interrupts the model calls in flight
-without losing anything: passages already finished are skipped when the job resumes, and interrupted
-passages restart from their last saved step. EPUBCheck still runs at export time: full coverage is
-not a certificate of a valid EPUB, and a model review does not guarantee literary fidelity.
+## When a job stops
+
+| Situation | What happens |
+| --- | --- |
+| You pause | `paused`; it resumes only when you resume it. |
+| You cancel | `cancelled`; saved results are kept, and the book can be launched again. |
+| The worker stops cleanly | Calls in flight are interrupted; the job goes back to `pending` at its checkpoint. |
+| The worker crashes | Another worker takes the job over once its 60-second lease expires. |
+| Network error, timeout, HTTP 429 or 5xx | `waiting`, with a retry scheduled after a growing delay (60 seconds up to one hour by default; a provider's `Retry-After` is honoured up to 24 hours). Under the autopilot, the next fallback provider takes over after the bounded wait. |
+| The provider refuses its credentials | `blocked` until you fix the provider and resume. Under the autopilot: the next fallback provider, or `failed` when none is left. |
+| No provider answers any more (autopilot) | `failed` with `stop_reason = providers_exhausted` and the reason. |
+| Refusal during the analysis | `blocked` (`content_refusal`) until you act. Under the autopilot: the passage is skipped and the decision logged. |
+| Refusal during the translation | A second attempt, then the passage is marked `refused` and the book goes on. |
+| Invalid JSON or structure | Bounded retries with the reason, repair in groups, then a localized error on the passage. |
+
+The worker checks its lease every two seconds, so a pause or cancellation interrupts all the calls in
+flight for the book almost at once. Every write is protected by the passage revision and the lease
+holder: a late answer never replaces a human correction or a cancelled state. Passages already
+finished are skipped when the job resumes, and interrupted passages restart from their last saved
+step.
+
+EPUBCheck still runs at export time: full coverage is not a certificate of a valid EPUB, and a model
+review does not guarantee literary fidelity.

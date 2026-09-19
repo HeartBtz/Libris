@@ -346,6 +346,30 @@ async def test_a_paused_earlier_volume_does_not_hold_the_next_one():
         await analyse([ids[1]], {"analysis_mode": "parallel"})
 
 
+async def test_a_volume_stops_waiting_for_an_earlier_one_after_the_limit():
+    from app.models import AutopilotDecision
+
+    world = build_world(chapters=4, volumes=2, seed=6)
+    ids, _ = create_world(world, capacity=8)
+    with SessionLocal() as db:
+        later = enqueue(db, db.get(Project, ids[1]), "analyze", {"analysis_mode": "parallel"})
+        later.checkpoint = {"series_wait_since": time.time() - parallel_analysis._series_wait_limit() - 1}
+        db.flush()
+        earlier = enqueue(db, db.get(Project, ids[0]), "analyze", {})
+        later.queued_at, earlier.queued_at = 1, 2
+        db.commit()
+        later_id = later.id
+    with respx.mock:
+        respx.post(URL).mock(side_effect=simulated_provider(Analyst()))
+        claimed = claim()
+        assert claimed[0] == later_id
+        await execute(*claimed)
+    with SessionLocal() as db:
+        assert db.get(Job, later_id).status == "completed"
+        actions = {(d.kind, d.action) for d in db.scalars(select(AutopilotDecision))}
+    assert ("series_order", "stopped_waiting") in actions
+
+
 # ---------------------------------------------------------------- options, width, budget, queue
 
 

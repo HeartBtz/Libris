@@ -180,6 +180,17 @@ def _earlier_volume_analysing(job: Job) -> str | None:
     return None
 
 
+def series_wait_since(job: Job) -> float:
+    return float((job.checkpoint or {}).get("series_wait_since") or 0)
+
+
+def _series_wait_limit() -> float:
+    """How long a volume waits for an earlier one: as long as an automation request may stay waiting."""
+    from app.config import settings
+
+    return settings().api_request_stall_minutes * 60
+
+
 def _set_aside(job: Job, owner: str, title: str) -> None:
     """Gives the worker slot back; the job is claimed again in SERIES_WAIT_SECONDS."""
     with SessionLocal() as db:
@@ -187,6 +198,10 @@ def _set_aside(job: Job, owner: str, title: str) -> None:
         current.status, current.stop_reason = "waiting", "earlier_volume"
         current.error = f"En attente de la fin de l’analyse du volume précédent « {title} » de la série."
         current.next_attempt = time.time() + SERIES_WAIT_SECONDS
+        current.checkpoint = {
+            **current.checkpoint,
+            "series_wait_since": series_wait_since(current) or time.time(),
+        }
         current.lease_owner, current.lease_until = "", 0
         db.get(Project, job.project_id).status = "waiting"
         emit(
@@ -204,8 +219,16 @@ async def analyze_parallel(job: Job, owner: str) -> None:
     await _extract(job, owner, todo, extracted)
     earlier = await blocking(_earlier_volume_analysing, job)
     if earlier:
-        await blocking(_set_aside, job, owner, earlier)
-        raise JobStopped()
+        since = series_wait_since(job)
+        if not since or time.time() - since < _series_wait_limit():
+            await blocking(_set_aside, job, owner, earlier)
+            raise JobStopped()
+        # Nothing waits forever: past the limit, the volume goes on with the series memory there is.
+        await blocking(
+            note, job, owner, stage="analysis", kind="series_order", action="stopped_waiting",
+            reason=f"Analyse du volume précédent « {earlier} » toujours en cours après "
+            f"{round(_series_wait_limit() / 60)} min : ce volume continue avec la mémoire de série disponible.",
+        )  # fmt: skip
     skipped = await blocking(_skipped, job)
     await _reconcile(job, owner, passages, analyzed, skipped, extracted, reconciled)
     await _write_memory(job, owner, todo, extracted, reconciled)

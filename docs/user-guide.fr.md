@@ -351,7 +351,8 @@ après une panne, le **Fournisseur de secours** utilisé. Rien n’est attendu d
 
 **À la fin**, le bandeau propose aussitôt **Télécharger l’EPUB** (ou **Télécharger les chapitres**) et **Voir le
 rapport**. S’il affiche « Terminé · 3 passages conservés en original », c’est que ces passages n’ont pu être
-traduits par aucun provider : ils gardent leur texte original dans le résultat, et le rapport dit pourquoi.
+traduits par aucun provider : ils gardent leur texte original dans le résultat, et le rapport dit pourquoi (voir
+[kept in the original](autopilot.md#kept-in-the-original)).
 
 **L’onglet Pilote automatique** contient :
 
@@ -583,7 +584,8 @@ Le menu **Exporter** de l’en-tête propose les formats adaptés à la source d
   chacun.
 - Le **Projet complet** est une sauvegarde de tout le travail du livre (statuts, validations, historique,
   critiques, glossaire, personnages, travaux) ; il se réimporte avec **Restaurer une archive Libris**. Il ne
-  contient ni les membres, ni le provider, ni les clés, ni les prompts et réponses complets.
+  contient ni les membres, ni le provider, ni les clés, ni les prompts et réponses complets. Son format est décrit
+dans [architecture.md](architecture.md#project-archive-schema-version-3).
 
 **Options d’export…** permet de choisir un format et deux options : **Compléter avec le texte original** (les
 passages non traduits gardent leur texte source) et, pour le ZIP, **Ajouter le texte consolidé au ZIP**. Sans la
@@ -667,7 +669,7 @@ compte** ou, pour un administrateur, depuis **Paramètres → API d’automatisa
    séries, Envoyer du contenu, Lancer le pipeline, Suivre les travaux, Piloter les travaux, Lire les résultats)
    et une **Expiration** (30, 90 ou 365 jours, ou Jamais).
 2. Cochez au besoin **Signer les webhooks avec un secret propre à ce jeton** : les requêtes qui donnent une
-   adresse de rappel préviendront votre serveur à leur fin, avec une signature HMAC-SHA256.
+   adresse de rappel préviendront votre serveur à leur fin, avec une signature HMAC-SHA256 (voir [webhooks](api.md#webhooks)).
 3. Copiez le secret (`lbr_…`) : **il n’est affiché qu’une fois**. Libris n’en garde qu’une empreinte.
 
 La liste montre pour chaque jeton sa date de création, d’expiration et de dernière utilisation. **Révoquer**

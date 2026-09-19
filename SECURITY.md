@@ -32,5 +32,5 @@ the report is reviewed, and fixes are released as soon as practical.
   privacy requirements.
 
 The security design (authentication, sessions, tokens, isolation between users, container hardening) is
-described in [docs/architecture.md](docs/architecture.md); installation hardening is in
+described in [docs/architecture.md](docs/architecture.md#security-design); installation hardening is in
 [docs/docker.md](docs/docker.md) and [docs/configuration.md](docs/configuration.md).

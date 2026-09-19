@@ -19,7 +19,7 @@ cd Libris
 The installer:
 
 - creates a private `.env` with random secrets and an initial password;
-- pulls `heartbtz/libris:0.5.0` and PostgreSQL;
+- pulls `heartbtz/libris:0.6.0` and PostgreSQL;
 - applies database migrations;
 - starts the web API and resumable worker;
 - waits for the health check;
@@ -74,7 +74,7 @@ Never add `--volumes` to `docker compose down` during an update. Named volumes c
 Pull the exact application image manually with:
 
 ```bash
-docker pull heartbtz/libris:0.5.0
+docker pull heartbtz/libris:0.6.0
 ```
 
 The same image runs the web API and worker with different Compose commands. It is not a complete standalone deployment without PostgreSQL and persistent volumes.

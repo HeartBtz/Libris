@@ -6,7 +6,9 @@ corrections humaines restent possibles à tout moment ; elles ne sont jamais né
 
 ## Quand il s’applique
 
-- Activé par défaut (`AUTOPILOT_ENABLED=true`) pour tout lancement portant sur le livre entier :
+- Activé par défaut (`AUTOPILOT_ENABLED=true`, ou le réglage enregistré dans *Paramètres › Pilote
+  automatique*, voir [le guide d’exploitation](operations.md#réglages-dadministration-du-pilote-et-des-webhooks))
+  pour tout lancement portant sur le livre entier :
   import avec démarrage, choix du premier fournisseur, requête de l’API d’automatisation
   (`/api/v1`), boutons **Analyser** et **Traduire** (`POST /api/projects/{id}/jobs` avec
   `operation` = `analyze` ou `translate`, sans chapitre ni passage ciblé).
@@ -58,8 +60,8 @@ Chaque réponse passe les validations habituelles (paragraphes, marqueurs, gloss
 ## Fournisseurs de secours et pannes
 
 La chaîne est : le fournisseur du job, celui du livre, `config.fallback_provider_ids` du livre (réglable
-par `PUT /api/projects/{id}`), puis `AUTOPILOT_FALLBACK_PROVIDERS` (noms ou identifiants séparés par des
-virgules). Une panne est attendue comme d’habitude (délais `PROVIDER_RECOVERY_*`) au plus
+par `PUT /api/projects/{id}`), puis les fournisseurs de secours de l’installation (*Paramètres › Pilote automatique*, sinon
+`AUTOPILOT_FALLBACK_PROVIDERS`, noms ou identifiants séparés par des virgules). Une panne est attendue comme d’habitude (délais `PROVIDER_RECOVERY_*`) au plus
 `AUTOPILOT_OUTAGE_MAX_RETRIES` fois et `AUTOPILOT_OUTAGE_MAX_WAIT_SECONDS` secondes ; ensuite le job
 passe au fournisseur suivant (`provider/outage/fallback_provider`). Des identifiants refusés font passer
 au suivant immédiatement. Quand plus aucun fournisseur ne répond, le job se termine `failed`

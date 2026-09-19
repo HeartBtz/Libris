@@ -43,9 +43,13 @@ markers, and every screen works from phone to wide desktop.
 - **Optional external memory:** use internal SQL memory alone, or connect your own OpenViking instance, organised per series and rebuildable from PostgreSQL at any time ([OpenViking guide](docs/openviking.md)).
 - **Exports per format:** EPUB for EPUB volumes (EPUBCheck-validated), one UTF-8 file per chapter in a ZIP with a checksum manifest, a consolidated text with chapter headings, Markdown, the Book Bible and a full project archive.
 
+### Autopilot from file to result
+
+![Autopilot report and decision log](docs/screenshots/autopilot.png)
+
 ### Review with context
 
-![Translation validation and AI suggestions](docs/screenshots/validations.png)
+![Review log with optional AI suggestions](docs/screenshots/validations.png)
 
 ### Read and edit side by side
 

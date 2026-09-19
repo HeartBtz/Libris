@@ -45,6 +45,12 @@ Run `python3 scripts/setup.py` in the repository root. It generates independent 
 | `RETENTION_REQUEST_BODIES_DAYS`, `RETENTION_EVENTS_DAYS`, `RETENTION_OUTBOX_SENT_DAYS`, `RETENTION_BIBLE_REVISIONS`, `RETENTION_JOB_STATE_DAYS`, `RETENTION_REQUEST_ROWS_DAYS`, `RETENTION_RESULTS_DAYS` | Automatic clean-up of diagnostic data and delivered API result files (`30`, `7`, `7`, `20`, `30`, `0`, `30`; `0` disables a rule) — see the operations guide |
 | `METRICS_TOKEN`                            | Empty by default: `GET /metrics` answers 404. Set a random value of at least 24 characters (`openssl rand -hex 32`) to let Prometheus scrape it with `Authorization: Bearer <token>` — see the operations guide |
 
+The `AUTOPILOT_*` values and `API_WEBHOOK_HOSTS`, `API_WEBHOOK_PRIVATE_NETWORKS`, `API_WEBHOOK_SECRET`,
+`API_WEBHOOK_MAX_ATTEMPTS`, `API_WEBHOOK_TIMEOUT_SECONDS` are defaults: an administrator can override them at
+runtime from *Settings › Autopilot* and *Settings › Automation API* (API: `/api/settings/autopilot`,
+`/api/settings/webhooks`, see the operations guide). Saved values win until they are reset; a secret saved
+there is stored encrypted with `SECRET_KEY` and never shown again.
+
 Changing bootstrap credentials does not reset an existing account. Changing the database password in `.env` does not change an initialized PostgreSQL role's password.
 
 ## 2. Start and verify

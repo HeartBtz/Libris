@@ -91,8 +91,10 @@ def prompt_rules(name: str, target: str) -> str:
 def load_prompt(name: str, source: str, target: str) -> tuple[str, str]:
     with SessionLocal() as db:
         override = db.scalar(select(Prompt).where(Prompt.name == name).order_by(Prompt.version.desc()))
-        content = override.content if override else (settings().prompt_dir / f"{name}.txt").read_text()
-        version = f"db-v{override.version}" if override else PROMPT_FILES_VERSION
+        # An empty saved version stands for the built-in prompt (see Prompt).
+        custom = override is not None and bool(override.content)
+        content = override.content if custom else (settings().prompt_dir / f"{name}.txt").read_text()
+        version = f"db-v{override.version}" if custom else PROMPT_FILES_VERSION
     content = content.replace("{source_language}", language_name(source)).replace(
         "{target_language}", language_name(target)
     )

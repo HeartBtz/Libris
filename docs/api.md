@@ -24,6 +24,7 @@ The automation API lives under `/api/v1` and is separate from the API used by th
 | `POST /api/v1/translation-requests/{id}/resume` | `jobs:control` | Resume it |
 | `POST /api/v1/translation-requests/{id}/cancel` | `jobs:control` | Cancel it |
 | `GET /api/v1/translation-requests/{id}/result` | `results:read` | Download the result (EPUB, JSON, TXT or ZIP) |
+| `GET /api/v1/providers` | `content:write` | List the providers a request may use |
 | `GET /api/v1/series` | `series:read` | List your series |
 | `GET /api/v1/series/{id}` | `series:read` | One series and its volumes |
 
@@ -54,7 +55,7 @@ tokens that are not revoked.
 | Scope | Interface label | Allows |
 | --- | --- | --- |
 | `series:read` | Read series | `GET /api/v1/series`, `GET /api/v1/series/{id}` |
-| `content:write` | Send content | `POST /api/v1/translation-requests` |
+| `content:write` | Send content | `POST /api/v1/translation-requests`, `GET /api/v1/providers` |
 | `pipeline:start` | Start the pipeline | Together with `content:write`: requests that start the translation (the default). Without it, only `start=false` (import only) is accepted. |
 | `jobs:read` | Follow jobs | `GET /api/v1/translation-requests/{id}` |
 | `jobs:control` | Control jobs (pause, resume, cancel) | `POST …/pause`, `…/resume`, `…/cancel` |
@@ -113,8 +114,22 @@ volume's provider, then the series' default provider. If none is set, the reques
 `422 provider_required`; an unknown id answers `422 unknown_provider`.
 
 The simplest setup is to choose a default provider for the series once, in the interface (the series'
-**Defaults** tab), and leave `provider_id` out. To find provider ids, a signed-in user can call the
-interface's `GET /api/providers` (session cookie), which lists each provider's `id`, name and model.
+**Defaults** tab), and leave `provider_id` out. To find provider ids, list the providers with a token
+that has the `content:write` scope:
+
+```bash
+curl -sS "$LIBRIS_URL/api/v1/providers" -H "Authorization: Bearer $LIBRIS_TOKEN"
+```
+
+```json
+[{"id": "…", "name": "Local", "kind": "openai", "model": "qwen3-32b", "created_at": 1789000000.0,
+  "default_for_series": ["…"]}]
+```
+
+The list is sorted by name. `kind` is the connection type (`openai`, `openai_direct`, `openai_responses`,
+`anthropic` or `codex_chatgpt`), and `default_for_series` lists the ids of your series that use the
+provider by default. The provider's address and API key are never included. Providers are managed by
+administrators in the interface.
 
 ### Send an EPUB
 
@@ -283,8 +298,8 @@ curl -sS "$LIBRIS_URL/api/v1/translation-requests/$REQUEST_ID?wait=60" \
 ```
 
 `?wait=<seconds>` holds the answer until the request ends, up to `API_RESULT_MAX_WAIT_SECONDS`
-(60 by default); a larger value is cut to that limit, and values above 3600 are refused. Nothing is
-held open in the database while waiting.
+(60 by default, 600 at most); a larger value is cut to that limit, and values above 600 are refused
+with `422`. Nothing is held open in the database while waiting.
 
 ### How a request moves
 

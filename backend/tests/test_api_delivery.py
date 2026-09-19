@@ -366,7 +366,9 @@ def test_long_polling_is_bounded_and_cancelling_ends_the_request(owner, api, pro
     assert waited.status_code == 409 and waited.json()["detail"]["code"] == "result_not_ready"
     assert waited.headers["retry-after"] == "5"
     assert api.get(created["status_url"] + "?wait=600", headers=bearer(secret)).json()["status"] == "pending"
-    assert api.get(created["status_url"] + "?wait=100000", headers=bearer(secret)).status_code == 422
+    # Above the setting's own ceiling (600 s) the value is refused, on both routes, not silently cut.
+    for url in (created["status_url"], created["result_url"]):
+        assert api.get(url + "?wait=601", headers=bearer(secret)).status_code == 422
     cancelled = api.post(created["status_url"] + "/cancel", headers=bearer(secret)).json()
     assert cancelled["status"] == "cancelled" and cancelled["report"]["outcome"] == "cancelled"
     refused = api.get(created["result_url"], headers=bearer(secret))

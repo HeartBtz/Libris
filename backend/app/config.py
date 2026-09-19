@@ -5,6 +5,9 @@ from typing import Literal
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+# Hard ceiling of API_RESULT_MAX_WAIT_SECONDS, and so of any `?wait=` a client may send.
+API_RESULT_WAIT_CEILING = 600
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
@@ -13,7 +16,9 @@ class Settings(BaseSettings):
     secret_key: str = ""
     bootstrap_password: str = ""
     bootstrap_username: str = "admin"
-    cookie_secure: bool = False  # Set to True in production; tests need False
+    # Session cookie marked Secure: browsers then send it only over HTTPS and to http://localhost.
+    # Set to false only when people open Libris over plain HTTP on another address (LAN name or IP).
+    cookie_secure: bool = True
     openapi_enabled: bool = True  # /openapi.json, for signed-in users only
     allowed_origins: str = "http://localhost:8088,http://127.0.0.1:8088"
     session_duration_hours: int = Field(default=24, ge=1, le=24 * 90)
@@ -37,7 +42,7 @@ class Settings(BaseSettings):
     api_max_chapters: int = Field(default=2000, ge=1, le=100_000)
     api_rate_limit_per_minute: int = Field(default=120, ge=0, le=100_000)
     # Delivery of automation requests (app.engines.delivery). Longest `?wait=` a client may ask for.
-    api_result_max_wait_seconds: int = Field(default=60, ge=0, le=600)
+    api_result_max_wait_seconds: int = Field(default=60, ge=0, le=API_RESULT_WAIT_CEILING)
     # A request whose job stays paused, blocked or waiting this long fails (with the reason), and so
     # does one still unfinished after api_request_max_hours: no request stays `running` forever.
     api_request_stall_minutes: int = Field(default=360, ge=1, le=60 * 24 * 30)
@@ -115,6 +120,11 @@ class Settings(BaseSettings):
     metrics_token: str = ""
 
     @property
+    def allowed_origin_set(self) -> frozenset[str]:
+        """ALLOWED_ORIGINS as a set: spaces around each origin and empty entries are ignored."""
+        return frozenset(origin.strip() for origin in self.allowed_origins.split(",") if origin.strip())
+
+    @property
     def api_payload_mb(self) -> int:
         return self.api_max_payload_mb or self.max_upload_mb
 
@@ -122,11 +132,13 @@ class Settings(BaseSettings):
         for name in ("books", "projects", "exports", "sources", "staging", "results", "tmp"):
             (self.data_dir / name).mkdir(parents=True, exist_ok=True)
         if len(self.secret_key) < 32:
-            raise RuntimeError("SECRET_KEY doit contenir au moins 32 caractères (voir .env.example).")
+            raise RuntimeError(
+                "SECRET_KEY must be at least 32 characters long: run scripts/setup.py or see .env.example."
+            )
         if self.api_webhook_secret and len(self.api_webhook_secret) < 32:
-            raise RuntimeError("API_WEBHOOK_SECRET doit contenir au moins 32 caractères, ou rester vide.")
+            raise RuntimeError("API_WEBHOOK_SECRET must be at least 32 characters long, or empty.")
         if self.metrics_token and len(self.metrics_token) < 24:
-            raise RuntimeError("METRICS_TOKEN doit contenir au moins 24 caractères, ou rester vide.")
+            raise RuntimeError("METRICS_TOKEN must be at least 24 characters long, or empty.")
 
 
 @lru_cache

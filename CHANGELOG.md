@@ -2,6 +2,32 @@
 
 All notable changes are documented here. Libris follows [Semantic Versioning](https://semver.org/); while the project is below 1.0, minor versions may include breaking operational changes that are called out explicitly.
 
+## [Unreleased]
+
+### Added
+
+- **Providers listed to API tokens.** A script with only a token could not find the provider ids a translation request names in `provider_id`: the list was only served to the interface's session. `GET /api/v1/providers` (scope `content:write`) returns each provider's id, name, kind, model and the caller's series that use it by default, never its address or key.
+- **Restoring a prompt version or the built-in prompt.** *Settings › Prompts* could only create new versions: going back to an earlier text, or to the prompt shipped with Libris, meant copying it by hand. The page now shows the **Version history** of the selected prompt (date, version in force, content) with a **Restore** button, and **Go back to the original prompt**; both ask for confirmation. Restoring saves the chosen text as a new version, so nothing is erased; going back to the original follows the built-in prompt, including its updates in later releases. The API is `GET /api/prompts/{name}/versions` and `POST /api/prompts/{name}/restore` (administrators only, like editing).
+- **Resetting the automatic recovery delay.** Once a delay was saved in *Settings › Automatic recovery*, `PROVIDER_RECOVERY_BASE_SECONDS` was ignored for good, and with nothing saved the page showed 60 seconds whatever the environment said. The page now shows where the delay comes from (saved here or environment) and the environment value, and **Go back to the environment delay** forgets the saved one, like the autopilot and webhook pages. `GET /api/settings/recovery` answers `retry_seconds`, `default_seconds` and `saved`; `DELETE` resets.
+
+### Changed
+
+- **Secure session cookie by default.** `COOKIE_SECURE` now defaults to `true` in the code, as it already did in the generated `.env`. An installation whose `.env` has no `COOKIE_SECURE` line and is opened over plain HTTP on a network address must add `COOKIE_SECURE=false`; HTTPS and `http://localhost` are unaffected.
+- **Database migration `9d3e5b1f7a24`** clears the `human` flag of passages kept in the original (see Fixed); it runs at start-up like the others.
+
+### Fixed
+
+- **Updating with the installer.** Running `./scripts/install-docker.sh` again after `git pull` restarted the version already written in `.env`, unless `LIBRIS_IMAGE=` was given by hand. An official `heartbtz/libris:<x.y.z>` pin older than the release shipped with the files is now moved to it (and the installer says so); a newer release, a custom image and an explicit `LIBRIS_IMAGE=` still win.
+- **Session cookie defaults.** The code defaulted `COOKIE_SECURE` to `false` while `.env.example` set `true`, and its comment claimed `false` was needed on `http://localhost:8088`. Browsers accept Secure cookies on `localhost`; only plain HTTP on a network address needs `false`. The code now defaults to `true` and `.env.example`, the configuration reference and the Docker guide explain the network case.
+- **Spaces in `ALLOWED_ORIGINS`.** `http://a:8088, http://b:8088` kept the space before the second origin, whose requests were refused with 403. Spaces around each origin and empty entries are now ignored.
+- **Provider comparison report path.** `compare_providers --output report.json` failed in the read-only container. A relative path is now written under `DATA_DIR/tmp`, and the command prints where the report went.
+- **Database migrations under the previous worker.** `scripts/deploy.sh` ran the migrations before looking at the worker, so `--api-only` (and the other modes, before draining the queue) changed the schema under a worker of the previous version. `--api-only` now refuses with status 5, changing nothing, when a migration is pending and the worker runs; `--worker-when-idle` migrates only once the queue is drained and the worker stopped, and `--force-worker` stops the web application and the worker before migrating.
+- **Startup errors in English.** The `SECRET_KEY`, `BOOTSTRAP_PASSWORD`, `API_WEBHOOK_SECRET` and `METRICS_TOKEN` startup errors were French only, unlike the logs and the operator documentation.
+- **Invalid-answer problem.** A passage given up after invalid answers said "five invalid answers" while Libris stops after three. The number now comes from the limit itself, and the problems list of a book is shown in English to English-speaking users.
+- **Passages kept in the original.** Keeping a passage's source text marked it as a human correction: it counted in `report.passages.human` and no later translation could replace it, even when asked explicitly. It is no longer a human correction: the automatic passes still leave it alone, but retranslating the passage or selecting it in **Summary & recovery** (now listed there) replaces it when the translation succeeds and settles its warning; a failed retry keeps the original with the new error.
+- **`?wait=` limit.** The long-polling parameter accepted up to 3600 seconds but was cut to `API_RESULT_MAX_WAIT_SECONDS`, itself at most 600. Values above 600 are now refused with 422 on both routes.
+- **API token hint in the import assistant.** The automation note told users who are not administrators that an administrator creates API tokens, although every account creates its own. It now says so for everyone and links to *My account › API tokens*.
+
 ## [0.6.0] - 2026-09-19
 
 Libris becomes an automatic translation service organised as a library of series. An EPUB, TXT chapters or a JSON document go in — through the interface or the automation API — and the translated book comes out, with no human step required: the autopilot handles failed passages, reviews, AI suggestions, provider outages and memory decisions on its own, logs every decision and returns a report. Series, webnovel chapters and earlier volumes feed the context of later ones without ever revealing what comes after.

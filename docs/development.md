@@ -41,8 +41,9 @@ The simplest loop runs the real stack with Docker Compose and the interface with
 
 1. Create a local configuration once: `python3 scripts/setup.py` writes a `.env` with generated secrets and never
    overwrites an existing one.
-2. For plain-HTTP development, set `COOKIE_SECURE=false` in `.env` and add the Vite origin to `ALLOWED_ORIGINS`,
-   for example `ALLOWED_ORIGINS=http://127.0.0.1:8088,http://127.0.0.1:5173`.
+2. Add the Vite origin to `ALLOWED_ORIGINS`, for example
+   `ALLOWED_ORIGINS=http://127.0.0.1:8088,http://127.0.0.1:5173`. `COOKIE_SECURE=true` works on `localhost` and
+   `127.0.0.1`; set it to `false` only if you open the development server through a network address.
 3. Build and start the stack from your working tree, under a local image name so that the published image is
    never overwritten:
 

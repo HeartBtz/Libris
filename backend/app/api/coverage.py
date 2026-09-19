@@ -48,7 +48,15 @@ def completion(pid: str, user: CurrentUser, db: DB):
         select(Job.status).where(Job.project_id == pid).order_by(Job.created_at.desc()).limit(1)
     )
     processing = db.scalar(select(Job.id).where(Job.project_id == pid, Job.status.in_(HELD)).limit(1))
-    stuck = (owned, or_(untranslated, Segment.status.in_(("error", "refused", "blocked"))))
+    # Passages kept in the original are listed too: another provider may translate them now.
+    stuck = (
+        owned,
+        or_(
+            untranslated,
+            Segment.retained_source.is_(True),
+            Segment.status.in_(("error", "refused", "blocked")),
+        ),
+    )
     chapters = {c.id: c.title for c in db.scalars(select(Chapter).where(Chapter.project_id == pid))}
     rows = db.execute(
         select(
@@ -60,7 +68,6 @@ def completion(pid: str, user: CurrentUser, db: DB):
             func.substr(Segment.source, 1, 260),
             Segment.human,
             Segment.validated,
-            Segment.retained_source,
         )
         .where(*stuck)
         .order_by(Segment.position)
@@ -87,9 +94,9 @@ def completion(pid: str, user: CurrentUser, db: DB):
                 "status": status,
                 "error": error,
                 "excerpt": excerpt,
-                "eligible": not (human or validated or retained_source),
+                "eligible": not (human or validated),
             }
-            for sid, position, chapter_id, status, error, excerpt, human, validated, retained_source in rows
+            for sid, position, chapter_id, status, error, excerpt, human, validated in rows
         ],
     }
 

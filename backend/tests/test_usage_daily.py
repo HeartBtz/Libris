@@ -1,4 +1,4 @@
-"""Daily usage aggregates (audit I-5): the statistics give the same figures before and after a rollup."""
+"""Daily usage aggregates: the statistics give the same figures before and after a rollup."""
 
 import time
 

@@ -19,6 +19,7 @@ from app.jobs.concurrency import blocking, book_share, in_parallel, job_lock
 from app.jobs.queue import JobStopped, checkpoint, fence, finish_segment
 from app.models import Entity, Glossary, Issue, Job, Project, Segment
 from app.providers.llm import (
+    MAX_INVALID_ATTEMPTS,
     InvalidResponseExhausted,
     LLMError,
     ProviderAuthenticationRequired,
@@ -202,6 +203,9 @@ def _passage(job: Job, sid: str, force: bool) -> tuple[Project, Segment, bool] |
             return None
         if segment.stage == "done" and not force and job.operation != "review":
             return None
+        # A passage kept in the original is translated again only on an explicit, forced request.
+        if segment.retained_source and not force:
+            return None
         # A forced rerun is checkpointed per job, including proposal-only runs on human text.
         if state.is_marked(db, job.id, state.FINISHED, sid):
             return None
@@ -256,7 +260,10 @@ def _skip_failed_passage(job: Job, owner: str, sid: str, refused: bool, error: s
         current_job = fence(db, job.id, owner)
         current = db.get(Segment, sid)
         if current and not current.human:
-            current.status, current.error = ("refused" if refused else "error"), error[:1500]
+            # A passage kept in the original stays so when another attempt fails; the error is recorded.
+            if not current.retained_source:
+                current.status = "refused" if refused else "error"
+            current.error = error[:1500]
         code = "content_refusal" if refused else "invalid_response"
         db.execute(delete(Issue).where(Issue.segment_id == sid, Issue.code == code))
         db.add(
@@ -268,7 +275,8 @@ def _skip_failed_passage(job: Job, owner: str, sid: str, refused: bool, error: s
                 message=(
                     "Traduction refusée deux fois ; passage ignoré."
                     if refused
-                    else "Cinq réponses invalides ; passage ignoré, à reprendre ultérieurement."
+                    else f"Réponses invalides (jusqu’à {MAX_INVALID_ATTEMPTS} essais) ; passage ignoré, "
+                    "à reprendre ultérieurement."
                 ),
             )
         )
@@ -298,6 +306,8 @@ def _flag_passage(job: Job, owner: str, sid: str, exc: Exception) -> None:
         )
         if isinstance(exc, ProviderContentRefused):
             segment.status = "refused"
+        if segment.retained_source and segment.status in {"error", "refused"}:
+            segment.status = "source_retained"  # the original stays in place; the error is recorded
         segment.error = str(exc)[:1500]
         db.commit()
 

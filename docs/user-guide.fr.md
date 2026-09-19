@@ -176,7 +176,8 @@ Les fichiers texte peuvent être en UTF-8 (avec ou sans BOM), en UTF-16 avec BOM
 page (paragraphes, lignes vides, indentation, séparateurs de scène) est conservée.
 
 Un encadré rappelle que des scripts peuvent aussi envoyer des chapitres en JSON par l’API d’automatisation, avec
-un [jeton d’API](#jetons-dapi).
+un [jeton d’API](#jetons-dapi) que chaque compte crée lui-même : son lien **Créer un jeton dans Mon compte ›
+Jetons d’API** ferme l’assistant et ouvre **Mon compte**.
 
 ### 2. Destination
 
@@ -456,10 +457,11 @@ L’onglet **Bilan & récupération** dit si la **Traduction complète** est att
 **Traduits**, **Manquants**, **Conservés en original**, **Ouverts**, les **Alertes non résolues** et les **Choix
 humains protégés**, ainsi que le **Résultat de la revue finale**.
 
-La liste **Passages à récupérer** se filtre (**Tous**, **Erreurs**, **Refus**, **Non commencés**, **Bloqués**).
-Cochez des passages (200 au plus à la fois), choisissez éventuellement un **Provider de récupération**, puis
-**Relancer la sélection** : seuls ces passages sont retraités. Un passage portant un choix humain protégé n’est
-jamais relancé automatiquement.
+La liste **Passages à récupérer** se filtre (**Tous**, **Erreurs**, **Refus**, **Non commencés**, **Bloqués**) ;
+elle comprend aussi les passages conservés en original. Cochez des passages (200 au plus à la fois), choisissez
+éventuellement un **Provider de récupération**, puis **Relancer la sélection** : seuls ces passages sont
+retraités, et une traduction réussie remplace l’original conservé. Un passage portant un choix humain protégé
+(correction ou validation) ne peut pas être sélectionné.
 
 ### Qualité
 
@@ -727,9 +729,14 @@ termes recherchés sont transmis à votre instance et à ses moteurs. Le format 
 
 Les instructions envoyées au modèle sont versionnées. La liste montre chaque prompt et sa version (**initiale**
 pour celle livrée avec Libris). Choisissez-en un, modifiez son **Contenu du prompt** puis **Créer une version** :
-elle s’applique aux requêtes suivantes. L’interface ne propose pas de retour en arrière : **Exporter les prompts**
-avant de modifier, et pour revenir à la version d’origine, recopiez le fichier correspondant du dossier `prompts/`
-de Libris dans une nouvelle version.
+elle s’applique aux requêtes suivantes.
+
+L’**Historique des versions**, sous l’éditeur, liste chaque version enregistrée avec sa date, la version
+**initiale** en dernier, et marque **En vigueur** celle qui s’applique ; **Voir le contenu** l’affiche.
+**Restaurer**, après confirmation, en fait une nouvelle version : rien n’est effacé, et les modifications non
+enregistrées de l’éditeur sont perdues. **Revenir au prompt d’origine** rétablit le prompt livré avec Libris ; il
+suit alors ses mises à jour lors des prochaines versions de Libris. **Exporter les prompts** télécharge les
+prompts affichés au format JSON.
 
 ### Utilisateurs
 
@@ -750,10 +757,13 @@ l’environnement** efface ce qui a été enregistré ici.
 
 ### Reprise automatique
 
-Le **Délai de reprise (secondes)** après une panne réseau, un timeout ou une erreur temporaire (60 secondes par
-défaut, de 5 à 3 600). Le travail reprend depuis son dernier point enregistré. Le délai demandé par le provider
-et sa capacité restent prioritaires ; les pauses manuelles et les erreurs d’authentification attendent toujours
-une personne.
+Le **Délai de reprise (secondes)** après une panne réseau, un timeout ou une erreur temporaire (de 5 à 3 600).
+Sans délai enregistré ici, c’est la valeur de l’installation (`PROVIDER_RECOVERY_BASE_SECONDS`, 60 secondes par
+défaut) qui s’applique ; elle est rappelée sous le champ, et un badge indique **Délai enregistré ici** ou
+**Délai de l’environnement**. **Revenir au délai de l’environnement** oublie le délai enregistré, après
+confirmation. Le travail reprend depuis son dernier point enregistré. Le délai demandé par le provider et sa
+capacité restent prioritaires ; les pauses manuelles et les erreurs d’authentification attendent toujours une
+personne.
 
 ### API d’automatisation
 
@@ -834,8 +844,9 @@ corrigez seulement ce qui vous importe ; vos corrections sont protégées.
 
 **Le livre est « Terminé » mais certains passages sont restés en langue source. Pourquoi ?**
 Aucun provider n’a pu les traduire (refus répétés, réponses invalides). Ils sont listés avec leur raison dans
-l’onglet **Pilote automatique**. Pour réessayer avec un autre modèle, utilisez **Bilan & récupération** ou
-**Retraduire les passages refusés** dans le **Journal des relectures**.
+l’onglet **Pilote automatique**. Pour réessayer, éventuellement avec un autre modèle, sélectionnez-les dans
+**Bilan & récupération** ou utilisez **Retraduire…** sur le passage : une traduction réussie remplace l’original.
+Un passage conservé en original n’est pas une correction humaine et n’est pas protégé.
 
 **Le provider est en panne. Vais-je perdre le travail fait ?**
 Non. Chaque passage terminé est enregistré. Le travail attend et reprend seul (« Service indisponible · reprise

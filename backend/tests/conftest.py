@@ -16,6 +16,8 @@ os.environ["DATABASE_URL"] = os.environ.get(
 os.environ["DATA_DIR"] = temporary.name
 os.environ["SECRET_KEY"] = "test-only-secret-key-with-more-than-32-characters"
 os.environ["BOOTSTRAP_PASSWORD"] = "test-password-123456789"
+# The test client talks plain HTTP to http://testserver, where a Secure cookie would never be sent back.
+os.environ["COOKIE_SECURE"] = "false"
 # Only tests marked `epubcheck` run the real validator (see the `epubcheck_jar` fixture): one JVM per
 # export would make the whole suite several times slower.
 EPUBCHECK_JAR = os.environ.get("EPUBCHECK_JAR", "")

@@ -21,7 +21,11 @@ def save_version(
 ) -> bool:
     segment = db.scalar(select(Segment).where(Segment.id == segment_id).with_for_update())
     validate_translation(segment.units, TranslationResult(units=units))
-    human = origin in {"human", "restore", "source_retained"}
+    # A human correction: protected from machine output until a person changes it again. Keeping the
+    # original (`source_retained`) is not a translation anyone chose, so a later successful machine
+    # translation may replace it; the automatic passes skip retained passages on their own.
+    human = origin in {"human", "restore"}
+    retained = origin == "source_retained"
     version = TranslationVersion(
         segment_id=segment_id,
         units=units,
@@ -32,9 +36,11 @@ def save_version(
     )
     db.add(version)
     was_retained = segment.retained_source  # read before the UPDATE refreshes the loaded row
-    # Only a correction of machine output is a reusable choice; revising one's own decision is not.
-    previous_units = [] if segment.human else list(segment.translated_units or [])
-    permitted = segment.revision == base_revision and (human or not segment.human)
+    # Only a correction of machine output is a reusable choice; revising one's own decision, or
+    # translating a passage kept in the original, is not.
+    previous_units = [] if segment.human or was_retained else list(segment.translated_units or [])
+    # A person's own action (author_id) may replace a human correction; machine output never does.
+    permitted = segment.revision == base_revision and (human or author_id is not None or not segment.human)
     if permitted:
         changed = db.execute(
             update(Segment)
@@ -44,16 +50,16 @@ def save_version(
                 translation="\n\n".join(u["text"] for u in units),
                 revision=base_revision + 1,
                 human=human,
-                retained_source=origin == "source_retained",
-                validated=validated if human and origin != "source_retained" else False,
+                retained_source=retained,
+                validated=validated if human else False,
                 stage=stage,
                 # An untranslated passage kept on purpose is neither "ok" nor merely "to check".
-                status="source_retained" if origin == "source_retained" else "ok" if validated else "check",
+                status="source_retained" if retained else "ok" if validated else "check",
                 error="",
             )
         )
         permitted = changed.rowcount == 1
-        if permitted and human and origin != "source_retained" and was_retained:
+        if permitted and not retained and was_retained:
             # A real translation replaces the retained original: its standing alert is settled.
             db.execute(
                 update(Issue)

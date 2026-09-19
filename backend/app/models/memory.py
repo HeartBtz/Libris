@@ -102,6 +102,12 @@ class Outbox(Identified, Base):
 
 
 class Prompt(Identified, Base):
+    """A saved version of a prompt; the highest version is in force.
+
+    An empty content means "the built-in prompt" (prompts/<name>.txt): restoring the original saves
+    such a version, so the history is kept and later releases of the built-in prompt apply.
+    """
+
     __tablename__ = "prompts"
     name: Mapped[str] = mapped_column(String(80), index=True)
     content: Mapped[str] = mapped_column(Text)

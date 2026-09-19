@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { api, send } from "../api";
 import { formatDateTime, registerTranslations, useI18n } from "../i18n";
 import type { Run, User } from "../types";
-import { Button, Card, Field, Icon, Input, LoadingBlock, Page, PageHeader } from "../ui";
+import { Badge, Button, Card, Field, Icon, Input, LoadingBlock, Page, PageHeader, useDialogs } from "../ui";
 import { ApiTokens } from "./ApiTokens";
 
 registerTranslations({
@@ -29,6 +29,15 @@ registerTranslations({
     "Resume from checkpoint after network failures, timeouts or temporary errors. Manual pauses and authentication errors still need attention.",
   "Délai enregistré. La capacité et le délai demandé par le provider restent prioritaires.":
     "Delay saved. Capacity and the provider's requested delay still take priority.",
+  "Délai enregistré ici": "Delay saved here",
+  "Délai de l’environnement": "Environment delay",
+  "Valeur de l’environnement : {value} s": "Environment value: {value} s",
+  "Revenir au délai de l’environnement": "Go back to the environment delay",
+  "Revenir au délai de l’environnement ?": "Go back to the environment delay?",
+  "Le délai enregistré ici est oublié ; PROVIDER_RECOVERY_BASE_SECONDS s’applique de nouveau aux prochaines reprises.":
+    "The delay saved here is forgotten; PROVIDER_RECOVERY_BASE_SECONDS applies again to the next retries.",
+  Revenir: "Go back",
+  "Délai de l’environnement rétabli.": "Environment delay restored.",
   "Administrateur": "Administrator",
   "Utilisateur": "User",
   "Chargement des sessions…": "Loading sessions…",
@@ -206,19 +215,39 @@ export function Account({
   );
 }
 
+type RecoveryView = { retry_seconds: number; default_seconds: number; saved: boolean };
+
 export function RecoverySettings({ run }: { run: Run }) {
   const { t } = useI18n();
+  const { confirm } = useDialogs();
+  const [view, setView] = useState<RecoveryView | null>(null);
   const [delay, setDelay] = useState(60);
-  const [ready, setReady] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [saved, setSaved] = useState(false);
+  const [status, setStatus] = useState("");
+  const load = (next: RecoveryView) => {
+    setView(next);
+    setDelay(next.retry_seconds);
+  };
   useEffect(() => {
     void run.background(async () => {
-      const value = await api<{ retry_seconds: number }>("/settings/recovery");
-      setDelay(value.retry_seconds);
-      setReady(true);
+      load(await api<RecoveryView>("/settings/recovery"));
     });
   }, [run]);
+  async function reset() {
+    const accepted = await confirm({
+      title: t("Revenir au délai de l’environnement ?"),
+      message: t("Le délai enregistré ici est oublié ; PROVIDER_RECOVERY_BASE_SECONDS s’applique de nouveau aux prochaines reprises."),
+      confirmLabel: t("Revenir"),
+    });
+    if (!accepted) return;
+    setBusy(true);
+    setStatus("");
+    await run(async () => {
+      load(await api<RecoveryView>("/settings/recovery", { method: "DELETE" }));
+      setStatus(t("Délai de l’environnement rétabli."));
+    }).finally(() => setBusy(false));
+  }
+  const ready = view !== null;
   return (
     <Card
       className="settings-card"
@@ -226,20 +255,30 @@ export function RecoverySettings({ run }: { run: Run }) {
       description={t(
         "Reprise depuis le checkpoint après une panne réseau, un timeout ou une erreur temporaire. Les pauses manuelles et erreurs d’authentification restent à traiter.",
       )}
+      actions={
+        view && (
+          <Badge tone={view.saved ? "accent" : "neutral"}>
+            {view.saved ? t("Délai enregistré ici") : t("Délai de l’environnement")}
+          </Badge>
+        )
+      }
     >
       <form
-        className="inline-form"
+        className="stack"
         onSubmit={(e) => {
           e.preventDefault();
           setBusy(true);
-          setSaved(false);
+          setStatus("");
           void run(async () => {
-            await send("/settings/recovery", { retry_seconds: delay }, "PUT");
-            setSaved(true);
+            load(await send<RecoveryView>("/settings/recovery", { retry_seconds: delay }, "PUT"));
+            setStatus(t("Délai enregistré. La capacité et le délai demandé par le provider restent prioritaires."));
           }).finally(() => setBusy(false));
         }}
       >
-        <Field label={t("Délai de reprise (secondes)")}>
+        <Field
+          label={t("Délai de reprise (secondes)")}
+          hint={view && t("Valeur de l’environnement : {value} s", { value: String(view.default_seconds) })}
+        >
           <Input
             type="number"
             min={5}
@@ -247,18 +286,26 @@ export function RecoverySettings({ run }: { run: Run }) {
             required
             disabled={!ready || busy}
             value={delay}
-            onChange={(e) => setDelay(Number(e.target.value))}
+            onChange={(e) => {
+              setStatus("");
+              setDelay(Number(e.target.value));
+            }}
           />
         </Field>
-        <Button type="submit" variant="primary" disabled={!ready || busy}>
-          {t("Enregistrer le délai")}
-        </Button>
+        <div className="form-actions">
+          <Button type="submit" variant="primary" disabled={!ready || busy}>
+            {t("Enregistrer le délai")}
+          </Button>
+          <Button disabled={!ready || busy || !view?.saved} onClick={() => void reset()}>
+            {t("Revenir au délai de l’environnement")}
+          </Button>
+        </div>
+        {status && (
+          <p role="status" className="form-status tone-text-success">
+            {status}
+          </p>
+        )}
       </form>
-      {saved && (
-        <p role="status" className="form-status tone-text-success">
-          {t("Délai enregistré. La capacité et le délai demandé par le provider restent prioritaires.")}
-        </p>
-      )}
     </Card>
   );
 }

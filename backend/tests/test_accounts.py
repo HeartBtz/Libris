@@ -147,3 +147,31 @@ def test_successful_login_resets_the_failure_count(seeded):
             for _ in range(15):
                 client.post("/api/auth/login", json={"username": "tester", "password": "wrong-password-123456"})
             assert login(client).status_code == 200
+
+
+def test_session_cookie_is_secure_by_default(monkeypatch):
+    from app.config import Settings
+
+    monkeypatch.delenv("COOKIE_SECURE", raising=False)
+    assert Settings(_env_file=None).cookie_secure is True
+
+
+def test_allowed_origins_ignore_spaces_and_empty_entries(seeded, monkeypatch):
+    from app.config import settings
+
+    monkeypatch.setattr(settings(), "allowed_origins", " https://a.example , https://b.example,, ")
+    assert settings().allowed_origin_set == {"https://a.example", "https://b.example"}
+    credentials = {"username": "tester", "password": "test-password-123456789"}
+    with TestClient(app) as client:
+        for origin in ("https://a.example", "https://b.example"):
+            response = client.post("/api/auth/login", headers={"Origin": origin}, json=credentials)
+            assert response.status_code == 200, origin
+        response = client.post("/api/auth/login", headers={"Origin": "https://c.example"}, json=credentials)
+        assert response.status_code == 403
+
+
+def test_startup_errors_name_the_setting_in_english(tmp_path):
+    from app.config import Settings
+
+    with pytest.raises(RuntimeError, match="SECRET_KEY must be at least 32 characters"):
+        Settings(_env_file=None, secret_key="short", data_dir=tmp_path).prepare()

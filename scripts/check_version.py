@@ -34,7 +34,9 @@ docker_hub = re.search(
     r"^LIBRIS_IMAGE=[^:]+:([^\s]+)$", env_example, re.MULTILINE
 ).group(1)
 installer_source = (root / "scripts/install-docker.sh").read_text()
-installer = re.search(r"heartbtz/libris:([^}\s]+)", installer_source).group(1)
+installer = re.search(
+    r'^shipped_image="heartbtz/libris:([^"]+)"$', installer_source, re.MULTILINE
+).group(1)
 rpc_source = (root / "codex_bridge/rpc.py").read_text()
 rpc = re.search(
     r'"clientInfo": \{"name": "libris", "version": "([^"]+)"\}', rpc_source

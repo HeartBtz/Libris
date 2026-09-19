@@ -1,4 +1,4 @@
-"""Cost per passage (audit C-1): stable prompt prefix, review without revision, fused review, passage size."""
+"""Cost per passage: stable prompt prefix, review without revision, fused review, passage size."""
 
 import json
 import re

@@ -10,6 +10,7 @@ for (const width of [1440, 390]) {
       me,
       { id: "reader", username: "reader", admin: false, active: true },
     ];
+    let recovery = { retry_seconds: 90, default_seconds: 90, saved: false };
     let sessions = [
       { id: "current", current: true, expires_at: 1900000000 },
       { id: "other", current: false, expires_at: 1900000000 },
@@ -26,12 +27,24 @@ for (const width of [1440, 390]) {
           ).username;
           body = me;
         }
+        if (path === "/api/settings/recovery") {
+          recovery = {
+            ...recovery,
+            ...(request.postDataJSON() as { retry_seconds: number }),
+            saved: true,
+          };
+          body = recovery;
+        }
+      } else if (request.method() === "DELETE" && path === "/api/settings/recovery") {
+        changes.push({ path, body: "DELETE" });
+        recovery = { ...recovery, retry_seconds: recovery.default_seconds, saved: false };
+        body = recovery;
       } else if (path === "/api/auth/me") body = me;
       else if (path === "/api/users") body = users;
       else if (path === "/api/auth/sessions") body = sessions;
       else if (path === "/api/auth/sessions/other")
         sessions = sessions.filter((s) => s.current);
-      else if (path === "/api/settings/recovery") body = { retry_seconds: 60 };
+      else if (path === "/api/settings/recovery") body = recovery;
       else body = [];
       await route.fulfill({ json: body });
     });
@@ -92,13 +105,36 @@ for (const width of [1440, 390]) {
     await page
       .getByRole("tab", { name: "Automatic recovery", exact: true })
       .click();
-    await page.getByLabel("Retry delay (seconds)").fill("30");
+    const retry = page.getByLabel("Retry delay (seconds)");
+    await expect(retry).toHaveValue("90");
+    await expect(page.getByText("Environment value: 90 s")).toBeVisible();
+    const reset = page.getByRole("button", {
+      name: "Go back to the environment delay",
+    });
+    await expect(reset).toBeDisabled();
+    await retry.fill("30");
     await page.getByRole("button", { name: "Save retry delay" }).click();
     await expect(page.getByRole("status")).toContainText("Delay saved");
     expect(changes.at(-1)).toEqual({
       path: "/api/settings/recovery",
       body: { retry_seconds: 30 },
     });
+    await expect(page.getByText("Delay saved here")).toBeVisible();
+    await reset.click();
+    await page
+      .getByRole("dialog")
+      .getByRole("button", { name: "Go back", exact: true })
+      .click();
+    await expect(page.getByRole("status")).toContainText(
+      "Environment delay restored",
+    );
+    expect(changes.at(-1)).toEqual({
+      path: "/api/settings/recovery",
+      body: "DELETE",
+    });
+    await expect(retry).toHaveValue("90");
+    await expect(page.getByText("Environment delay", { exact: true })).toBeVisible();
+    await expect(reset).toBeDisabled();
     await page.getByRole("tab", { name: "Users", exact: true }).click();
     await page
       .getByRole("button", { name: "Manage reader", exact: true })

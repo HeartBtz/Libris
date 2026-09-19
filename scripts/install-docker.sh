@@ -36,8 +36,34 @@ env_value() {
 	grep -m 1 "^${name}=" "$root/.env" | cut -d= -f2- || true
 }
 
+# Image shipped with this checkout; scripts/check_version.py keeps it in step with the release.
+shipped_image="heartbtz/libris:0.6.0"
+official_release='^(docker\.io/)?heartbtz/libris:[0-9]+\.[0-9]+\.[0-9]+$'
+
+# Pick the image to run:
+# - LIBRIS_IMAGE in the environment always wins (deliberate upgrade, downgrade or local build);
+# - an official release pinned in .env that is older than the shipped one is upgraded, so that
+#   `git pull && ./scripts/install-docker.sh` moves to the version of the checkout;
+# - anything else written in .env (a newer release, a custom image or tag) is kept.
 configured_image="$(env_value LIBRIS_IMAGE)"
-image="${LIBRIS_IMAGE:-${configured_image:-heartbtz/libris:0.6.0}}"
+if [[ -n "${LIBRIS_IMAGE:-}" ]]; then
+	image="$LIBRIS_IMAGE"
+elif [[ -z "$configured_image" ]]; then
+	image="$shipped_image"
+elif [[ "$configured_image" =~ $official_release ]]; then
+	configured_version="${configured_image##*:}"
+	shipped_version="${shipped_image##*:}"
+	newest="$(printf '%s\n%s\n' "$configured_version" "$shipped_version" | sort -V | tail -n 1)"
+	if [[ "$newest" == "$configured_version" ]]; then
+		image="$configured_image"
+	else
+		image="$shipped_image"
+		echo "Updating LIBRIS_IMAGE in .env: ${configured_image} -> ${image}"
+	fi
+else
+	image="$configured_image"
+	echo "Keeping the custom image set in .env: ${image} (set LIBRIS_IMAGE=... to change it)"
+fi
 if grep -q '^LIBRIS_IMAGE=' "$root/.env"; then
 	sed -i "s|^LIBRIS_IMAGE=.*|LIBRIS_IMAGE=${image}|" "$root/.env"
 else

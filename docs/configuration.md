@@ -54,8 +54,8 @@ put them in `.env` for a Docker installation.
 | `SECRET_KEY` | generated (required, at least 32 characters) | Encrypts provider API keys, the OpenViking key and webhook secrets stored in the database. | Never. Keep it with your backups. If it changes, stored keys can no longer be read: Libris asks you to enter each provider key again and ignores unreadable saved secrets. |
 | `BOOTSTRAP_USERNAME` | `admin` | Name of the first administrator account. | Before the first start, if you want another name. |
 | `BOOTSTRAP_PASSWORD` | generated (at least 12 characters) | Password of the first administrator. Used only when the database has no account at all; the API refuses to start on an empty database without it. | Before the first start. Afterwards, change passwords in the interface: editing `.env` does not touch existing accounts. |
-| `ALLOWED_ORIGINS` | `http://localhost:8088,http://127.0.0.1:8088` | Browser origins (scheme, host and port, no path) allowed to send changes. Requests with any other `Origin` get 403. Comma-separated, without spaces. | Whenever users reach Libris through another address: `http://your-server:8088` on a LAN, `https://books.example.com` behind HTTPS. It is an origin check, not a firewall. |
-| `COOKIE_SECURE` | `false` in the code; the generated `.env` sets `true` | Marks the session cookie `Secure`, so browsers only send it over HTTPS. | `true` behind HTTPS. `false` when users open Libris over plain HTTP on a LAN address; otherwise the browser drops the cookie and sign-in seems to do nothing. |
+| `ALLOWED_ORIGINS` | `http://localhost:8088,http://127.0.0.1:8088` | Browser origins (scheme, host and port, no path) allowed to send changes. Requests with any other `Origin` get 403. Comma-separated; spaces around each origin are ignored. | Whenever users reach Libris through another address: `http://your-server:8088` on a LAN, `https://books.example.com` behind HTTPS. It is an origin check, not a firewall. |
+| `COOKIE_SECURE` | `true` | Marks the session cookie `Secure`: browsers send it only over HTTPS, and to `http://localhost` / `http://127.0.0.1` on the Libris machine itself, which current browsers treat as secure. | Keep `true` behind HTTPS and for local use. Set `false` only when users open Libris over plain HTTP on a network address (`http://192.168.1.10:8088`, `http://your-server:8088`): there the browser drops a `Secure` cookie and sign-in seems to do nothing. |
 | `SESSION_DURATION_HOURS` | `24` (1–2160) | Lifetime of a sign-in session. | Longer for a private single-user instance, shorter on shared machines. |
 | `OPENAPI_ENABLED` | `true` | Serves the API description at `/openapi.json`, to signed-in users only. | `false` if you do not want the API schema exposed at all. |
 | `METRICS_TOKEN` | empty (endpoint disabled) | Enables `GET /metrics` for Prometheus. Scrapers must send `Authorization: Bearer <token>`. At least 24 characters when set. | To monitor Libris; generate one with `openssl rand -hex 32`. See [operations](operations.md). |
@@ -98,7 +98,7 @@ setting to raise, because it could not be imported again.
 | `FINAL_REVIEW_ENABLED` | `true` | Runs the final AI review of whole-book translations and automation requests. | `false` to skip that stage everywhere (cheaper, less thorough). A single API request can also leave it out. |
 | `WORKER_BOOK_PARALLELISM` | `0` (0–16) | Passages of one book translated or reviewed at the same time. `0` follows the provider's **Concurrent books** capacity, shared by the books using it; `1` processes one passage at a time. | `1` for providers that struggle with parallel calls; a small number to leave capacity to other books. |
 | `WORKER_HEARTBEAT_SECONDS` | `2` (1–20) | How often a running job renews its 60-second lease and checks for pause or cancel. | Normally never. |
-| `PROVIDER_RECOVERY_BASE_SECONDS` | `60` | First wait before retrying a provider that is unavailable (network error, timeout, HTTP 429 or 5xx). Later waits double. | Replaced by the **Automatic recovery** delay once it is saved in the interface. |
+| `PROVIDER_RECOVERY_BASE_SECONDS` | `60` | First wait before retrying a provider that is unavailable (network error, timeout, HTTP 429 or 5xx). Later waits double. | Replaced by the **Automatic recovery** delay while one is saved in the interface. |
 | `PROVIDER_RECOVERY_MAX_SECONDS` | `3600` | Longest wait between two retries. A provider's `Retry-After` can lengthen it, up to 24 hours. | Lower it to retry more often during long outages. |
 
 ## Autopilot
@@ -203,7 +203,7 @@ makes.
 | --- | --- | --- |
 | **Autopilot** | `GET`, `PUT`, `DELETE /api/settings/autopilot` | All `AUTOPILOT_*` variables |
 | **Automation API** (webhooks part) | `GET`, `PUT`, `DELETE /api/settings/webhooks` | All `API_WEBHOOK_*` variables |
-| **Automatic recovery** | `GET`, `PUT /api/settings/recovery` | `PROVIDER_RECOVERY_BASE_SECONDS` (5–3600 seconds). `PROVIDER_RECOVERY_MAX_SECONDS` still applies. |
+| **Automatic recovery** | `GET`, `PUT`, `DELETE /api/settings/recovery` | `PROVIDER_RECOVERY_BASE_SECONDS` (5–3600 seconds). `PROVIDER_RECOVERY_MAX_SECONDS` still applies. |
 | **Memory · OpenViking** | `GET`, `PUT /api/settings/memory`, `POST /api/settings/memory/test` | `OPENVIKING_URL`, `OPENVIKING_API_KEY`, `OPENVIKING_ROOT_URI`, plus search options, budgets, minimum score, timeout and authentication mode that have no variable |
 | **SearXNG** | `GET`, `PUT /api/settings/searxng`, `POST /api/settings/searxng/test` | `SEARXNG_URL`, with a separate on/off switch |
 
@@ -228,8 +228,9 @@ Details per page:
 - The **global webhook secret** entered in the interface is stored encrypted with `SECRET_KEY` and never shown
   again. It wins over `API_WEBHOOK_SECRET`; **Forget the secret saved here** falls back to the variable. If
   `SECRET_KEY` changed and the saved secret cannot be read, the variable is used.
-- **Automatic recovery** has no reset: once a delay is saved, `PROVIDER_RECOVERY_BASE_SECONDS` is ignored. Save
-  `60` to return to the default behaviour.
+- **Automatic recovery** shows the delay in force, the value of `PROVIDER_RECOVERY_BASE_SECONDS` and whether the
+  delay was saved here (badge **Delay saved here** or **Environment delay**). **Go back to the environment delay**
+  (`DELETE`) forgets the saved delay; the variable applies again to the next retries.
 - **Memory · OpenViking** overrides the environment field by field. A key saved there is encrypted with
   `SECRET_KEY`; if it can no longer be read, OpenViking search is turned off and translation continues with the
   internal memory.

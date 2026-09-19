@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { api, download, send } from "../api";
-import { registerTranslations, useI18n } from "../i18n";
+import { formatDateTime, registerTranslations, useI18n } from "../i18n";
 import type { Provider, Run, User } from "../types";
 import {
   Badge,
@@ -126,6 +126,26 @@ registerTranslations({
   "Contenu du prompt": "Prompt content",
   "Nouvelle version enregistrée.": "New version saved.",
   "Créer une version": "Create version",
+  "Version {version} · retour à l’origine": "Version {version} · back to the original",
+  "Revenir au prompt d’origine": "Go back to the original prompt",
+  "Revenir au prompt d’origine ?": "Go back to the original prompt?",
+  "Restaurer la version {version} ?": "Restore version {version}?",
+  "Le prompt livré avec Libris s’applique de nouveau aux requêtes suivantes, y compris ses mises à jour dans les prochaines versions de Libris. L’historique est conservé ; les modifications non enregistrées de l’éditeur sont perdues.":
+    "The prompt shipped with Libris applies again to the next requests, including its updates in later Libris releases. The history is kept; unsaved changes in the editor are lost.",
+  "Son contenu devient une nouvelle version, appliquée aux requêtes suivantes. L’historique est conservé ; les modifications non enregistrées de l’éditeur sont perdues.":
+    "Its content becomes a new version, applied to the next requests. The history is kept; unsaved changes in the editor are lost.",
+  "Revenir à l’origine": "Go back to the original",
+  Restaurer: "Restore",
+  "Restaurer : {version}": "Restore: {version}",
+  "Prompt d’origine rétabli.": "Original prompt restored.",
+  "Version restaurée.": "Version restored.",
+  "Historique des versions": "Version history",
+  "Restaurer une version en crée une nouvelle avec son contenu : rien n’est effacé.":
+    "Restoring a version creates a new one with its content: nothing is erased.",
+  "En vigueur": "In force",
+  "Livrée avec Libris": "Shipped with Libris",
+  "Enregistrée le {date}": "Saved on {date}",
+  "Voir le contenu": "Show the content",
   "Exporter les prompts": "Export prompts",
   "Utilisateurs de Libris": "Libris users",
   "Sélectionnez un compte pour le gérer.": "Select an account to manage it.",
@@ -201,6 +221,15 @@ interface Prompt {
   name: string;
   content: string;
   version: number;
+  builtin: boolean;
+  updated_at: number | null;
+}
+interface PromptVersion {
+  version: number;
+  created_at: number | null;
+  builtin: boolean;
+  content: string;
+  current: boolean;
 }
 
 export function Settings({ run }: { run: Run }) {
@@ -852,14 +881,63 @@ function MemorySettings({ run }: { run: Run }) {
 
 function Prompts({ run }: { run: Run }) {
   const { t } = useI18n();
+  const { confirm } = useDialogs();
   const [values, setValues] = useState<Prompt[] | null>(null);
   const [selected, setSelected] = useState(0);
   const [saved, setSaved] = useState("");
+  const [history, setHistory] = useState<PromptVersion[] | null>(null);
+  const [revision, setRevision] = useState(0);
+  const [busy, setBusy] = useState(false);
   useEffect(() => {
     void run.background(async () => setValues(await api("/prompts")));
   }, [run]);
+  const name = values?.[selected]?.name;
+  useEffect(() => {
+    if (!name) return;
+    let active = true;
+    setHistory(null);
+    void run.background(async () => {
+      const versions = await api<PromptVersion[]>(`/prompts/${name}/versions`);
+      if (active) setHistory(versions);
+    });
+    return () => {
+      active = false;
+    };
+  }, [run, name, revision]);
   if (!values) return <LoadingBlock label={t("Chargement…")} />;
   const current = values[selected];
+  const versionLabel = (version: number, builtin: boolean) =>
+    version === 0
+      ? t("Version {version}", { version: t("initiale") })
+      : builtin
+        ? t("Version {version} · retour à l’origine", { version: String(version) })
+        : t("Version {version}", { version: String(version) });
+  async function refresh(message: string) {
+    setValues(await api("/prompts"));
+    setRevision((value) => value + 1);
+    setSaved(message);
+  }
+  async function restore(version: number) {
+    if (!current) return;
+    const original = version === 0;
+    const accepted = await confirm({
+      title: original ? t("Revenir au prompt d’origine ?") : t("Restaurer la version {version} ?", { version: String(version) }),
+      message: original
+        ? t(
+            "Le prompt livré avec Libris s’applique de nouveau aux requêtes suivantes, y compris ses mises à jour dans les prochaines versions de Libris. L’historique est conservé ; les modifications non enregistrées de l’éditeur sont perdues.",
+          )
+        : t(
+            "Son contenu devient une nouvelle version, appliquée aux requêtes suivantes. L’historique est conservé ; les modifications non enregistrées de l’éditeur sont perdues.",
+          ),
+      confirmLabel: original ? t("Revenir à l’origine") : t("Restaurer"),
+    });
+    if (!accepted) return;
+    setBusy(true);
+    await run(async () => {
+      await send(`/prompts/${current.name}/restore`, { version });
+      await refresh(original ? t("Prompt d’origine rétabli.") : t("Version restaurée."));
+    }).finally(() => setBusy(false));
+  }
   return (
     <div className="master-detail">
       <Card padded={false} className="master-list">
@@ -882,45 +960,93 @@ function Prompts({ run }: { run: Run }) {
                 }}
               >
                 <span className="master-item-title">{v.name}</span>
-                <small>{t("Version {version}", { version: v.version || t("initiale") })}</small>
+                <small>{v.builtin ? t("Version {version}", { version: t("initiale") }) : t("Version {version}", { version: String(v.version) })}</small>
               </button>
             </li>
           ))}
         </ul>
       </Card>
       {current && (
-        <Card title={<code>{current.name}</code>}>
-          <div className="stack">
-            <TextArea
-              className="code-editor"
-              rows={22}
-              aria-label={t("Contenu du prompt")}
-              value={current.content}
-              onChange={(e) =>
-                setValues(values.map((v, i) => (i === selected ? { ...v, content: e.target.value } : v)))
-              }
-            />
-            <div className="form-actions">
-              <Button
-                variant="primary"
-                onClick={() =>
-                  void run(async () => {
-                    await send(`/prompts/${current.name}`, { content: current.content }, "PUT");
-                    setValues(await api("/prompts"));
-                    setSaved(t("Nouvelle version enregistrée."));
-                  })
+        <div className="stack">
+          <Card title={<code>{current.name}</code>}>
+            <div className="stack">
+              <TextArea
+                className="code-editor"
+                rows={22}
+                aria-label={t("Contenu du prompt")}
+                value={current.content}
+                onChange={(e) =>
+                  setValues(values.map((v, i) => (i === selected ? { ...v, content: e.target.value } : v)))
                 }
-              >
-                {t("Créer une version")}
-              </Button>
-              {saved && (
-                <span role="status" className="tone-text-success">
-                  {saved}
-                </span>
-              )}
+              />
+              <div className="form-actions">
+                <Button
+                  variant="primary"
+                  disabled={busy}
+                  onClick={() => {
+                    setBusy(true);
+                    void run(async () => {
+                      await send(`/prompts/${current.name}`, { content: current.content }, "PUT");
+                      await refresh(t("Nouvelle version enregistrée."));
+                    }).finally(() => setBusy(false));
+                  }}
+                >
+                  {t("Créer une version")}
+                </Button>
+                <Button disabled={busy || current.builtin} onClick={() => void restore(0)}>
+                  {t("Revenir au prompt d’origine")}
+                </Button>
+                {saved && (
+                  <span role="status" className="tone-text-success">
+                    {saved}
+                  </span>
+                )}
+              </div>
             </div>
-          </div>
-        </Card>
+          </Card>
+          <Card
+            title={t("Historique des versions")}
+            description={t("Restaurer une version en crée une nouvelle avec son contenu : rien n’est effacé.")}
+            padded={false}
+          >
+            {history === null ? (
+              <div className="card-inset">
+                <LoadingBlock label={t("Chargement…")} lines={2} />
+              </div>
+            ) : (
+              <ul className="token-list" aria-label={t("Historique des versions")}>
+                {history.map((version) => (
+                  <li key={version.version}>
+                    <div className="grow token-main">
+                      <strong>{versionLabel(version.version, version.builtin)}</strong>
+                      {version.current && (
+                        <Badge tone="success" dot>
+                          {t("En vigueur")}
+                        </Badge>
+                      )}
+                      <small className="subtle">
+                        {version.created_at === null
+                          ? t("Livrée avec Libris")
+                          : t("Enregistrée le {date}", { date: formatDateTime(version.created_at) })}
+                      </small>
+                      <details className="prompt-version-content">
+                        <summary>{t("Voir le contenu")}</summary>
+                        <pre className="version-text">{version.content}</pre>
+                      </details>
+                    </div>
+                    <Button
+                      disabled={busy || version.current || (version.builtin && current.builtin)}
+                      aria-label={t("Restaurer : {version}", { version: versionLabel(version.version, version.builtin) })}
+                      onClick={() => void restore(version.version)}
+                    >
+                      {t("Restaurer")}
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Card>
+        </div>
       )}
     </div>
   );

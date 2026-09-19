@@ -1,4 +1,4 @@
-"""Container and supply-chain hardening (audit S-8 / I-30): checked in the files that ship it."""
+"""Container and supply-chain hardening: checked in the files that ship it."""
 
 import re
 import subprocess

@@ -109,8 +109,12 @@ remain untranslated under the autopilot, and it is always visible:
 - exports write the source text for it.
 
 If the passage already had a machine translation and only a later attempt failed, Libris keeps that
-earlier translation instead of reverting to the source. You can translate a kept passage yourself at
-any time; your version then replaces it like any human correction.
+earlier translation instead of reverting to the source. A kept passage is not a human correction: the
+automatic passes leave it alone, but you can have it translated again at any time, by retranslating the
+passage in the editor or by selecting it in **Summary & recovery** (with another provider if you
+like). A successful translation replaces the original and settles its warning; if the attempt fails
+again, the passage stays in the original with the new error. You can also translate it yourself; your
+version then replaces it like any human correction.
 
 ## Fallback providers and outages
 

@@ -26,8 +26,9 @@ from starlette.concurrency import run_in_threadpool
 from starlette.datastructures import UploadFile
 
 from app.api.projects import control_job, import_book
+from app.api.providers import SHARED_FIELDS
 from app.api.tokens import Caller, require
-from app.config import settings
+from app.config import API_RESULT_WAIT_CEILING, settings
 from app.db import SessionLocal
 from app.engines.delivery.epub import DeliveryFailed
 from app.engines.delivery.intake import UploadOptions, epub_digest, text_payload, upload_options
@@ -749,7 +750,7 @@ async def translation_request(
     http: Request,
     caller: Annotated[Caller, Depends(require("jobs:read"))],
     db: DB,
-    wait: int = Query(default=0, ge=0, le=3600),
+    wait: int = Query(default=0, ge=0, le=API_RESULT_WAIT_CEILING),
 ):
     if wait:
         await wait_for_end(db, request_id, caller, wait)
@@ -872,7 +873,7 @@ async def translation_result(
     db: DB,
     format: Literal[FORMATS] | None = None,  # noqa: A002 - the documented query parameter
     partial: bool = Query(default=False),
-    wait: int = Query(default=0, ge=0, le=3600),
+    wait: int = Query(default=0, ge=0, le=API_RESULT_WAIT_CEILING),
 ):
     if wait:
         await wait_for_end(db, request_id, caller, wait)
@@ -893,6 +894,24 @@ def series_summary(db, series: Series) -> dict:
         "created_at": series.created_at,
         "updated_at": series.updated_at,
     }
+
+
+@router.get("/providers")
+def list_providers(caller: Annotated[Caller, Depends(require("content:write"))], db: DB):
+    """Providers a request may name in `provider_id`: identity and model only, never an address or a key.
+
+    `default_for_series` lists the caller's series that use the provider by default."""
+    defaults: dict[str, list[str]] = {}
+    for series_id, provider_id in db.execute(
+        select(Series.id, Series.provider_id)
+        .where(Series.owner_id == caller.user.id, Series.provider_id.is_not(None))
+        .order_by(Series.name)
+    ):
+        defaults.setdefault(provider_id, []).append(series_id)
+    return [
+        {**{key: getattr(provider, key) for key in SHARED_FIELDS}, "default_for_series": defaults.get(provider.id, [])}
+        for provider in db.scalars(select(Provider).order_by(Provider.name))
+    ]
 
 
 @router.get("/series")

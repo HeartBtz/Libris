@@ -21,9 +21,9 @@ LIBRIS_DEPLOY_SOURCE=pull ./scripts/deploy.sh --worker-when-idle
 
 | Mode | What it does |
 | --- | --- |
-| `--api-only` (default) | Gets the image, runs the database migrations and restarts the web application only. The worker keeps running the previous version until you restart it. |
-| `--worker-when-idle` | Same, then waits up to 10 minutes for the job queue to be empty, stops the web application so that no new job starts, checks again and restarts both. If jobs stay active it leaves the worker alone and exits with status 3 (4 if a job started at the last moment). |
-| `--force-worker` | Restarts the worker at once. Running jobs resume from their checkpoints. |
+| `--api-only` (default) | Gets the image and restarts the web application only; the worker keeps running the previous version. Only for updates without a database migration: when the new version brings one and the worker is running, the script changes nothing and exits with status 5. |
+| `--worker-when-idle` | Gets the image, waits up to 10 minutes for the job queue to be empty, stops the web application so that no new job starts, checks again, stops the worker, runs the migrations and starts both. If jobs stay active it changes nothing and exits with status 3 (4 if a job started at the last moment). |
+| `--force-worker` | Gets the image, stops the web application and the worker at once, runs the migrations and starts both. Running jobs resume from their checkpoints. |
 
 | Variable | Meaning |
 | --- | --- |
@@ -34,8 +34,9 @@ If the new version fails to start, the script puts the previous image back (tagg
 and restarts it. It cannot undo a migration: for that, see
 [roll back a failed update](backup.md#roll-back-a-failed-update).
 
-Use `--api-only` for a quick fix of the web side, then finish with `--worker-when-idle` when books are done: the
-worker should not keep running an older version than the database schema for long.
+The migrations never run while a worker of the previous version is running. Use `--api-only` for a quick fix of
+the web side, then finish with `--worker-when-idle` when books are done, so that the worker does not keep running
+an older version for long.
 
 ### Production deployment script
 
@@ -260,13 +261,14 @@ cache. Nothing is written to the book.
 
 ```bash
 docker compose exec api python -m app.maintenance.compare_providers \
-  --project <book id> --providers <provider id>,<provider id> --sample 5 --output /data/tmp/comparison.json
+  --project <book id> --providers <provider id>,<provider id> --sample 5 --output comparison.json
 ```
 
 The table lists, per provider, passages translated and failed, seconds per passage, tokens, cost and the findings
 of the automatic checks (locked glossary, markers, untranslated text…). The JSON report adds failure reasons,
-length ratios and the translations side by side; copy it out with
-`docker compose cp api:/data/tmp/comparison.json .`. These calls are real and billed; they appear in the
+length ratios and the translations side by side. A relative `--output` path is written under `DATA_DIR/tmp`
+(`/data/tmp` in the container, whose other directories are read-only), and the command prints the final path;
+copy the file out with `docker compose cp api:/data/tmp/comparison.json .`. These calls are real and billed; they appear in the
 statistics under the operation `provider_comparison`.
 
 ## Troubleshooting
@@ -274,7 +276,7 @@ statistics under the operation `provider_comparison`.
 | Symptom | Cause and fix |
 | --- | --- |
 | A book stays **queued** | The worker is not running (`docker compose ps worker`), or its provider has no free **Concurrent books** slot. |
-| A book is **waiting** | The provider is unreachable, timed out or answered 429/5xx. Libris retries on its own: first after 60 seconds (or the **Automatic recovery** delay), then doubling up to an hour; a provider's `Retry-After` is respected up to 24 hours. Under the autopilot, after `AUTOPILOT_OUTAGE_MAX_RETRIES` waits it switches to the next fallback provider. |
+| A book is **waiting** | The provider is unreachable, timed out or answered 429/5xx. Libris retries on its own: first after the **Automatic recovery** delay (`PROVIDER_RECOVERY_BASE_SECONDS`, 60 seconds by default), then doubling up to an hour; a provider's `Retry-After` is respected up to 24 hours. Under the autopilot, after `AUTOPILOT_OUTAGE_MAX_RETRIES` waits it switches to the next fallback provider. |
 | A book is **blocked** | The provider rejected the credentials. Fix the key or sign in again, then resume. Under the autopilot, the next fallback provider takes over, or the job fails if none is left. |
 | A book **failed** with "providers exhausted" | Every provider in the autopilot chain was unavailable. Add a fallback provider in **Settings › Autopilot**, then resume. |
 | Passages are refused or kept in the source language | See [autopilot](autopilot.md) for the recovery ladder and how to retranslate them with another provider. |

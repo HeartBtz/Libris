@@ -321,7 +321,6 @@ export function SeriesPage({ id, user, run }: { id: string; user: User; run: Run
         <ImportWizard
           run={run}
           start={{ seriesId: series.id }}
-          admin={user.admin}
           onClose={() => setWizard(false)}
           onImported={() => void refresh()}
         />

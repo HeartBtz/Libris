@@ -122,7 +122,8 @@ the [configuration reference](configuration.md).
 
 ### On a private network (plain HTTP)
 
-Edit `.env`, replacing `your-server` with the machine's name or IP address:
+Edit `.env`, replacing `your-server` with the machine's name or IP address. `COOKIE_SECURE=false` is needed here
+because the browser refuses `Secure` cookies over plain HTTP on any address other than `localhost`:
 
 ```dotenv
 BIND_ADDRESS=0.0.0.0
@@ -192,20 +193,22 @@ Read the [changelog](../CHANGELOG.md) first, then:
 
 1. Pause running books in the interface (they would resume anyway, from their last checkpoint).
 2. Make a backup: see [backup and restore](backup.md).
-3. Update the Compose files, then install the new image, naming it explicitly:
+3. Update the files, then run the installer again:
 
    ```bash
    git pull --ff-only
-   LIBRIS_IMAGE=heartbtz/libris:0.6.0 ./scripts/install-docker.sh
+   ./scripts/install-docker.sh
    curl --fail http://127.0.0.1:8088/health
    ```
 
    Add `--profile codex` to the installer if you use the Codex bridge.
 
-The image is pinned in `.env` (`LIBRIS_IMAGE=...`), and the installer keeps the version written there: without
-the `LIBRIS_IMAGE=` prefix, it would restart the version you already run. With it, the installer writes the new
-version into `.env`. Database migrations run automatically before the web application starts. Resume the paused
-books afterwards.
+The image is pinned in `.env` (`LIBRIS_IMAGE=...`). When `.env` names an official release
+(`heartbtz/libris:<x.y.z>`) older than the one shipped with your copy of Libris, the installer moves it to the
+shipped release and says so. It keeps a newer release, and any other image you wrote there (a local build, another
+registry, another tag). To install a specific image, name it on the command line:
+`LIBRIS_IMAGE=heartbtz/libris:<version> ./scripts/install-docker.sh`; the installer writes it into `.env`.
+Database migrations run automatically before the web application starts. Resume the paused books afterwards.
 
 To go back to a previous version after a schema change, you need the backup taken before the update: see
 [backup and restore](backup.md). For finer control over restarts (updating the web application without
@@ -279,8 +282,8 @@ by any earlier version. Archives written by this version cannot be read by versi
 | --- | --- |
 | The page does not load | `docker compose ps`: `api` must be `healthy`. Check `BIND_ADDRESS`, `PORT` and the firewall. |
 | Sign-in answers "origin not allowed" (403) | `ALLOWED_ORIGINS` must match the address in the browser exactly: scheme, host and port, no trailing slash. |
-| Sign-in seems to do nothing, you stay on the login page | `COOKIE_SECURE=true` over plain HTTP: set it to `false`, or use HTTPS. |
-| The API does not start: `SECRET_KEY` or `BOOTSTRAP_PASSWORD` error | `.env` is missing values: generate one with `python3 scripts/setup.py` (it refuses to overwrite an existing `.env`). |
+| Sign-in seems to do nothing, you stay on the login page | You open Libris over plain HTTP on a network address (not `localhost`) with `COOKIE_SECURE=true`: set it to `false`, or use HTTPS. `http://localhost:8088` works with `true`. |
+| The API does not start: "SECRET_KEY must be at least 32 characters long" or "BOOTSTRAP_PASSWORD must be set" | `.env` is missing values: generate one with `python3 scripts/setup.py` (it refuses to overwrite an existing `.env`). |
 | `migrate` shows "exited" | Normal when the exit code is 0. Otherwise read `docker compose logs migrate`. |
 | The provider test fails | Test the URL from a container, not from your browser; `localhost` means the container itself. |
 | A book stays queued | The worker must be running (`docker compose ps worker`) and the provider must have free **Concurrent books** capacity. |

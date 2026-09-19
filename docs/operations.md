@@ -21,9 +21,9 @@ LIBRIS_DEPLOY_SOURCE=pull ./scripts/deploy.sh --worker-when-idle
 
 | Mode | What it does |
 | --- | --- |
-| `--api-only` (default) | Gets the image, runs the database migrations and restarts the web application only. The worker keeps running the previous version until you restart it. |
-| `--worker-when-idle` | Same, then waits up to 10 minutes for the job queue to be empty, stops the web application so that no new job starts, checks again and restarts both. If jobs stay active it leaves the worker alone and exits with status 3 (4 if a job started at the last moment). |
-| `--force-worker` | Restarts the worker at once. Running jobs resume from their checkpoints. |
+| `--api-only` (default) | Gets the image and restarts the web application only; the worker keeps running the previous version. Only for updates without a database migration: when the new version brings one and the worker is running, the script changes nothing and exits with status 5. |
+| `--worker-when-idle` | Gets the image, waits up to 10 minutes for the job queue to be empty, stops the web application so that no new job starts, checks again, stops the worker, runs the migrations and starts both. If jobs stay active it changes nothing and exits with status 3 (4 if a job started at the last moment). |
+| `--force-worker` | Gets the image, stops the web application and the worker at once, runs the migrations and starts both. Running jobs resume from their checkpoints. |
 
 | Variable | Meaning |
 | --- | --- |
@@ -34,8 +34,9 @@ If the new version fails to start, the script puts the previous image back (tagg
 and restarts it. It cannot undo a migration: for that, see
 [roll back a failed update](backup.md#roll-back-a-failed-update).
 
-Use `--api-only` for a quick fix of the web side, then finish with `--worker-when-idle` when books are done: the
-worker should not keep running an older version than the database schema for long.
+The migrations never run while a worker of the previous version is running. Use `--api-only` for a quick fix of
+the web side, then finish with `--worker-when-idle` when books are done, so that the worker does not keep running
+an older version for long.
 
 ### Production deployment script
 

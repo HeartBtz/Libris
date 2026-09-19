@@ -16,7 +16,7 @@ import argparse
 import time
 from datetime import UTC, datetime
 
-from sqlalchemy import Float, cast, func, select
+from sqlalchemy import Float, cast, func, literal_column, select
 
 from app.db import SessionLocal
 from app.models import AppSetting, Provider, RequestLog
@@ -45,7 +45,8 @@ def request_cost():
 
 def request_column(name: str):
     if name == "provider_id":
-        return func.coalesce(RequestLog.provider_id, "")
+        # A literal, not a bound parameter: PostgreSQL must see the same expression in GROUP BY.
+        return func.coalesce(RequestLog.provider_id, literal_column("''"))
     return getattr(RequestLog, name)
 
 

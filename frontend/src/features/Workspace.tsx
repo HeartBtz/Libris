@@ -31,6 +31,7 @@ import { Bible, Glossary, Observability, ProjectSettings, Quality } from "./pane
 import { ExportMenu, exportFormats, exportName, exportPath } from "./ExportMenu";
 import type { ExportFormat, ExportOptions } from "./ExportMenu";
 import { AutopilotPanel, AutopilotStatus, autopilotOutcome, fetchAutopilot, phaseLabel } from "./Autopilot";
+import { QueueHint } from "./Queue";
 
 const CharacterGraph = lazy(() => import("./CharacterGraph"));
 
@@ -531,6 +532,7 @@ export function Workspace({ id, user, run }: { id: string; user: User; run: Run 
         }
       />
       <div className="workspace-notices">
+        <QueueHint projectId={id} job={job} refresh={tick} />
         <AutopilotStatus
           project={project}
           job={job}

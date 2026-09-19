@@ -1,0 +1,103 @@
+/* ---------- Fair queue (features/Queue.tsx) ---------- */
+.queue-list {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.queue-list li {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+  min-width: 0;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.queue-list li:last-child {
+  border-bottom: 0;
+}
+
+.queue-main {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-2);
+  min-width: 0;
+}
+
+.queue-main a {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.queue-main small {
+  flex-basis: 100%;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.queue-reason {
+  color: var(--text-muted);
+}
+
+.queue-priority {
+  flex: 0 0 auto;
+  width: 160px;
+}
+
+.queue-accounts {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.queue-account {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) repeat(3, minmax(0, 160px)) auto;
+  align-items: end;
+  gap: var(--space-2) var(--space-3);
+  min-width: 0;
+}
+
+.queue-account-name {
+  align-self: center;
+  overflow-wrap: anywhere;
+}
+
+.queue-add {
+  max-width: 320px;
+}
+
+@media (max-width: 720px) {
+  .queue-list li {
+    flex-wrap: wrap;
+  }
+
+  .queue-priority {
+    width: 100%;
+  }
+
+  .queue-main a {
+    display: inline-flex;
+    align-items: center;
+    min-height: var(--touch-target);
+  }
+
+  .queue-account {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .queue-account > .field {
+    grid-column: 1 / -1;
+  }
+
+  .queue-account > .btn-icon {
+    grid-row: 1;
+    grid-column: 2;
+  }
+}

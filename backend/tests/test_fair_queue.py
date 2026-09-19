@@ -41,7 +41,9 @@ def world(book_bytes):
 def book(world, owner: str) -> str:
     world["count"] += 1
     with SessionLocal() as db:
-        project = import_book(db, world["users"][owner], world["book"] + f"\n{owner}{world['count']}".encode())
+        project = import_book(
+            db, world["users"][owner], world["book"] + f"\n{owner}{world['count']}".encode()
+        )
         project.provider_id = world["provider"]
         project.context_backend = "internal"
         db.commit()
@@ -77,7 +79,9 @@ def claimed() -> str | None:
 def login(username: str) -> TestClient:
     client = TestClient(app)
     client.__enter__()
-    assert client.post("/api/auth/login", json={"username": username, "password": PASSWORD}).status_code == 200
+    assert (
+        client.post("/api/auth/login", json={"username": username, "password": PASSWORD}).status_code == 200
+    )
     return client
 
 
@@ -159,7 +163,9 @@ def test_account_and_token_running_quotas_make_jobs_wait(world):
     picked = {claimed(), claimed(), claimed()}
     assert first in picked and other in picked and second not in picked
     with SessionLocal() as db:
-        reasons = {entry["job_id"]: entry["reason"] for entry in fairness.snapshot(db, time.time())["waiting"]}
+        reasons = {
+            entry["job_id"]: entry["reason"] for entry in fairness.snapshot(db, time.time())["waiting"]
+        }
     assert reasons[second] == "token_limit"
 
 
@@ -204,7 +210,9 @@ def test_priorities_are_limited_to_what_the_account_may_ask(world):
     alice = login("alice")
     admin = login("admin")
     try:
-        refused = alice.post(f"/api/projects/{project_id}/jobs", json={"operation": "analyze", "priority": "high"})
+        refused = alice.post(
+            f"/api/projects/{project_id}/jobs", json={"operation": "analyze", "priority": "high"}
+        )
         assert refused.status_code == 403
         assert refused.json()["detail"]["code"] == "priority_not_allowed"
         english = alice.post(
@@ -213,12 +221,16 @@ def test_priorities_are_limited_to_what_the_account_may_ask(world):
             headers={"Accept-Language": "en"},
         )
         assert english.json()["detail"]["message"].startswith("Priority “high” refused")
-        started = alice.post(f"/api/projects/{project_id}/jobs", json={"operation": "analyze", "priority": "low"})
+        started = alice.post(
+            f"/api/projects/{project_id}/jobs", json={"operation": "analyze", "priority": "low"}
+        )
         assert started.status_code == 202 and started.json()["priority"] == fairness.LOW
         job_id = started.json()["id"]
         assert alice.put(f"/api/queue/{job_id}/priority", json={"priority": "high"}).status_code == 403
         # An administrator may raise it, and give Alice the right to ask for high priority.
-        assert admin.put(f"/api/queue/{job_id}/priority", json={"priority": "high"}).json()["priority"] == "high"
+        assert (
+            admin.put(f"/api/queue/{job_id}/priority", json={"priority": "high"}).json()["priority"] == "high"
+        )
         saved = admin.put(
             "/api/settings/queue",
             json={"accounts": [{"user_id": world["users"]["alice"], "max_priority": "high"}]},
@@ -262,7 +274,9 @@ def test_queue_settings_are_saved_and_reset_by_an_administrator(world):
             json={"max_running_per_account": 2, "max_queued_per_account": 10, "aging_minutes": 15},
         ).json()
         assert saved["saved"] and saved["values"]["max_running_per_account"] == 2
-        unknown = admin.put("/api/settings/queue", json={"accounts": [{"user_id": "nobody", "max_running": 1}]})
+        unknown = admin.put(
+            "/api/settings/queue", json={"accounts": [{"user_id": "nobody", "max_running": 1}]}
+        )
         assert unknown.status_code == 404
         assert admin.delete("/api/settings/queue").json()["saved"] is False
     finally:
@@ -273,13 +287,19 @@ def test_api_tokens_carry_a_priority_ceiling_and_quotas(world):
     alice = login("alice")
     admin = login("admin")
     try:
-        refused = alice.post("/api/tokens", json={"name": "t", "scopes": ["jobs:read"], "max_priority": "high"})
+        refused = alice.post(
+            "/api/tokens", json={"name": "t", "scopes": ["jobs:read"], "max_priority": "high"}
+        )
         assert refused.status_code == 403
         created = alice.post(
             "/api/tokens", json={"name": "t", "scopes": ["jobs:read"], "max_priority": "low", "max_queued": 3}
         ).json()
-        assert created["max_priority"] == "low" and created["max_queued"] == 3 and created["max_running"] is None
-        changed = alice.put(f"/api/tokens/{created['id']}/queue", json={"max_priority": "normal", "max_running": 2})
+        assert (
+            created["max_priority"] == "low" and created["max_queued"] == 3 and created["max_running"] is None
+        )
+        changed = alice.put(
+            f"/api/tokens/{created['id']}/queue", json={"max_priority": "normal", "max_running": 2}
+        )
         assert changed.json()["max_priority"] == "normal" and changed.json()["max_running"] == 2
         assert admin.put(f"/api/tokens/{created['id']}/queue", json={}).status_code == 404
     finally:

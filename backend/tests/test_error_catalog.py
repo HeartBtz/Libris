@@ -1,4 +1,4 @@
-"""Every error message the API can answer has an English version (U-3)."""
+"""Every error message the API can answer has an English version."""
 
 import ast
 from pathlib import Path

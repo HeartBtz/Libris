@@ -2,9 +2,9 @@
 
 The estimate multiplies the passages that the job would still process by the calls each step makes
 and by the tokens of one call. Both come, step by step, from the owner's past books on the same
-provider when there are enough of them; otherwise from defaults calibrated on the production
-averages measured by the 2026-09 audit (about 14 000 input tokens per call, prompts dominated by
-instructions and context rather than by the passage itself).
+provider when there are enough of them; otherwise from defaults calibrated on averages measured on
+real books in production (about 14 000 input tokens per call, prompts dominated by instructions and
+context rather than by the passage itself).
 """
 
 import math
@@ -26,7 +26,7 @@ MIN_HISTORY_PASSAGES = 5
 CHARS_PER_TOKEN = 4
 # Instructions, JSON schema, glossary, characters and neighbouring passages sent with every call.
 PROMPT_OVERHEAD = 12_500
-# New attempts after invalid or failed answers; the audit measured 6.5 to 15 % of failed calls.
+# New attempts after invalid or failed answers; real books showed 6.5 to 15 % of failed calls.
 RETRY_FACTOR = 1.15
 # Share of passages that get a conditional step: a revision only follows a critique with issues,
 # the final review only reads the passages flagged by the checks.

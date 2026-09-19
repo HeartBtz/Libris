@@ -1,4 +1,4 @@
-"""Job leases on the database clock (audit R-13): a worker's clock jump neither steals nor loses a job."""
+"""Job leases on the database clock: a worker's clock jump neither steals nor loses a job."""
 
 import time
 import types

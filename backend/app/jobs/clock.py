@@ -1,4 +1,4 @@
-"""Job leases on the database clock (audit R-13).
+"""Job leases on the database clock.
 
 A lease is a time after which another worker may take the job over. Written and compared with each
 process's `time.time()`, it breaks when clocks disagree: a worker whose clock runs ahead grants itself

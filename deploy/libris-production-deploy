@@ -308,7 +308,7 @@ fi
 schema_unchanged=false
 migration_started=true
 # `up --wait` returns as soon as a one-shot container is running, not when it has finished: wait for
-# the migration's own exit, so the revision check below never races it (0.5.0 deployment).
+# the migration's own exit, so the revision check below never races it.
 if ! "${compose[@]}" up --no-build --detach --force-recreate migrate; then
 	rollback 1
 fi

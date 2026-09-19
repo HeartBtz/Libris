@@ -24,7 +24,7 @@ from app.models import (
     TranslationVersion,
 )
 
-# Changed in v0.5 (#54), deliberately: the navigation document, the NCX and the package metadata are
+# Changed in v0.5, deliberately: the navigation document, the NCX and the package metadata are
 # translated but no longer counted as chapters, and the list reports translation-memory reuse.
 COUNTED = ("narrative", "auxiliary")
 

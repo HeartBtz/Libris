@@ -22,14 +22,14 @@ def scope(request: TranslationRequest, project: Project):
 
 
 def autopilot_report(job: Job | None) -> dict | None:
-    """What the autopilot (#63) left on the job, when it ran; the delivery works without it."""
+    """What the autopilot left on the job, when it ran; the delivery works without it."""
     result = getattr(job, "result", None) if job is not None else None
     value = result.get("autopilot") if isinstance(result, dict) else None
     return value if isinstance(value, dict) else None
 
 
 def decisions_count(db, job: Job | None) -> int | None:
-    """Automatic decisions the autopilot (#63) logged for this job."""
+    """Automatic decisions the autopilot logged for this job."""
     if job is None:
         return None
     return db.scalar(select(func.count()).select_from(AutopilotDecision).where(AutopilotDecision.job_id == job.id))

@@ -358,6 +358,8 @@ MESSAGES = {
 }  # fmt: skip
 
 TEMPLATES = {
+    # Parallel analysis (app.engines.translation.parallel_analysis)
+    "En attente de la fin de l’analyse du volume précédent « {title} » de la série.": "Waiting for the analysis of the earlier volume “{title}” of the series to finish.",
     # Fair queue (app.jobs.fairness)
     "Priorité « {requested} » refusée : « {ceiling} » au plus pour ce compte ou ce jeton.": "Priority “{requested}” refused: “{ceiling}” at most for this account or token.",
     "File d’attente pleine pour ce compte : {limit} travaux en attente au plus. Réessayez quand l’un d’eux aura démarré.": "Queue full for this account: {limit} waiting jobs at most. Try again once one of them has started.",

@@ -631,7 +631,7 @@ export function Workspace({
             )}
           </Callout>
         )}
-        {job?.status === "waiting" && (
+        {job?.status === "waiting" && job.stop_reason !== "earlier_volume" && (
           <Callout tone="warning" role="status">
             {t("Reprise automatique prévue le {date}.", { date: date(job.next_attempt) })}{" "}
             {tp(

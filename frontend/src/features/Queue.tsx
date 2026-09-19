@@ -50,6 +50,8 @@ registerTranslations({
   "Le jeton d’API a atteint son nombre de travaux simultanés : ce travail démarre quand l’un d’eux se termine.":
     "The API token has reached its number of simultaneous jobs: this job starts when one of them ends.",
   "Fournisseur indisponible : nouvel essai le {date}.": "Provider unavailable: next attempt on {date}.",
+  "L’analyse attend la fin de celle d’un volume précédent de la série (nouvel essai le {date}).":
+    "The analysis waits for an earlier volume of the series to finish its own (next check on {date}).",
   "Aucun fournisseur : choisissez-en un dans les réglages du livre.":
     "No provider: choose one in the book's settings.",
   "En file depuis le {date}": "Queued since {date}",
@@ -130,6 +132,10 @@ export function useQueueReason() {
         return t("Le jeton d’API a atteint son nombre de travaux simultanés : ce travail démarre quand l’un d’eux se termine.");
       case "retry_scheduled":
         return t("Fournisseur indisponible : nouvel essai le {date}.", { date: formatDateTime(entry.next_attempt) });
+      case "earlier_volume":
+        return t("L’analyse attend la fin de celle d’un volume précédent de la série (nouvel essai le {date}).", {
+          date: formatDateTime(entry.next_attempt),
+        });
       case "provider_missing":
         return t("Aucun fournisseur : choisissez-en un dans les réglages du livre.");
       default:

@@ -117,9 +117,11 @@ def budget_width(job_id: str) -> int | None:
 
     The hook where a cost cap reserves the calls a job launches side by side before they start: near
     the cap, the calls already in flight count as spent, and the job narrows (down to one call) so
-    that parallel calls cannot overshoot the cap together.
+    that parallel calls cannot overshoot the cap together (app.engines.budget.parallel_width).
     """
-    return None
+    from app.engines.budget import parallel_width
+
+    return parallel_width(job_id)
 
 
 def job_parallelism(job_id: str, owner: str, provider_id: str | None) -> int:

@@ -5,7 +5,9 @@
 
 The worker runs the same pass at start-up and then every hour. Request rows themselves are kept — token
 counts, costs, durations, errors and the cached answer (`parsed`) are untouched — only their bulky
-prompt, raw response and context trace are emptied. Each rule is disabled by setting its value to 0.
+prompt, raw response and context trace are emptied, unless RETENTION_REQUEST_ROWS_DAYS is set: rows
+older than that are deleted once counted in the daily usage aggregates (`app.maintenance.usage`), which
+the statistics read. Each rule is disabled by setting its value to 0.
 PostgreSQL reuses the freed space but only returns it to the operating system after
 `VACUUM (FULL, ANALYZE) llm_requests;`, which locks the table: stop the worker first.
 """
@@ -164,9 +166,40 @@ def import_sessions(dry_run: bool, now: float) -> int:
     return len(expired)
 
 
+def request_rows(days: int, dry_run: bool, now: float) -> int:
+    """Whole request rows, once counted in `usage_daily`: the statistics keep them, the inspector does not."""
+    from app.maintenance.usage import watermark
+
+    done = 0
+    if not days:
+        return done
+    with SessionLocal() as db:
+        through = watermark(db)
+    if through is None:
+        return done
+    old = (
+        RequestLog.created_at < min(now - days * DAY, through),
+        RequestLog.status != "running",
+    )
+    while True:
+        with SessionLocal() as db:
+            if dry_run:
+                return db.scalar(select(func.count()).select_from(RequestLog).where(*old))
+            ids = list(db.scalars(select(RequestLog.id).where(*old).limit(BATCH)))
+            if not ids:
+                return done
+            done += db.execute(delete(RequestLog).where(RequestLog.id.in_(ids))).rowcount
+            db.commit()
+
+
 def apply(dry_run: bool = False) -> dict:
+    from app.maintenance.usage import rollup
+
     config, now = settings(), time.time()
     return {
+        # First: a request is counted in the daily aggregates before any rule may delete it.
+        "usage_rollup": rollup(now, dry_run),
+        "request_rows": request_rows(config.retention_request_rows_days, dry_run, now),
         "request_bodies": request_bodies(config.retention_request_bodies_days, dry_run, now),
         "events": events(config.retention_events_days, dry_run, now),
         "outbox": outbox(config.retention_outbox_sent_days, dry_run, now),
@@ -183,7 +216,8 @@ if __name__ == "__main__":
     result = apply(arguments.dry_run)
     verb = "would be" if arguments.dry_run else "were"
     print(
-        f"{result['request_bodies']} request bodies {verb} emptied; {result['events']} events, "
+        f"{result['usage_rollup']} requests {verb} rolled up into usage_daily and {result['request_rows']} "
+        f"request rows {verb} deleted; {result['request_bodies']} request bodies {verb} emptied; {result['events']} events, "
         f"{result['outbox']} sent outbox rows, {result['bible_revisions']} bible revisions and "
         f"{result['job_state']} job state rows {verb} deleted; {result['import_sessions']} expired imports "
         f"{verb} cleaned."

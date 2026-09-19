@@ -47,6 +47,7 @@ from app.engines.memory.archive import restore_graph
 from app.engines.quality.checks import validate_translation
 from app.jobs.queue import HELD
 from app.jobs.segment_state import split_legacy
+from app.maintenance.usage import absorb
 from app.models import (
     BibleRevision,
     Chapter,
@@ -879,4 +880,6 @@ def restore_jobs(db, project: Project, archive: ProjectArchive, ids: dict[str, s
                 **_dated(saved.model_dump()),
             )
         )
+    # Dated in the past: behind the usage watermark, they must be counted in the aggregates now.
+    absorb(db, project.id)
 

@@ -13,6 +13,7 @@ from app.api.common import row
 from app.api.monitoring import WASTED_STATUSES
 from app.config import settings
 from app.db import SessionLocal
+from app.maintenance.usage import usage
 from app.models import Event, Provider, RequestLog
 from app.security import DB, Admin, CurrentUser, access, current_user
 
@@ -22,18 +23,15 @@ router = APIRouter(prefix="/api")
 @router.get("/statistics/models")
 def model_statistics(_admin: Admin, db: DB):
     # The model recorded with each request, not the provider's current one: editing a provider
-    # must not move its history to another model.
-    used = db.execute(
-        select(
-            RequestLog.model,
-            func.count(RequestLog.id),
-            func.coalesce(func.sum(RequestLog.prompt_tokens), 0),
-            func.coalesce(func.sum(RequestLog.completion_tokens), 0),
-            func.coalesce(
-                func.sum(RequestLog.prompt_tokens).filter(RequestLog.status.in_(WASTED_STATUSES)), 0
-            ),
-        ).group_by(RequestLog.model)
-    ).all()
+    # must not move its history to another model. Read from the daily aggregates (app.maintenance.usage).
+    by_model: dict[str, list[int]] = {}
+    for model, status, requests, prompt, completion, _duration, _cost in usage(db, ("model", "status")):
+        current = by_model.setdefault(model, [0, 0, 0, 0])
+        current[0] += requests
+        current[1] += prompt
+        current[2] += completion
+        current[3] += prompt if status in WASTED_STATUSES else 0
+    used = [(model, *values) for model, values in by_model.items()]
     configured = set(db.scalars(select(Provider.model))) - {model for model, *_ in used}
     rows = sorted([*used, *((model, 0, 0, 0, 0) for model in configured)], key=lambda item: item[0])
     return [
@@ -53,54 +51,29 @@ def model_statistics(_admin: Admin, db: DB):
 @router.get("/projects/{pid}/metrics")
 def metrics(pid: str, user: CurrentUser, db: DB):
     access(db, pid, user)
-    values = db.execute(
-        select(
-            func.count(),
-            func.sum(RequestLog.prompt_tokens),
-            func.sum(RequestLog.completion_tokens),
-            func.sum(RequestLog.duration),
-            func.count().filter(RequestLog.status == "error"),
-            func.count().filter(
-                RequestLog.status == "running", RequestLog.created_at > time.time() - Provider.timeout - 30
-            ),
-            func.count().filter(RequestLog.cached.is_(True)),
-            func.sum(RequestLog.prompt_tokens).filter(RequestLog.status.in_(WASTED_STATUSES)),
-        )
+    result = dict.fromkeys(("requests", "input_tokens", "output_tokens", "duration", "errors", "cache_hits"), 0)
+    result.update(wasted_input_tokens=0, cost=0)
+    # Daily aggregates plus the requests not rolled up yet; the cost at the price recorded with each request.
+    for status, cached, requests, prompt, completion, duration, cost in usage(
+        db, ("status", "cached"), ("project_id", [pid])
+    ):
+        result["requests"] += requests
+        result["input_tokens"] += prompt
+        result["output_tokens"] += completion
+        result["duration"] += duration
+        result["cost"] += cost
+        result["errors"] += requests if status == "error" else 0
+        result["cache_hits"] += requests if cached else 0
+        result["wasted_input_tokens"] += prompt if status in WASTED_STATUSES else 0
+    result["active"] = db.scalar(
+        select(func.count())
         .select_from(RequestLog)
-        .outerjoin(Provider, RequestLog.provider_id == Provider.id)
-        .where(RequestLog.project_id == pid)
-    ).one()
-    # The price recorded with the request; the provider's current price only for older rows.
-    cost = db.scalar(
-        select(
-            func.sum(
-                (
-                    RequestLog.prompt_tokens
-                    * func.coalesce(RequestLog.input_cost, Provider.input_cost, 0)
-                    + RequestLog.completion_tokens
-                    * func.coalesce(RequestLog.output_cost, Provider.output_cost, 0)
-                )
-                / 1_000_000
-            )
+        .join(Provider, RequestLog.provider_id == Provider.id)
+        .where(
+            RequestLog.project_id == pid,
+            RequestLog.status == "running",
+            RequestLog.created_at > time.time() - Provider.timeout - 30,
         )
-        .outerjoin(Provider, RequestLog.provider_id == Provider.id)
-        .where(RequestLog.project_id == pid)
-    )
-    result = dict(
-        zip(
-            (
-                "requests",
-                "input_tokens",
-                "output_tokens",
-                "duration",
-                "errors",
-                "active",
-                "cache_hits",
-                "wasted_input_tokens",
-            ),
-            [v or 0 for v in values],
-        ),
-        cost=cost or 0,
     )
     # Input spent on calls whose answer was never applied: errors, refusals, interruptions.
     spent = result["input_tokens"]

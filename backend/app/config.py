@@ -67,6 +67,9 @@ class Settings(BaseSettings):
     provider_recovery_max_seconds: int = 3600
     # Diagnostic data is bounded by the worker (app.maintenance.retention); 0 disables a rule.
     retention_request_bodies_days: int = Field(default=30, ge=0)
+    # Whole request rows, once rolled up into usage_daily (0: kept; the response cache and the request
+    # inspector need them, 180 is a reasonable value once the statistics no longer do).
+    retention_request_rows_days: int = Field(default=0, ge=0)
     retention_events_days: int = Field(default=7, ge=0)
     retention_outbox_sent_days: int = Field(default=7, ge=0)
     retention_bible_revisions: int = Field(default=20, ge=0)

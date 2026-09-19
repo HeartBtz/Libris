@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from sqlalchemy import func, select
 
 from app.jobs import segment_state as state
+from app.maintenance.usage import usage
 from app.models import (
     Chapter,
     Glossary,
@@ -17,7 +18,6 @@ from app.models import (
     Memory,
     Project,
     Provider,
-    RequestLog,
     Segment,
     TranslationVersion,
 )
@@ -46,12 +46,6 @@ class BookFacts:
     jobs: list[Job] = field(default_factory=list)  # most recent first
     spent_cost: float = 0
     stage_requests: dict = field(default_factory=dict)  # stage -> (requests, duration, cost)
-
-
-def _cost():
-    return (
-        RequestLog.prompt_tokens * Provider.input_cost + RequestLog.completion_tokens * Provider.output_cost
-    ) / 1_000_000
 
 
 # The table of contents, the NCX and the package metadata are translated but are not sections of the book.
@@ -132,26 +126,20 @@ def book_facts(db, project_ids: list[str]) -> dict[str, BookFacts]:
             .group_by(JobSegmentState.job_id)
         )
     }
-    success = [RequestLog.project_id.in_(project_ids), RequestLog.status == "success"]
-    stage_columns = []
-    for operations in STAGE_OPERATIONS.values():
-        chosen = RequestLog.operation.in_(operations)
-        stage_columns += [
-            func.count().filter(chosen),
-            func.sum(RequestLog.duration).filter(chosen),
-            func.sum(_cost()).filter(chosen),
-        ]
-    for pid, spent, *stage_values in db.execute(
-        select(RequestLog.project_id, func.sum(_cost()), *stage_columns)
-        .join(Provider, RequestLog.provider_id == Provider.id)
-        .where(*success)
-        .group_by(RequestLog.project_id)
+    # Daily aggregates plus the requests not rolled up yet, at the price recorded with each request.
+    stages = {operation: stage for stage, operations in STAGE_OPERATIONS.items() for operation in operations}
+    spent: dict[str, dict] = {}
+    for pid, operation, requests, _prompt, _completion, duration, cost in usage(
+        db, ("project_id", "operation"), ("project_id", project_ids), ("status", ["success"])
     ):
-        facts[pid].spent_cost = spent or 0
-        facts[pid].stage_requests = {
-            stage: tuple(value or 0 for value in stage_values[3 * index : 3 * index + 3])
-            for index, stage in enumerate(STAGE_OPERATIONS)
-        }
+        totals = spent.setdefault(pid, {"cost": 0, **{stage: [0, 0, 0] for stage in STAGE_OPERATIONS}})
+        totals["cost"] += cost
+        if operation in stages:
+            for index, value in enumerate((requests, duration, cost)):
+                totals[stages[operation]][index] += value
+    for pid, totals in spent.items():
+        facts[pid].spent_cost = totals["cost"]
+        facts[pid].stage_requests = {stage: tuple(totals[stage]) for stage in STAGE_OPERATIONS}
     for pid in project_ids:
         total, done, validated, flagged, errors, refused, retained, reused_count = segments.get(pid, (0,) * 8)
         chapter_count, synthesized = chapters.get(pid, (0, 0))

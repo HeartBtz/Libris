@@ -1,0 +1,3461 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Libris automation API",
+    "version": "1",
+    "summary": "Send books to a Libris server and get them back translated, with no human step.",
+    "description": "Send an EPUB, TXT chapters or a JSON document to a Libris server, let it translate on its own, then\ndownload the result with its completion report. Nothing needs a person along the way.\n\n**Authentication.** Every call carries an API token: `Authorization: Bearer lbr_…`. Tokens are created\nin the interface (**My account › API tokens**); each one carries scopes, named on every operation below.\nThe session cookie of the web interface never opens `/api/v1`.\n\n**Asynchronous work.** A request is saved before the `202 Accepted` answer and runs in the worker.\nPoll its status (`?wait=` long-polls up to 60 seconds by default) or receive a signed webhook when it\nends. A request always ends: `completed`, `completed_with_residuals`, `failed` or `cancelled`\n(`imported` when it only imported chapters).\n\n**Errors.** Every error is `{\"detail\": {\"code\", \"message\", …}}`. `code` is stable; `message` is in\nFrench, or in English with `Accept-Language: en`. Validation errors never echo the submitted text.\n\n**Limits.** Calls per token and per minute (`API_RATE_LIMIT_PER_MINUTE`, `429` with `Retry-After`), body\nsize (`API_MAX_PAYLOAD_MB`) and chapters per request (`API_MAX_CHAPTERS`) are set by the server's\nadministrator.\n\nThe full guide, with `curl` examples, is [docs/api.md](https://github.com/HeartBtz/Libris/blob/main/docs/api.md).\n",
+    "license": {
+      "name": "AGPL-3.0-only",
+      "identifier": "AGPL-3.0-only"
+    }
+  },
+  "externalDocs": {
+    "description": "Automation API guide",
+    "url": "https://github.com/HeartBtz/Libris/blob/main/docs/api.md"
+  },
+  "servers": [
+    {
+      "url": "{server}",
+      "description": "Your Libris server.",
+      "variables": {
+        "server": {
+          "default": "https://libris.example.org"
+        }
+      }
+    }
+  ],
+  "tags": [
+    {
+      "name": "Translation requests",
+      "description": "Send content, follow it, pause, resume or cancel it."
+    },
+    {
+      "name": "Results",
+      "description": "Download the translated book, its chapters or its JSON document."
+    },
+    {
+      "name": "Series",
+      "description": "The series of the token's owner and their volumes."
+    },
+    {
+      "name": "Providers",
+      "description": "The model providers a request may name."
+    }
+  ],
+  "paths": {
+    "/api/v1/providers": {
+      "get": {
+        "operationId": "listProviders",
+        "tags": [
+          "Providers"
+        ],
+        "summary": "List the providers",
+        "description": "The providers a request may name in `provider_id`, sorted by name: identity and model only, never an address or a key.\n\n**Scope:** `content:write`.",
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Provider"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A missing, unknown, revoked or expired token, or a disabled account (header `WWW-Authenticate: Bearer`). Codes: `missing_token`, `invalid_token`, `revoked_token`, `expired_token`, `inactive_account`, `unauthorized`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "missing_token": {
+                    "value": {
+                      "detail": {
+                        "code": "missing_token",
+                        "message": "Jeton d’API manquant : envoyez « Authorization: Bearer <jeton> »."
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "`Bearer realm=\"libris\"`",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The token lacks the scope (`scope` names it), or a browser page from another site. Codes: `insufficient_scope`, `forbidden`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "insufficient_scope": {
+                    "value": {
+                      "detail": {
+                        "code": "insufficient_scope",
+                        "message": "Ce jeton n’a pas la permission « jobs:read »."
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many calls for this token; retry after `Retry-After` seconds. Codes: `rate_limited`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "rate_limited": {
+                    "value": {
+                      "detail": {
+                        "code": "rate_limited",
+                        "message": "Trop de requêtes pour ce jeton : réessayez plus tard."
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait.",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unexpected failure; the message carries a diagnostic reference for the server logs. Codes: `server_error`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerToken": []
+          }
+        ],
+        "x-libris-scopes": [
+          "content:write"
+        ]
+      }
+    },
+    "/api/v1/series": {
+      "get": {
+        "operationId": "listSeries",
+        "tags": [
+          "Series"
+        ],
+        "summary": "List your series",
+        "description": "The series the token's owner owns, sorted by name.\n\n**Scope:** `series:read`.",
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/SeriesSummary"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A missing, unknown, revoked or expired token, or a disabled account (header `WWW-Authenticate: Bearer`). Codes: `missing_token`, `invalid_token`, `revoked_token`, `expired_token`, `inactive_account`, `unauthorized`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "missing_token": {
+                    "value": {
+                      "detail": {
+                        "code": "missing_token",
+                        "message": "Jeton d’API manquant : envoyez « Authorization: Bearer <jeton> »."
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "`Bearer realm=\"libris\"`",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The token lacks the scope (`scope` names it), or a browser page from another site. Codes: `insufficient_scope`, `forbidden`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "insufficient_scope": {
+                    "value": {
+                      "detail": {
+                        "code": "insufficient_scope",
+                        "message": "Ce jeton n’a pas la permission « jobs:read »."
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many calls for this token; retry after `Retry-After` seconds. Codes: `rate_limited`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "rate_limited": {
+                    "value": {
+                      "detail": {
+                        "code": "rate_limited",
+                        "message": "Trop de requêtes pour ce jeton : réessayez plus tard."
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait.",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unexpected failure; the message carries a diagnostic reference for the server logs. Codes: `server_error`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerToken": []
+          }
+        ],
+        "x-libris-scopes": [
+          "series:read"
+        ]
+      }
+    },
+    "/api/v1/series/{series_id}": {
+      "get": {
+        "operationId": "getSeries",
+        "tags": [
+          "Series"
+        ],
+        "summary": "Get a series and its volumes",
+        "description": "**Scope:** `series:read`.",
+        "parameters": [
+          {
+            "name": "series_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The series' `id`."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SeriesDetail"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A missing, unknown, revoked or expired token, or a disabled account (header `WWW-Authenticate: Bearer`). Codes: `missing_token`, `invalid_token`, `revoked_token`, `expired_token`, `inactive_account`, `unauthorized`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "missing_token": {
+                    "value": {
+                      "detail": {
+                        "code": "missing_token",
+                        "message": "Jeton d’API manquant : envoyez « Authorization: Bearer <jeton> »."
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "`Bearer realm=\"libris\"`",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The token lacks the scope (`scope` names it), or a browser page from another site. Codes: `insufficient_scope`, `forbidden`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "insufficient_scope": {
+                    "value": {
+                      "detail": {
+                        "code": "insufficient_scope",
+                        "message": "Ce jeton n’a pas la permission « jobs:read »."
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown, or owned by someone else. Codes: `series_not_found`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "series_not_found": {
+                    "value": {
+                      "detail": {
+                        "code": "series_not_found",
+                        "message": "Série introuvable."
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many calls for this token; retry after `Retry-After` seconds. Codes: `rate_limited`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "rate_limited": {
+                    "value": {
+                      "detail": {
+                        "code": "rate_limited",
+                        "message": "Trop de requêtes pour ce jeton : réessayez plus tard."
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait.",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unexpected failure; the message carries a diagnostic reference for the server logs. Codes: `server_error`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerToken": []
+          }
+        ],
+        "x-libris-scopes": [
+          "series:read"
+        ]
+      }
+    },
+    "/api/v1/translation-requests": {
+      "post": {
+        "operationId": "createTranslationRequest",
+        "tags": [
+          "Translation requests"
+        ],
+        "summary": "Send a translation request",
+        "description": "Send **an EPUB** (multipart field `file`, or the raw file as `application/epub+zip` with its options in the query string), **TXT chapters** (multipart, one or more `.txt` files in `file` or `files`, one chapter each) or **a JSON document**. One request carries one kind of file.\n\nThe request is stored before the answer and its pipeline starts in the worker: `202 Accepted` with a `Location` header. The same content sent again with the same `Idempotency-Key` or `external_id` answers `200` with the original request and `Idempotent-Replayed: true`.\n\nWithout the `pipeline:start` scope, send `start=false` to import only.\n\n**Scope:** `content:write`, and `pipeline:start` to start the pipeline.",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "1–200 printable characters. Sending the same content again with the same key answers `200` with the original request; different content answers `409 idempotency_conflict`."
+          },
+          {
+            "name": "filename",
+            "in": "query",
+            "required": false,
+            "description": "Raw EPUB body only (`Content-Type: application/epub+zip`). The file name, used to guess the volume number.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "external_id",
+            "in": "query",
+            "required": false,
+            "description": "Raw EPUB body only (`Content-Type: application/epub+zip`). Your identifier of the request (same rules as in the JSON document).",
+            "schema": {
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]{0,199}$",
+              "type": "string"
+            }
+          },
+          {
+            "name": "series",
+            "in": "query",
+            "required": false,
+            "description": "Raw EPUB body only (`Content-Type: application/epub+zip`). The series by name, created when missing (not with `series_id`). Required for TXT.",
+            "schema": {
+              "maxLength": 500,
+              "type": "string"
+            }
+          },
+          {
+            "name": "series_id",
+            "in": "query",
+            "required": false,
+            "description": "Raw EPUB body only (`Content-Type: application/epub+zip`). The series by id (not with `series`).",
+            "schema": {
+              "maxLength": 36,
+              "type": "string"
+            }
+          },
+          {
+            "name": "volume",
+            "in": "query",
+            "required": false,
+            "description": "Raw EPUB body only (`Content-Type: application/epub+zip`). Volume number, 1–10000. Required for TXT; for an EPUB in a series, taken from the file name when free, otherwise the next number.",
+            "schema": {
+              "maximum": 10000,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "name": "volume_external_id",
+            "in": "query",
+            "required": false,
+            "description": "Raw EPUB body only (`Content-Type: application/epub+zip`). Your identifier of the volume.",
+            "schema": {
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]{0,199}$",
+              "type": "string"
+            }
+          },
+          {
+            "name": "title",
+            "in": "query",
+            "required": false,
+            "description": "Raw EPUB body only (`Content-Type: application/epub+zip`). Volume title (an EPUB keeps its own otherwise).",
+            "schema": {
+              "default": "",
+              "maxLength": 500,
+              "type": "string"
+            }
+          },
+          {
+            "name": "author",
+            "in": "query",
+            "required": false,
+            "description": "Raw EPUB body only (`Content-Type: application/epub+zip`). Author of the volume.",
+            "schema": {
+              "default": "",
+              "maxLength": 500,
+              "type": "string"
+            }
+          },
+          {
+            "name": "source_language",
+            "in": "query",
+            "required": false,
+            "description": "Raw EPUB body only (`Content-Type: application/epub+zip`). BCP 47 tag such as `en`, `fr-FR`, `zh-Hant`.",
+            "schema": {
+              "maxLength": 35,
+              "type": "string"
+            }
+          },
+          {
+            "name": "target_language",
+            "in": "query",
+            "required": false,
+            "description": "Raw EPUB body only (`Content-Type: application/epub+zip`). BCP 47 tag.",
+            "schema": {
+              "maxLength": 35,
+              "type": "string"
+            }
+          },
+          {
+            "name": "provider_id",
+            "in": "query",
+            "required": false,
+            "description": "Raw EPUB body only (`Content-Type: application/epub+zip`). Provider to use; defaults to the volume's, then the series' provider.",
+            "schema": {
+              "maxLength": 36,
+              "type": "string"
+            }
+          },
+          {
+            "name": "quality",
+            "in": "query",
+            "required": false,
+            "description": "Raw EPUB body only (`Content-Type: application/epub+zip`). `fast`, `normal`, `high` or `maximum`.",
+            "schema": {
+              "enum": [
+                "fast",
+                "normal",
+                "high",
+                "maximum"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "name": "context_backend",
+            "in": "query",
+            "required": false,
+            "description": "Raw EPUB body only (`Content-Type: application/epub+zip`). `internal`, `openviking` or `hybrid`.",
+            "schema": {
+              "enum": [
+                "internal",
+                "openviking",
+                "hybrid"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "name": "start",
+            "in": "query",
+            "required": false,
+            "description": "Raw EPUB body only (`Content-Type: application/epub+zip`). Run the whole pipeline (needs the `pipeline:start` scope); false only imports.",
+            "schema": {
+              "default": true,
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "final_review",
+            "in": "query",
+            "required": false,
+            "description": "Raw EPUB body only (`Content-Type: application/epub+zip`). Run the final review (never when the server disables it).",
+            "schema": {
+              "default": true,
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "output_format",
+            "in": "query",
+            "required": false,
+            "description": "Raw EPUB body only (`Content-Type: application/epub+zip`). Default format of the result; `epub` only for an EPUB (and its default).",
+            "schema": {
+              "enum": [
+                "json",
+                "txt",
+                "txt-zip",
+                "epub"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "name": "callback_url",
+            "in": "query",
+            "required": false,
+            "description": "Raw EPUB body only (`Content-Type: application/epub+zip`). Webhook called when the request ends; its host must be allowed by an administrator.",
+            "schema": {
+              "maxLength": 2000,
+              "type": "string"
+            }
+          },
+          {
+            "name": "replace_changed_chapters",
+            "in": "query",
+            "required": false,
+            "description": "Raw EPUB body only (`Content-Type: application/epub+zip`). Replace chapters already imported with another text (otherwise `409 chapter_conflict`). Unchanged passages keep their translation.",
+            "schema": {
+              "default": false,
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "discard_human",
+            "in": "query",
+            "required": false,
+            "description": "Raw EPUB body only (`Content-Type: application/epub+zip`). With `replace_changed_chapters`: allow dropping passages a person edited or validated (otherwise `409 conflict`).",
+            "schema": {
+              "default": false,
+              "type": "boolean"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "The content to translate.",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TranslationPayload"
+              },
+              "example": {
+                "external_id": "saga-volume-12",
+                "series": {
+                  "name": "The Synthetic Saga",
+                  "create_if_missing": true
+                },
+                "volume": {
+                  "external_id": "volume-12",
+                  "number": 12,
+                  "title": "Volume 12"
+                },
+                "author": "A. Author",
+                "source_language": "en",
+                "target_language": "fr",
+                "chapters": [
+                  {
+                    "external_id": "chapter-001",
+                    "number": 1,
+                    "title": "Chapter 1",
+                    "content": "First paragraph.\n\nSecond paragraph.\n"
+                  }
+                ],
+                "pipeline": {
+                  "start": true,
+                  "quality": "high",
+                  "context_backend": "hybrid",
+                  "final_review": true
+                },
+                "output": {
+                  "format": "json"
+                },
+                "callback_url": "https://hooks.example.org/libris"
+              }
+            },
+            "multipart/form-data": {
+              "schema": {
+                "additionalProperties": false,
+                "description": "An EPUB (one file in `file`), TXT chapters (one or more `.txt` files in `file` or `files`; `series` or `series_id`, `volume`, `source_language` and `target_language` required) or one `.json` document in `file` with no other field. Empty fields count as not given; unknown fields are refused.",
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "format": "binary",
+                    "description": "The EPUB, the JSON document or a TXT chapter."
+                  },
+                  "files": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "format": "binary"
+                    },
+                    "description": "TXT chapters, one file each, numbered from their names."
+                  },
+                  "external_id": {
+                    "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]{0,199}$",
+                    "type": "string",
+                    "description": "Your identifier of the request (same rules as in the JSON document)."
+                  },
+                  "series": {
+                    "maxLength": 500,
+                    "type": "string",
+                    "description": "The series by name, created when missing (not with `series_id`). Required for TXT."
+                  },
+                  "series_id": {
+                    "maxLength": 36,
+                    "type": "string",
+                    "description": "The series by id (not with `series`)."
+                  },
+                  "volume": {
+                    "maximum": 10000,
+                    "minimum": 1,
+                    "type": "integer",
+                    "description": "Volume number, 1–10000. Required for TXT; for an EPUB in a series, taken from the file name when free, otherwise the next number."
+                  },
+                  "volume_external_id": {
+                    "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]{0,199}$",
+                    "type": "string",
+                    "description": "Your identifier of the volume."
+                  },
+                  "title": {
+                    "default": "",
+                    "maxLength": 500,
+                    "type": "string",
+                    "description": "Volume title (an EPUB keeps its own otherwise)."
+                  },
+                  "author": {
+                    "default": "",
+                    "maxLength": 500,
+                    "type": "string",
+                    "description": "Author of the volume."
+                  },
+                  "source_language": {
+                    "maxLength": 35,
+                    "type": "string",
+                    "description": "BCP 47 tag such as `en`, `fr-FR`, `zh-Hant`."
+                  },
+                  "target_language": {
+                    "maxLength": 35,
+                    "type": "string",
+                    "description": "BCP 47 tag."
+                  },
+                  "provider_id": {
+                    "maxLength": 36,
+                    "type": "string",
+                    "description": "Provider to use; defaults to the volume's, then the series' provider."
+                  },
+                  "quality": {
+                    "enum": [
+                      "fast",
+                      "normal",
+                      "high",
+                      "maximum"
+                    ],
+                    "type": "string",
+                    "description": "`fast`, `normal`, `high` or `maximum`."
+                  },
+                  "context_backend": {
+                    "enum": [
+                      "internal",
+                      "openviking",
+                      "hybrid"
+                    ],
+                    "type": "string",
+                    "description": "`internal`, `openviking` or `hybrid`."
+                  },
+                  "start": {
+                    "default": true,
+                    "type": "boolean",
+                    "description": "Run the whole pipeline (needs the `pipeline:start` scope); false only imports."
+                  },
+                  "final_review": {
+                    "default": true,
+                    "type": "boolean",
+                    "description": "Run the final review (never when the server disables it)."
+                  },
+                  "output_format": {
+                    "enum": [
+                      "json",
+                      "txt",
+                      "txt-zip",
+                      "epub"
+                    ],
+                    "type": "string",
+                    "description": "Default format of the result; `epub` only for an EPUB (and its default)."
+                  },
+                  "callback_url": {
+                    "maxLength": 2000,
+                    "type": "string",
+                    "description": "Webhook called when the request ends; its host must be allowed by an administrator."
+                  },
+                  "replace_changed_chapters": {
+                    "default": false,
+                    "type": "boolean",
+                    "description": "Replace chapters already imported with another text (otherwise `409 chapter_conflict`). Unchanged passages keep their translation."
+                  },
+                  "discard_human": {
+                    "default": false,
+                    "type": "boolean",
+                    "description": "With `replace_changed_chapters`: allow dropping passages a person edited or validated (otherwise `409 conflict`)."
+                  }
+                },
+                "type": "object"
+              },
+              "encoding": {
+                "file": {
+                  "contentType": "application/epub+zip, application/json, text/plain"
+                },
+                "files": {
+                  "contentType": "text/plain"
+                }
+              }
+            },
+            "application/epub+zip": {
+              "schema": {
+                "type": "string",
+                "format": "binary"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Accepted: the request is stored and will run in the worker.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RequestSummary"
+                },
+                "example": {
+                  "request_id": "5b1c2d3e-0000-4000-8000-000000000001",
+                  "external_id": "saga-volume-12",
+                  "series_id": "5b1c2d3e-0000-4000-8000-000000000002",
+                  "project_id": "5b1c2d3e-0000-4000-8000-000000000003",
+                  "job_id": "5b1c2d3e-0000-4000-8000-000000000004",
+                  "input": "json",
+                  "status": "pending",
+                  "status_url": "/api/v1/translation-requests/5b1c2d3e-0000-4000-8000-000000000001",
+                  "result_url": "/api/v1/translation-requests/5b1c2d3e-0000-4000-8000-000000000001/result"
+                }
+              }
+            },
+            "headers": {
+              "Location": {
+                "description": "Path of the status document.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "Replayed: this content was already sent with this key or `external_id`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RequestSummary"
+                },
+                "example": {
+                  "request_id": "5b1c2d3e-0000-4000-8000-000000000001",
+                  "external_id": "saga-volume-12",
+                  "series_id": "5b1c2d3e-0000-4000-8000-000000000002",
+                  "project_id": "5b1c2d3e-0000-4000-8000-000000000003",
+                  "job_id": "5b1c2d3e-0000-4000-8000-000000000004",
+                  "input": "json",
+                  "status": "pending",
+                  "status_url": "/api/v1/translation-requests/5b1c2d3e-0000-4000-8000-000000000001",
+                  "result_url": "/api/v1/translation-requests/5b1c2d3e-0000-4000-8000-000000000001/result"
+                }
+              }
+            },
+            "headers": {
+              "Location": {
+                "description": "Path of the status document.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Idempotent-Replayed": {
+                "description": "`true`.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A missing, unknown, revoked or expired token, or a disabled account (header `WWW-Authenticate: Bearer`). Codes: `missing_token`, `invalid_token`, `revoked_token`, `expired_token`, `inactive_account`, `unauthorized`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "missing_token": {
+                    "value": {
+                      "detail": {
+                        "code": "missing_token",
+                        "message": "Jeton d’API manquant : envoyez « Authorization: Bearer <jeton> »."
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "`Bearer realm=\"libris\"`",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The token lacks the scope (`scope` names it), or a browser page from another site. Codes: `insufficient_scope`, `forbidden`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "insufficient_scope": {
+                    "value": {
+                      "detail": {
+                        "code": "insufficient_scope",
+                        "message": "Ce jeton n’a pas la permission « jobs:read »."
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The series named by `id` does not exist, or `create_if_missing` is false. Codes: `series_not_found`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "series_not_found": {
+                    "value": {
+                      "detail": {
+                        "code": "series_not_found",
+                        "message": "Série introuvable."
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The content cannot be taken as it is. Codes: `idempotency_conflict`, `chapter_conflict`, `conflict`, `volume_conflict`, `series_archived`, `volume_archived`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "idempotency_conflict": {
+                    "value": {
+                      "detail": {
+                        "code": "idempotency_conflict",
+                        "message": "Une autre requête a déjà utilisé cette clé d’idempotence ou cet external_id avec un contenu différent."
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The body is above `API_MAX_PAYLOAD_MB`. Codes: `payload_too_large`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Neither JSON, EPUB nor multipart. Codes: `unsupported_media_type`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The document, the upload or an option is invalid. Codes: `invalid_payload`, `invalid_idempotency_key`, `unknown_provider`, `provider_required`, `invalid_epub`, `callback_refused`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "invalid_payload": {
+                    "value": {
+                      "detail": {
+                        "code": "invalid_payload",
+                        "message": "Requête de traduction invalide."
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many calls for this token; retry after `Retry-After` seconds. Codes: `rate_limited`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "rate_limited": {
+                    "value": {
+                      "detail": {
+                        "code": "rate_limited",
+                        "message": "Trop de requêtes pour ce jeton : réessayez plus tard."
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait.",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unexpected failure; the message carries a diagnostic reference for the server logs. Codes: `server_error`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerToken": []
+          }
+        ],
+        "x-libris-scopes": [
+          "content:write",
+          "pipeline:start"
+        ]
+      }
+    },
+    "/api/v1/translation-requests/{request_id}": {
+      "get": {
+        "operationId": "getTranslationRequest",
+        "tags": [
+          "Translation requests"
+        ],
+        "summary": "Get the status of a request",
+        "description": "Status, progress per chapter and stage, stored result and, once the request ended, its completion report. Add `?wait=` to long-poll until the request ends.\n\n**Scope:** `jobs:read`.",
+        "parameters": [
+          {
+            "name": "request_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The request's `request_id`."
+          },
+          {
+            "name": "wait",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 600,
+              "minimum": 0,
+              "default": 0
+            },
+            "description": "Long poll: answer as soon as the request ends, or after this many seconds (bounded by the server's `API_RESULT_MAX_WAIT_SECONDS`, 60 by default)."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RequestDetail"
+                },
+                "example": {
+                  "request_id": "5b1c2d3e-0000-4000-8000-000000000001",
+                  "external_id": "saga-volume-12",
+                  "series_id": "5b1c2d3e-0000-4000-8000-000000000002",
+                  "project_id": "5b1c2d3e-0000-4000-8000-000000000003",
+                  "job_id": "5b1c2d3e-0000-4000-8000-000000000004",
+                  "input": "json",
+                  "status": "running",
+                  "status_url": "/api/v1/translation-requests/5b1c2d3e-0000-4000-8000-000000000001",
+                  "result_url": "/api/v1/translation-requests/5b1c2d3e-0000-4000-8000-000000000001/result",
+                  "created_at": 1790000000.0,
+                  "updated_at": 1790000100.0,
+                  "finished_at": null,
+                  "stage": "translation",
+                  "step": "translation",
+                  "progress": {
+                    "segments": 412,
+                    "translated": 180,
+                    "percent": 44,
+                    "stages": [
+                      {
+                        "key": "translation",
+                        "done": 180,
+                        "total": 412,
+                        "percent": 44
+                      }
+                    ]
+                  },
+                  "estimate": null,
+                  "error": "",
+                  "stop_reason": "",
+                  "next_attempt": 0,
+                  "chapters": {
+                    "created": 1,
+                    "unchanged": 0,
+                    "replaced": 0,
+                    "items": [
+                      {
+                        "chapter_id": "5b1c2d3e-0000-4000-8000-000000000005",
+                        "external_id": "chapter-001",
+                        "number": 1,
+                        "title": "Chapter 1",
+                        "segments": 140,
+                        "translated": 60,
+                        "validated": 0,
+                        "flagged": 0,
+                        "complete": false
+                      }
+                    ]
+                  },
+                  "options": {
+                    "start": true,
+                    "final_review": true,
+                    "output_format": "json"
+                  },
+                  "result": null,
+                  "report": null,
+                  "webhook": {
+                    "state": "pending",
+                    "attempts": 0,
+                    "error": ""
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A missing, unknown, revoked or expired token, or a disabled account (header `WWW-Authenticate: Bearer`). Codes: `missing_token`, `invalid_token`, `revoked_token`, `expired_token`, `inactive_account`, `unauthorized`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "missing_token": {
+                    "value": {
+                      "detail": {
+                        "code": "missing_token",
+                        "message": "Jeton d’API manquant : envoyez « Authorization: Bearer <jeton> »."
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "`Bearer realm=\"libris\"`",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The token lacks the scope (`scope` names it), or a browser page from another site. Codes: `insufficient_scope`, `forbidden`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "insufficient_scope": {
+                    "value": {
+                      "detail": {
+                        "code": "insufficient_scope",
+                        "message": "Ce jeton n’a pas la permission « jobs:read »."
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown, or owned by someone else. Codes: `request_not_found`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "request_not_found": {
+                    "value": {
+                      "detail": {
+                        "code": "request_not_found",
+                        "message": "Requête de traduction introuvable."
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A bad parameter. Codes: `invalid_request`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "invalid_request": {
+                    "value": {
+                      "detail": {
+                        "code": "invalid_request",
+                        "message": "Requête invalide."
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many calls for this token; retry after `Retry-After` seconds. Codes: `rate_limited`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "rate_limited": {
+                    "value": {
+                      "detail": {
+                        "code": "rate_limited",
+                        "message": "Trop de requêtes pour ce jeton : réessayez plus tard."
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait.",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unexpected failure; the message carries a diagnostic reference for the server logs. Codes: `server_error`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerToken": []
+          }
+        ],
+        "x-libris-scopes": [
+          "jobs:read"
+        ]
+      }
+    },
+    "/api/v1/translation-requests/{request_id}/result": {
+      "get": {
+        "operationId": "getTranslationResult",
+        "tags": [
+          "Results"
+        ],
+        "summary": "Download the result",
+        "description": "The chapters of the request in reading order (the whole book for an EPUB), as an EPUB (EPUB requests only), a JSON document, one UTF-8 text file, or a ZIP of one text file per chapter with a `manifest.json`. `?format=` wins, then the `Accept` header, then the request's own format.\n\nPassages without a translation keep their source text. Before the end the answer is `409 result_not_ready` (with `Retry-After`), unless `partial=true`.\n\n**Scope:** `results:read`.",
+        "parameters": [
+          {
+            "name": "request_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The request's `request_id`."
+          },
+          {
+            "name": "format",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "json",
+                "txt",
+                "txt-zip",
+                "epub"
+              ],
+              "type": "string"
+            },
+            "description": "Result format; wins over the `Accept` header. Default: the request's own format (EPUB for an EPUB)."
+          },
+          {
+            "name": "partial",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false
+            },
+            "description": "Return what is translated so far instead of `409 result_not_ready` (missing passages keep their source text; `X-Libris-Complete: false`)."
+          },
+          {
+            "name": "wait",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 600,
+              "minimum": 0,
+              "default": 0
+            },
+            "description": "Long poll: answer as soon as the request ends, or after this many seconds (bounded by the server's `API_RESULT_MAX_WAIT_SECONDS`, 60 by default)."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The result. `X-Libris-Complete` tells whether every passage is translated. `application/epub+zip`: The translated EPUB (`format=epub`). `application/json`: The JSON document (`format=json`). `text/plain`: One UTF-8 text file, chapters under their headings (`format=txt`). `application/zip`: `chapters/001 - Title.txt`… and `manifest.json` with each file's SHA-256 (`format=txt-zip`).",
+            "headers": {
+              "X-Libris-Complete": {
+                "description": "`true` or `false`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Libris-Status": {
+                "description": "The request's status.",
+                "schema": {
+                  "$ref": "#/components/schemas/RequestStatus"
+                }
+              },
+              "Content-Disposition": {
+                "description": "File name (every format but JSON).",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/epub+zip": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonResult"
+                }
+              },
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "application/zip": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A missing, unknown, revoked or expired token, or a disabled account (header `WWW-Authenticate: Bearer`). Codes: `missing_token`, `invalid_token`, `revoked_token`, `expired_token`, `inactive_account`, `unauthorized`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "missing_token": {
+                    "value": {
+                      "detail": {
+                        "code": "missing_token",
+                        "message": "Jeton d’API manquant : envoyez « Authorization: Bearer <jeton> »."
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "`Bearer realm=\"libris\"`",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The token lacks the scope (`scope` names it), or a browser page from another site. Codes: `insufficient_scope`, `forbidden`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "insufficient_scope": {
+                    "value": {
+                      "detail": {
+                        "code": "insufficient_scope",
+                        "message": "Ce jeton n’a pas la permission « jobs:read »."
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown request, or its volume was deleted. Codes: `request_not_found`, `volume_not_found`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "request_not_found": {
+                    "value": {
+                      "detail": {
+                        "code": "request_not_found",
+                        "message": "Requête de traduction introuvable."
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The result cannot be served yet or at all. Codes: `result_not_ready`, `request_failed`, `request_cancelled`, `format_unavailable`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "result_not_ready": {
+                    "value": {
+                      "detail": {
+                        "code": "result_not_ready",
+                        "message": "La traduction de cette requête n’est pas terminée : réessayez plus tard, ou demandez un résultat partiel (partial=true)."
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait.",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A bad parameter, or an EPUB rendered on demand could not be built. Codes: `invalid_request`, `delivery_failed`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "invalid_request": {
+                    "value": {
+                      "detail": {
+                        "code": "invalid_request",
+                        "message": "Requête invalide."
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many calls for this token; retry after `Retry-After` seconds. Codes: `rate_limited`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "rate_limited": {
+                    "value": {
+                      "detail": {
+                        "code": "rate_limited",
+                        "message": "Trop de requêtes pour ce jeton : réessayez plus tard."
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait.",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unexpected failure; the message carries a diagnostic reference for the server logs. Codes: `server_error`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerToken": []
+          }
+        ],
+        "x-libris-scopes": [
+          "results:read"
+        ]
+      }
+    },
+    "/api/v1/translation-requests/{request_id}/{action}": {
+      "post": {
+        "operationId": "controlTranslationRequest",
+        "tags": [
+          "Translation requests"
+        ],
+        "summary": "Pause, resume or cancel a request",
+        "description": "Same rules as the interface. A request without a job yet (`queued`) can only be cancelled. Answers with the status document.\n\n**Scope:** `jobs:control`.",
+        "parameters": [
+          {
+            "name": "request_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The request's `request_id`."
+          },
+          {
+            "name": "action",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "enum": [
+                "pause",
+                "resume",
+                "cancel"
+              ],
+              "type": "string"
+            },
+            "description": "`pause`, `resume` or `cancel`."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RequestDetail"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A missing, unknown, revoked or expired token, or a disabled account (header `WWW-Authenticate: Bearer`). Codes: `missing_token`, `invalid_token`, `revoked_token`, `expired_token`, `inactive_account`, `unauthorized`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "missing_token": {
+                    "value": {
+                      "detail": {
+                        "code": "missing_token",
+                        "message": "Jeton d’API manquant : envoyez « Authorization: Bearer <jeton> »."
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "`Bearer realm=\"libris\"`",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The token lacks the scope (`scope` names it), or a browser page from another site. Codes: `insufficient_scope`, `forbidden`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "insufficient_scope": {
+                    "value": {
+                      "detail": {
+                        "code": "insufficient_scope",
+                        "message": "Ce jeton n’a pas la permission « jobs:read »."
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown, or owned by someone else. Codes: `request_not_found`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "request_not_found": {
+                    "value": {
+                      "detail": {
+                        "code": "request_not_found",
+                        "message": "Requête de traduction introuvable."
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The job's state does not allow the action. Codes: `not_started`, `conflict`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many calls for this token; retry after `Retry-After` seconds. Codes: `rate_limited`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "rate_limited": {
+                    "value": {
+                      "detail": {
+                        "code": "rate_limited",
+                        "message": "Trop de requêtes pour ce jeton : réessayez plus tard."
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait.",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unexpected failure; the message carries a diagnostic reference for the server logs. Codes: `server_error`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerToken": []
+          }
+        ],
+        "x-libris-scopes": [
+          "jobs:control"
+        ]
+      }
+    }
+  },
+  "webhooks": {
+    "translationRequestFinished": {
+      "post": {
+        "operationId": "translationRequestFinished",
+        "tags": [
+          "Translation requests"
+        ],
+        "summary": "A request ended",
+        "description": "Sent by the worker to the request's `callback_url` when it ends. Check the signature over the raw body and refuse old timestamps. Any `2xx` counts as delivered; anything else is retried with an exponential backoff (30 s, 60 s… up to one hour) at most `API_WEBHOOK_MAX_ATTEMPTS` times. Redirects are not followed.",
+        "parameters": [
+          {
+            "name": "X-Libris-Event",
+            "in": "header",
+            "required": true,
+            "description": "`translation_request.finished`.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Libris-Delivery",
+            "in": "header",
+            "required": true,
+            "description": "`<request id>:<attempt number>`.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Libris-Timestamp",
+            "in": "header",
+            "required": true,
+            "description": "Unix time in seconds.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Libris-Signature",
+            "in": "header",
+            "required": true,
+            "description": "`sha256=<hex>`: HMAC-SHA256 of `<timestamp>.<raw body>` with the token's webhook secret, or the server's `API_WEBHOOK_SECRET`.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WebhookEvent"
+              }
+            }
+          }
+        },
+        "responses": {
+          "2XX": {
+            "description": "Delivered."
+          }
+        },
+        "security": []
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "ChapterCounts": {
+        "type": "object",
+        "description": "How many chapters the request created, found unchanged or replaced, and each chapter's progress.",
+        "properties": {
+          "created": {
+            "type": "integer"
+          },
+          "unchanged": {
+            "type": "integer"
+          },
+          "replaced": {
+            "type": "integer"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ChapterProgress"
+            }
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "additionalProperties": true
+      },
+      "ChapterInput": {
+        "additionalProperties": false,
+        "properties": {
+          "external_id": {
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]{0,199}$",
+            "type": [
+              "string",
+              "null"
+            ],
+            "default": null,
+            "description": "Your identifier of the chapter: sending it again finds the same chapter."
+          },
+          "number": {
+            "maximum": 100000,
+            "minimum": 0,
+            "type": "number",
+            "description": "Chapter number, 0–100000; decimals such as `12.5` allowed. Chapters are ordered by it."
+          },
+          "title": {
+            "default": "",
+            "maxLength": 500,
+            "type": "string",
+            "description": "Optional; without it the chapter is named by its number."
+          },
+          "content": {
+            "type": "string",
+            "description": "The chapter's text (not blank, at most `TEXT_CHAPTER_MAX_CHARS` characters)."
+          }
+        },
+        "required": [
+          "number",
+          "content"
+        ],
+        "type": "object"
+      },
+      "ChapterProgress": {
+        "type": "object",
+        "properties": {
+          "chapter_id": {
+            "type": "string",
+            "description": "Identifier (UUID)."
+          },
+          "external_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "number": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "title": {
+            "type": "string"
+          },
+          "segments": {
+            "type": "integer"
+          },
+          "translated": {
+            "type": "integer"
+          },
+          "validated": {
+            "type": "integer"
+          },
+          "flagged": {
+            "type": "integer",
+            "description": "Passages still flagged (`check`, `error`, `refused`) and not validated."
+          },
+          "complete": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "chapter_id",
+          "external_id",
+          "number",
+          "title",
+          "segments",
+          "translated",
+          "validated",
+          "flagged",
+          "complete"
+        ]
+      },
+      "CompletionReport": {
+        "type": "object",
+        "description": "What was translated, what kept its source and why, what it cost and how long it took.",
+        "properties": {
+          "version": {
+            "type": "integer"
+          },
+          "outcome": {
+            "type": "string",
+            "enum": [
+              "completed",
+              "completed_with_residuals",
+              "failed",
+              "cancelled",
+              "imported"
+            ]
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Why the request did not complete."
+          },
+          "passages": {
+            "type": "object",
+            "description": "Counts over the request's passages (the whole book for an EPUB).",
+            "properties": {
+              "total": {
+                "type": "integer"
+              },
+              "translated": {
+                "type": "integer"
+              },
+              "source_retained": {
+                "type": "integer"
+              },
+              "untranslated": {
+                "type": "integer"
+              },
+              "flagged": {
+                "type": "integer"
+              },
+              "validated": {
+                "type": "integer"
+              },
+              "human": {
+                "type": "integer"
+              },
+              "by_status": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "integer"
+                },
+                "description": "Passages per status."
+              }
+            },
+            "required": [
+              "total",
+              "translated",
+              "source_retained",
+              "untranslated",
+              "flagged",
+              "validated",
+              "human",
+              "by_status"
+            ]
+          },
+          "residual_total": {
+            "type": "integer"
+          },
+          "residuals": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Residual"
+            },
+            "description": "At most 500; `residuals_truncated` tells when the list is cut."
+          },
+          "residuals_truncated": {
+            "type": "boolean"
+          },
+          "usage": {
+            "$ref": "#/components/schemas/Usage"
+          },
+          "durations": {
+            "type": "object",
+            "properties": {
+              "total_seconds": {
+                "type": "number"
+              },
+              "queued_seconds": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "job_seconds": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "total_seconds",
+              "queued_seconds",
+              "job_seconds"
+            ]
+          },
+          "autopilot": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "How the autopilot ended: `outcome`, `rounds`, `reason`."
+          },
+          "decisions": {
+            "type": "object",
+            "properties": {
+              "autopilot": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "description": "Decisions the autopilot logged for the job."
+              },
+              "intake": {
+                "type": "array",
+                "items": {
+                  "type": "object"
+                },
+                "description": "Choices made when reading the upload (volume and chapter numbers, encoding, reused EPUB), each with its reason."
+              }
+            },
+            "required": [
+              "autopilot",
+              "intake"
+            ]
+          },
+          "delivery": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "EPUB only: EPUBCheck `validation`, `repairs`, `inherited_errors`, and `errors` when the delivery failed."
+          }
+        },
+        "required": [
+          "version",
+          "outcome",
+          "reason",
+          "passages",
+          "residual_total",
+          "residuals",
+          "residuals_truncated",
+          "usage",
+          "durations",
+          "autopilot",
+          "decisions",
+          "delivery"
+        ],
+        "additionalProperties": true
+      },
+      "Error": {
+        "type": "object",
+        "description": "Every error of the automation API.",
+        "properties": {
+          "detail": {
+            "$ref": "#/components/schemas/ErrorDetail"
+          }
+        },
+        "required": [
+          "detail"
+        ]
+      },
+      "ErrorDetail": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "description": "Stable machine-readable code, for example `chapter_conflict`."
+          },
+          "message": {
+            "type": "string",
+            "description": "Human-readable explanation, French by default, English with `Accept-Language: en`."
+          },
+          "errors": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ValidationIssue"
+            },
+            "description": "Validation problems (`invalid_payload`, `invalid_request`)."
+          },
+          "scope": {
+            "type": "string",
+            "description": "The missing scope (`insufficient_scope`)."
+          },
+          "request_id": {
+            "type": "string",
+            "description": "The request that already used this key (`idempotency_conflict`)."
+          },
+          "status": {
+            "type": "string",
+            "description": "The request's status (`result_not_ready`, `request_failed`…)."
+          },
+          "reason": {
+            "type": "string",
+            "description": "Why the request failed or was cancelled."
+          },
+          "incomplete_chapters": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Chapters not fully translated yet."
+          },
+          "conflicts": {
+            "type": "array",
+            "items": {},
+            "description": "Chapters already imported with another text (`chapter_conflict`)."
+          },
+          "protected_segments": {
+            "type": "array",
+            "items": {},
+            "description": "Passages edited by a person that a replacement would drop."
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "additionalProperties": true
+      },
+      "JsonResult": {
+        "type": "object",
+        "description": "The JSON result (`?format=json`).",
+        "properties": {
+          "schema_version": {
+            "type": "integer"
+          },
+          "request_id": {
+            "type": "string",
+            "description": "Identifier (UUID)."
+          },
+          "external_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "$ref": "#/components/schemas/RequestStatus"
+          },
+          "complete": {
+            "type": "boolean"
+          },
+          "series": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "description": "Identifier (UUID)."
+                  },
+                  "name": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id",
+                  "name"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "volume": {
+            "type": "object",
+            "properties": {
+              "project_id": {
+                "type": "string",
+                "description": "Identifier (UUID)."
+              },
+              "external_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "number": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "title": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "project_id",
+              "external_id",
+              "number",
+              "title"
+            ]
+          },
+          "source_language": {
+            "type": "string"
+          },
+          "target_language": {
+            "type": "string"
+          },
+          "strategy": {
+            "type": "object",
+            "description": "Provider name and model (never its address or key), `quality`, `context_backend`, `final_review`."
+          },
+          "incomplete_chapters": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "chapters": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ResultChapter"
+            }
+          },
+          "report": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CompletionReport"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "schema_version",
+          "request_id",
+          "external_id",
+          "status",
+          "complete",
+          "series",
+          "volume",
+          "source_language",
+          "target_language",
+          "strategy",
+          "incomplete_chapters",
+          "chapters",
+          "report"
+        ],
+        "additionalProperties": true
+      },
+      "OutputOptions": {
+        "additionalProperties": false,
+        "properties": {
+          "format": {
+            "default": "json",
+            "enum": [
+              "json",
+              "txt",
+              "txt-zip"
+            ],
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "PipelineOptions": {
+        "additionalProperties": false,
+        "properties": {
+          "start": {
+            "default": true,
+            "type": "boolean",
+            "description": "Run the whole pipeline (needs the `pipeline:start` scope); false only imports."
+          },
+          "provider_id": {
+            "maxLength": 36,
+            "type": [
+              "string",
+              "null"
+            ],
+            "default": null,
+            "description": "Provider to use; defaults to the volume's, then the series' provider."
+          },
+          "quality": {
+            "enum": [
+              "fast",
+              "normal",
+              "high",
+              "maximum"
+            ],
+            "type": [
+              "string",
+              "null"
+            ],
+            "default": null,
+            "description": "`fast`, `normal`, `high` or `maximum`."
+          },
+          "context_backend": {
+            "enum": [
+              "internal",
+              "openviking",
+              "hybrid"
+            ],
+            "type": [
+              "string",
+              "null"
+            ],
+            "default": null,
+            "description": "`internal`, `openviking` or `hybrid`."
+          },
+          "final_review": {
+            "default": true,
+            "type": "boolean",
+            "description": "Run the final review (never when the server disables it)."
+          }
+        },
+        "type": "object"
+      },
+      "Progress": {
+        "type": "object",
+        "properties": {
+          "segments": {
+            "type": "integer",
+            "description": "Passages of the request's chapters (the whole book for an EPUB)."
+          },
+          "translated": {
+            "type": "integer"
+          },
+          "percent": {
+            "type": "integer"
+          },
+          "stages": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/StageProgress"
+            },
+            "description": "The volume's progress per stage."
+          }
+        },
+        "required": [
+          "segments",
+          "translated",
+          "percent",
+          "stages"
+        ]
+      },
+      "Provider": {
+        "type": "object",
+        "description": "A provider a request may name: identity and model only, never an address or a key.",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Identifier (UUID)."
+          },
+          "name": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "description": "`openai`, `openai_direct`, `openai_responses`, `anthropic` or `codex_chatgpt`."
+          },
+          "model": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "number",
+            "description": "Unix time in seconds."
+          },
+          "default_for_series": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Your series that use this provider by default."
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "kind",
+          "model",
+          "created_at",
+          "default_for_series"
+        ],
+        "additionalProperties": true
+      },
+      "RequestDetail": {
+        "type": "object",
+        "description": "The status document of a request.",
+        "properties": {
+          "request_id": {
+            "type": "string",
+            "description": "Identifier (UUID)."
+          },
+          "external_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Your identifier of the request."
+          },
+          "series_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Identifier (UUID)."
+          },
+          "project_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The volume (UUID)."
+          },
+          "job_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The pipeline job; `null` while the request waits (`queued`)."
+          },
+          "input": {
+            "type": "string",
+            "enum": [
+              "epub",
+              "txt",
+              "json"
+            ],
+            "description": "What was sent."
+          },
+          "status": {
+            "$ref": "#/components/schemas/RequestStatus"
+          },
+          "status_url": {
+            "type": "string",
+            "description": "Path of the status document."
+          },
+          "result_url": {
+            "type": "string",
+            "description": "Path of the result."
+          },
+          "created_at": {
+            "type": "number",
+            "description": "Unix time in seconds."
+          },
+          "updated_at": {
+            "type": "number",
+            "description": "Unix time in seconds."
+          },
+          "finished_at": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "description": "Unix time in seconds."
+          },
+          "stage": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Current stage of the volume (`null` without a job)."
+          },
+          "step": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Current step of the job, for example `translation`, `final_review`."
+          },
+          "progress": {
+            "$ref": "#/components/schemas/Progress"
+          },
+          "estimate": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Remaining time and cost, once enough calls were observed."
+          },
+          "error": {
+            "type": "string",
+            "description": "Why the job stopped or failed; empty otherwise."
+          },
+          "stop_reason": {
+            "type": "string"
+          },
+          "next_attempt": {
+            "type": "number",
+            "description": "When a waiting job retries (Unix time, `0` when not waiting)."
+          },
+          "chapters": {
+            "$ref": "#/components/schemas/ChapterCounts"
+          },
+          "options": {
+            "type": "object",
+            "properties": {
+              "start": {
+                "type": "boolean"
+              },
+              "final_review": {
+                "type": "boolean"
+              },
+              "output_format": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "start",
+              "final_review",
+              "output_format"
+            ]
+          },
+          "result": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StoredResult"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "report": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CompletionReport"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "webhook": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WebhookState"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "request_id",
+          "external_id",
+          "series_id",
+          "project_id",
+          "job_id",
+          "input",
+          "status",
+          "status_url",
+          "result_url",
+          "created_at",
+          "updated_at",
+          "finished_at",
+          "stage",
+          "step",
+          "progress",
+          "estimate",
+          "error",
+          "stop_reason",
+          "next_attempt",
+          "chapters",
+          "options",
+          "result",
+          "report",
+          "webhook"
+        ],
+        "additionalProperties": true
+      },
+      "RequestStatus": {
+        "type": "string",
+        "enum": [
+          "queued",
+          "imported",
+          "pending",
+          "running",
+          "paused",
+          "waiting",
+          "blocked",
+          "finalizing",
+          "completed",
+          "completed_with_residuals",
+          "failed",
+          "cancelled"
+        ],
+        "description": "`queued`: waiting for its volume. `imported`: chapters imported, nothing started (end state). `pending`/`running`: the job waits for a worker or works. `paused`, `waiting` (provider temporarily unavailable, retried), `blocked` (needs attention). `finalizing`: the result is being built. End states: `completed`, `completed_with_residuals` (some passages kept their source, listed in the report), `failed`, `cancelled`."
+      },
+      "RequestSummary": {
+        "type": "object",
+        "description": "A translation request, as answered when it is created.",
+        "properties": {
+          "request_id": {
+            "type": "string",
+            "description": "Identifier (UUID)."
+          },
+          "external_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Your identifier of the request."
+          },
+          "series_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Identifier (UUID)."
+          },
+          "project_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The volume (UUID)."
+          },
+          "job_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The pipeline job; `null` while the request waits (`queued`)."
+          },
+          "input": {
+            "type": "string",
+            "enum": [
+              "epub",
+              "txt",
+              "json"
+            ],
+            "description": "What was sent."
+          },
+          "status": {
+            "$ref": "#/components/schemas/RequestStatus"
+          },
+          "status_url": {
+            "type": "string",
+            "description": "Path of the status document."
+          },
+          "result_url": {
+            "type": "string",
+            "description": "Path of the result."
+          }
+        },
+        "required": [
+          "request_id",
+          "external_id",
+          "series_id",
+          "project_id",
+          "job_id",
+          "input",
+          "status",
+          "status_url",
+          "result_url"
+        ]
+      },
+      "Residual": {
+        "type": "object",
+        "description": "A passage delivered in its source text.",
+        "properties": {
+          "segment_id": {
+            "type": "string",
+            "description": "Identifier (UUID)."
+          },
+          "chapter_id": {
+            "type": "string",
+            "description": "Identifier (UUID)."
+          },
+          "chapter_external_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "chapter_title": {
+            "type": "string"
+          },
+          "position": {
+            "type": "integer"
+          },
+          "status": {
+            "type": "string"
+          },
+          "kept": {
+            "type": "string",
+            "enum": [
+              "source"
+            ]
+          },
+          "reason": {
+            "type": "string",
+            "description": "The autopilot's reason, the passage's last error, or `source_retained`, `untranslated`, `markup_mismatch`, `epubcheck_repair`."
+          }
+        },
+        "required": [
+          "segment_id",
+          "kept",
+          "reason"
+        ]
+      },
+      "ResultChapter": {
+        "type": "object",
+        "properties": {
+          "chapter_id": {
+            "type": "string",
+            "description": "Identifier (UUID)."
+          },
+          "external_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "number": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "title": {
+            "type": "string"
+          },
+          "translated_title": {
+            "type": "string"
+          },
+          "complete": {
+            "type": "boolean"
+          },
+          "missing_segments": {
+            "type": "integer"
+          },
+          "translation": {
+            "type": "string",
+            "description": "The chapter's text; missing passages keep their source text."
+          },
+          "source_sha256": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "SHA-256 of the normalized source text (`null` when not recorded)."
+          },
+          "sha256": {
+            "type": "string",
+            "description": "SHA-256 of `translation` (UTF-8)."
+          },
+          "review": {
+            "type": "object",
+            "properties": {
+              "segments": {
+                "type": "integer"
+              },
+              "validated": {
+                "type": "integer"
+              },
+              "flagged": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "segments",
+              "validated",
+              "flagged"
+            ]
+          },
+          "issues": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            },
+            "description": "Unresolved quality issues: `segment_id`, `severity`, `code`, `message`."
+          },
+          "flagged_passages": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            },
+            "description": "Passages still flagged: `segment_id`, `position`, `status`."
+          }
+        },
+        "required": [
+          "chapter_id",
+          "external_id",
+          "number",
+          "title",
+          "translated_title",
+          "complete",
+          "missing_segments",
+          "translation",
+          "source_sha256",
+          "sha256",
+          "review",
+          "issues",
+          "flagged_passages"
+        ],
+        "additionalProperties": true
+      },
+      "SeriesDetail": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Identifier (UUID)."
+          },
+          "name": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "source_language": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "target_language": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "archived": {
+            "type": "boolean"
+          },
+          "volumes": {
+            "type": "integer"
+          },
+          "created_at": {
+            "type": "number",
+            "description": "Unix time in seconds."
+          },
+          "updated_at": {
+            "type": "number",
+            "description": "Unix time in seconds."
+          },
+          "volume_list": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/VolumeSummary"
+            },
+            "description": "Sorted by volume number."
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "kind",
+          "source_language",
+          "target_language",
+          "archived",
+          "volumes",
+          "created_at",
+          "updated_at",
+          "volume_list"
+        ],
+        "additionalProperties": true
+      },
+      "SeriesReference": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "maxLength": 36,
+            "type": [
+              "string",
+              "null"
+            ],
+            "default": null,
+            "description": "A series you own."
+          },
+          "name": {
+            "maxLength": 500,
+            "type": [
+              "string",
+              "null"
+            ],
+            "default": null,
+            "description": "Found by name; created when missing unless `create_if_missing` is false."
+          },
+          "create_if_missing": {
+            "default": true,
+            "type": "boolean",
+            "description": "Create the series named by `name` when it does not exist."
+          }
+        },
+        "type": "object"
+      },
+      "SeriesSummary": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Identifier (UUID)."
+          },
+          "name": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "source_language": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "target_language": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "archived": {
+            "type": "boolean"
+          },
+          "volumes": {
+            "type": "integer"
+          },
+          "created_at": {
+            "type": "number",
+            "description": "Unix time in seconds."
+          },
+          "updated_at": {
+            "type": "number",
+            "description": "Unix time in seconds."
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "kind",
+          "source_language",
+          "target_language",
+          "archived",
+          "volumes",
+          "created_at",
+          "updated_at"
+        ],
+        "additionalProperties": true
+      },
+      "StageProgress": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string",
+            "description": "`import`, `analysis`, `translation`, `review` or `export`."
+          },
+          "done": {
+            "type": "integer"
+          },
+          "total": {
+            "type": "integer"
+          },
+          "percent": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "key",
+          "done",
+          "total",
+          "percent"
+        ]
+      },
+      "StoredResult": {
+        "type": "object",
+        "description": "The result file stored when the request ended successfully.",
+        "properties": {
+          "format": {
+            "type": "string",
+            "enum": [
+              "epub",
+              "json",
+              "txt",
+              "txt-zip"
+            ]
+          },
+          "media_type": {
+            "type": "string"
+          },
+          "filename": {
+            "type": "string"
+          },
+          "size": {
+            "type": "integer",
+            "description": "Bytes."
+          },
+          "sha256": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "number",
+            "description": "Unix time in seconds."
+          }
+        },
+        "required": [
+          "format",
+          "media_type",
+          "filename",
+          "size",
+          "sha256",
+          "created_at"
+        ]
+      },
+      "TranslationPayload": {
+        "additionalProperties": false,
+        "properties": {
+          "external_id": {
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]{0,199}$",
+            "type": [
+              "string",
+              "null"
+            ],
+            "default": null,
+            "description": "Your identifier of the request: a letter or digit, then letters, digits and `._:/-` (200 at most). Unique per owner: the same content sent again returns the original request."
+          },
+          "series": {
+            "$ref": "#/components/schemas/SeriesReference",
+            "description": "The series: `id` (one you own) or `name`."
+          },
+          "volume": {
+            "$ref": "#/components/schemas/VolumeReference",
+            "description": "The volume: found by `external_id`, then by `number` in the series; otherwise created."
+          },
+          "author": {
+            "default": "",
+            "maxLength": 500,
+            "type": "string",
+            "description": "Author of the volume."
+          },
+          "source_language": {
+            "maxLength": 35,
+            "type": "string",
+            "description": "BCP 47 tag such as `en`, `fr-FR`, `zh-Hant`."
+          },
+          "target_language": {
+            "maxLength": 35,
+            "type": "string",
+            "description": "BCP 47 tag."
+          },
+          "chapters": {
+            "items": {
+              "$ref": "#/components/schemas/ChapterInput"
+            },
+            "minItems": 1,
+            "type": "array",
+            "description": "1 to `API_MAX_CHAPTERS` chapters; numbers and `external_id`s must not repeat."
+          },
+          "replace_changed_chapters": {
+            "default": false,
+            "type": "boolean",
+            "description": "Replace chapters already imported with another text (otherwise `409 chapter_conflict`). Unchanged passages keep their translation."
+          },
+          "discard_human": {
+            "default": false,
+            "type": "boolean",
+            "description": "With `replace_changed_chapters`: allow dropping passages a person edited or validated (otherwise `409 conflict`)."
+          },
+          "pipeline": {
+            "$ref": "#/components/schemas/PipelineOptions",
+            "description": "How to run the pipeline."
+          },
+          "output": {
+            "$ref": "#/components/schemas/OutputOptions",
+            "description": "Default format of the result."
+          },
+          "callback_url": {
+            "maxLength": 2000,
+            "type": [
+              "string",
+              "null"
+            ],
+            "default": null,
+            "description": "Webhook called when the request ends; its host must be allowed by an administrator."
+          }
+        },
+        "required": [
+          "series",
+          "volume",
+          "source_language",
+          "target_language",
+          "chapters"
+        ],
+        "type": "object",
+        "example": {
+          "external_id": "saga-volume-12",
+          "series": {
+            "name": "The Synthetic Saga",
+            "create_if_missing": true
+          },
+          "volume": {
+            "external_id": "volume-12",
+            "number": 12,
+            "title": "Volume 12"
+          },
+          "author": "A. Author",
+          "source_language": "en",
+          "target_language": "fr",
+          "chapters": [
+            {
+              "external_id": "chapter-001",
+              "number": 1,
+              "title": "Chapter 1",
+              "content": "First paragraph.\n\nSecond paragraph.\n"
+            }
+          ],
+          "pipeline": {
+            "start": true,
+            "quality": "high",
+            "context_backend": "hybrid",
+            "final_review": true
+          },
+          "output": {
+            "format": "json"
+          },
+          "callback_url": "https://hooks.example.org/libris"
+        },
+        "description": "A JSON translation request. Unknown fields are refused; nothing is ever downloaded from a URL it names."
+      },
+      "Usage": {
+        "type": "object",
+        "description": "Model calls of the request's job.",
+        "properties": {
+          "calls": {
+            "type": "integer"
+          },
+          "prompt_tokens": {
+            "type": "integer"
+          },
+          "completion_tokens": {
+            "type": "integer"
+          },
+          "cached_calls": {
+            "type": "integer"
+          },
+          "cost": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "description": "Cost of the calls with a known price; `null` when none had one."
+          }
+        },
+        "required": [
+          "calls",
+          "prompt_tokens",
+          "completion_tokens",
+          "cached_calls",
+          "cost"
+        ]
+      },
+      "ValidationIssue": {
+        "type": "object",
+        "properties": {
+          "loc": {
+            "type": "array",
+            "items": {
+              "type": [
+                "string",
+                "integer"
+              ]
+            },
+            "description": "Where the problem is, for example `[\"chapters\", 0, \"number\"]`."
+          },
+          "msg": {
+            "type": "string",
+            "description": "What is wrong (the submitted value is never repeated)."
+          },
+          "type": {
+            "type": "string",
+            "description": "Kind of problem."
+          }
+        },
+        "required": [
+          "loc",
+          "msg"
+        ]
+      },
+      "VolumeReference": {
+        "additionalProperties": false,
+        "properties": {
+          "external_id": {
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]{0,199}$",
+            "type": [
+              "string",
+              "null"
+            ],
+            "default": null,
+            "description": "Your identifier of the volume."
+          },
+          "number": {
+            "maximum": 10000,
+            "minimum": 1,
+            "type": "integer",
+            "description": "Volume number, 1–10000."
+          },
+          "title": {
+            "default": "",
+            "maxLength": 500,
+            "type": "string",
+            "description": "Title of a new volume (default: “Series — number”)."
+          }
+        },
+        "required": [
+          "number"
+        ],
+        "type": "object"
+      },
+      "VolumeSummary": {
+        "type": "object",
+        "properties": {
+          "project_id": {
+            "type": "string",
+            "description": "Identifier (UUID)."
+          },
+          "title": {
+            "type": "string"
+          },
+          "volume_number": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "external_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "source_format": {
+            "type": "string"
+          },
+          "project_kind": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "chapters": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "project_id",
+          "title",
+          "volume_number",
+          "external_id",
+          "source_format",
+          "project_kind",
+          "status",
+          "chapters"
+        ],
+        "additionalProperties": true
+      },
+      "WebhookEvent": {
+        "type": "object",
+        "description": "Sent once when a request ends (any end state, `imported` included).",
+        "properties": {
+          "event": {
+            "type": "string",
+            "enum": [
+              "translation_request.finished"
+            ]
+          },
+          "request_id": {
+            "type": "string",
+            "description": "Identifier (UUID)."
+          },
+          "external_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "$ref": "#/components/schemas/RequestStatus"
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "project_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "job_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status_url": {
+            "type": "string"
+          },
+          "result_url": {
+            "type": "string"
+          },
+          "artifact": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "format": {
+                    "type": "string"
+                  },
+                  "size": {
+                    "type": "integer"
+                  },
+                  "sha256": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "format",
+                  "size",
+                  "sha256"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "report": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CompletionReport"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "finished_at": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "description": "Unix time in seconds."
+          }
+        },
+        "required": [
+          "event",
+          "request_id",
+          "external_id",
+          "status",
+          "error",
+          "project_id",
+          "job_id",
+          "status_url",
+          "result_url",
+          "artifact",
+          "report",
+          "finished_at"
+        ],
+        "additionalProperties": true
+      },
+      "WebhookState": {
+        "type": "object",
+        "properties": {
+          "state": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "delivered",
+              "failed"
+            ]
+          },
+          "attempts": {
+            "type": "integer"
+          },
+          "error": {
+            "type": "string",
+            "description": "Last failure, empty when none."
+          }
+        },
+        "required": [
+          "state",
+          "attempts",
+          "error"
+        ]
+      }
+    },
+    "securitySchemes": {
+      "bearerToken": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "lbr_<8 characters>_<secret>",
+        "description": "An API token created in the interface (My account › API tokens)."
+      }
+    }
+  }
+}

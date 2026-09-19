@@ -242,7 +242,7 @@ curl -sS -X POST "$LIBRIS_URL/api/v1/translation-requests" \
 | `pipeline.quality` | no | `fast`, `normal`, `high` or `maximum` (see [the autopilot guide](autopilot.md#what-each-quality-level-does)). |
 | `pipeline.context_backend` | no | `internal`, `openviking` or `hybrid` (see [OpenViking](openviking.md)). |
 | `pipeline.final_review` | no | Default `true`. `false` skips the final review. It never runs when the server sets `FINAL_REVIEW_ENABLED=false`. |
-| `output.format` | no | Default format of the result: `json`, `txt` or `txt-zip`. |
+| `output.format` | no | Default format of the result: `json`, `txt`, `txt-zip` or `epub-bilingual`. |
 | `callback_url` | no | A webhook called when the request ends (see [Webhooks](#webhooks)). |
 
 Unknown fields are refused. Libris never downloads anything from a URL found in the document: text is
@@ -267,7 +267,7 @@ values count as "not given"; unknown options are refused.
 | `source_language`, `target_language` | BCP 47 tags. Both required for TXT. |
 | `provider_id`, `quality`, `context_backend`, `final_review` | As in `pipeline` above. |
 | `start` | `true` (default) runs the whole pipeline; `false` only imports. |
-| `output_format` | `epub` (EPUB input only; the default for an EPUB), `json`, `txt` or `txt-zip`. |
+| `output_format` | `epub` (EPUB input only; the default for an EPUB), `json`, `txt`, `txt-zip` or `epub-bilingual`. |
 | `callback_url` | See [Webhooks](#webhooks). |
 | `replace_changed_chapters`, `discard_human` | TXT only, as in the JSON document. |
 | `filename` | Raw EPUB body only: the file name, used to guess the volume number. |
@@ -405,15 +405,28 @@ curl -sS "$LIBRIS_URL/api/v1/translation-requests/$REQUEST_ID/result?format=txt"
 curl -sS "$LIBRIS_URL/api/v1/translation-requests/$REQUEST_ID/result?format=txt-zip" \
   -H "Authorization: Bearer $LIBRIS_TOKEN" -o volume-12.zip
 
+# Bilingual EPUB for proofreading: each source paragraph with its translation (any input)
+curl -sS "$LIBRIS_URL/api/v1/translation-requests/$REQUEST_ID/result?format=epub-bilingual&layout=side-by-side" \
+  -H "Authorization: Bearer $LIBRIS_TOKEN" -o volume-12-bilingual.epub
+
 # Whatever is ready so far
 curl -sS "$LIBRIS_URL/api/v1/translation-requests/$REQUEST_ID/result?format=json&partial=true" \
   -H "Authorization: Bearer $LIBRIS_TOKEN"
 ```
 
-**Choosing the format.** `?format=` wins (`epub`, `json`, `txt`, `txt-zip`); otherwise the `Accept`
-header (`application/epub+zip`, `application/json`, `text/plain`, `application/zip`); otherwise the
-request's own format. `epub` exists only for a request that sent an EPUB (`409 format_unavailable`
-otherwise).
+**Choosing the format.** `?format=` wins (`epub`, `json`, `txt`, `txt-zip`, `epub-bilingual`);
+otherwise the `Accept` header (`application/epub+zip`, `application/json`, `text/plain`,
+`application/zip`); otherwise the request's own format. `epub` exists only for a request that sent an
+EPUB (`409 format_unavailable` otherwise).
+
+**Bilingual EPUB.** `epub-bilingual` exists for every request, whatever was sent: a new EPUB 3 with
+one page per chapter, where each source paragraph is followed by its translation (`layout=interleaved`,
+the default) or placed next to it in two columns (`layout=side-by-side`; the columns stack on a narrow
+screen). It carries the text only (no image, no original styling) and is meant for proofreading on an
+e-reader. In a partial result, a passage without translation shows its source and an empty
+translation marked `—`. A stored bilingual result is the interleaved one; `layout=side-by-side` is
+rendered on demand. When EPUBCheck is installed and refuses the book, the answer is
+`422 delivery_failed`.
 
 **What it covers.** The chapters of the request only, in reading order; for an EPUB, the whole book.
 

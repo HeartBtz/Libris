@@ -573,8 +573,8 @@ Le menu **Exporter** de l’en-tête propose les formats adaptés à la source d
 
 | Volume | Formats |
 | --- | --- |
-| EPUB | **EPUB traduit**, **Texte**, Markdown, Book Bible JSON, **Projet complet (.zip)**, **EPUB partiel · originaux conservés** |
-| Chapitres (TXT, Markdown, HTML, DOCX ou JSON) | **Chapitres (.zip, un fichier par chapitre)**, **Texte consolidé (.txt)**, Markdown, Book Bible JSON, **Projet complet (.zip)** |
+| EPUB | **EPUB traduit**, **EPUB bilingue (relecture)**, **Texte**, Markdown, Book Bible JSON, **Projet complet (.zip)**, **EPUB partiel · originaux conservés** |
+| Chapitres (TXT, Markdown, HTML, DOCX ou JSON) | **Chapitres (.zip, un fichier par chapitre)**, **Texte consolidé (.txt)**, Markdown, **EPUB bilingue (relecture)**, Book Bible JSON, **Projet complet (.zip)** |
 
 - L’**EPUB traduit** reprend la structure, les styles et les ressources de l’original ; il est vérifié par
   EPUBCheck et refusé s’il n’est pas conforme. Vers l’arabe, l’hébreu, le persan ou l’ourdou, il est écrit de
@@ -582,6 +582,11 @@ Le menu **Exporter** de l’en-tête propose les formats adaptés à la source d
 - Le **ZIP de chapitres** contient un fichier UTF-8 par chapitre (`chapters/001 - Titre.txt`, dans l’ordre de
   lecture) et un `manifest.json` (titre, série, numéro de volume, langues et, pour chaque chapitre, son numéro,
   son titre, son empreinte SHA-256 et s’il est complet). Chaque fichier garde la mise en page de la source.
+- L’**EPUB bilingue (relecture)** sert à relire sur liseuse : chaque paragraphe original est suivi de sa
+  traduction, chapitre par chapitre, avec une table des matières. Il existe pour tous les volumes, quelle que
+  soit leur source. Il ne contient que le texte (ni images ni mise en forme de l’original) ; l’original est en
+  italique, plus petit, marqué d’un filet, et chaque texte porte sa langue pour la césure et la synthèse vocale.
+  Il est vérifié par EPUBCheck comme l’EPUB traduit.
 - Le **Texte consolidé** réunit les chapitres sous leur titre ; le **Markdown** met un titre `##` au-dessus de
   chacun.
 - Le **Projet complet** est une sauvegarde de tout le travail du livre (statuts, validations, historique,
@@ -591,7 +596,10 @@ dans [architecture.md](architecture.md#project-archive-schema-version-3).
 
 **Options d’export…** permet de choisir un format et deux options : **Compléter avec le texte original** (les
 passages non traduits gardent leur texte source) et, pour le ZIP, **Ajouter le texte consolidé au ZIP**. Sans la
-première option, l’export d’une traduction incomplète est refusé.
+première option, l’export d’une traduction incomplète est refusé. Pour l’**EPUB bilingue**, la **Disposition**
+choisit entre **Alternée** (l’original, puis sa traduction ; le choix du menu) et **Côte à côte** (deux colonnes,
+qui passent l’une sous l’autre sur un petit écran) ; un passage non traduit y garde son original et une
+traduction vide marquée d’un tiret.
 
 **Rapport de couverture** ouvre, dans un nouvel onglet, le détail de ce qui est traduit ou non.
 

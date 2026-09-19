@@ -30,7 +30,8 @@ providers you configure.
   you confirm.
 - **Many sources, faithful output.** EPUB 2 and 3, TXT chapters, Markdown, HTML and DOCX chapters, and JSON sent
   through the automation API. EPUB layout, styles and resources are preserved and the result is checked with
-  EPUBCheck; text exports keep the chapter layout.
+  EPUBCheck; text exports keep the chapter layout. A bilingual EPUB (source and translation paragraph by
+  paragraph, interleaved or side by side) is available for every volume, for proofreading on an e-reader.
 - **Context that carries over.** A Book Bible per volume, a Series Bible, character identities and relations,
   and a two-level glossary. A volume only learns from the volumes before it, never from later ones.
 - **An autopilot.** Analysis, translation, review, a final AI review and AI arbitration run on their own. If a

@@ -42,7 +42,8 @@ export PROVIDER_ID=...                      # a provider id, see "Choosing a pro
    **Settings › Automation API**).
 2. Under **Create a token**, give it a name, tick the permissions it needs and choose an expiration
    (30, 90 or 365 days, or never).
-3. Optionally tick **Sign webhooks with a secret of this token** (see [Webhooks](#webhooks)).
+3. Optionally tick **Sign webhooks with a secret of this token** (see [Webhooks](#webhooks)), and
+   give it a **Token budget** (see [Token budget](#token-budget)).
 4. Copy the secret now: it is displayed **once** and never again.
 
 A token acts on behalf of its owner: it only sees the owner's series and requests, and it stops
@@ -66,13 +67,32 @@ stores only its SHA-256 and compares it in constant time.
 
 ### Managing tokens from a script
 
-The interface manages tokens through three routes that use the **session cookie**, not a token:
+The interface manages tokens through four routes that use the **session cookie**, not a token:
 
 | Route | Body and answer |
 | --- | --- |
-| `GET /api/tokens` | The caller's tokens: `id, name, prefix, scopes, created_at, expires_at, revoked_at, last_used_at, state, webhook_secret` (a boolean: whether the token has its own signing secret). |
-| `POST /api/tokens` | Body `{"name": "…", "scopes": ["…"], "expires_in_days": 90, "webhook_secret": false}`. `name` 1–100 characters, at least one scope, `expires_in_days` 1–3650 or `null` for no expiry. Answers `201` with the token view plus `token` (the secret) and, when asked, `webhook_secret` (the signing secret). This is the only answer that ever contains them. |
+| `GET /api/tokens` | The caller's tokens: `id, name, prefix, scopes, created_at, expires_at, revoked_at, last_used_at, state, webhook_secret` (a boolean: whether the token has its own signing secret) and `budget` (`null` without a cap, else `{amount, period, spent, resets_at}`). |
+| `POST /api/tokens` | Body `{"name": "…", "scopes": ["…"], "expires_in_days": 90, "webhook_secret": false, "budget_amount": null, "budget_period": "month"}`. `name` 1–100 characters, at least one scope, `expires_in_days` 1–3650 or `null` for no expiry, `budget_amount` a positive cap or `null`, `budget_period` `month` or `total`. Answers `201` with the token view plus `token` (the secret) and, when asked, `webhook_secret` (the signing secret). This is the only answer that ever contains them. |
+| `PUT /api/tokens/{id}/budget` | Body `{"amount": 50, "period": "month"}` (`amount: null` removes the cap). Returns the token view. Written to the audit log. |
 | `DELETE /api/tokens/{id}` | Revokes the token and returns its view. |
+
+### Token budget
+
+A token may have a spending cap, in the currency the provider prices are entered in (the one of
+`usage.cost` in the reports). It counts the model calls of the requests made with the token, per
+calendar month (UTC, `period: "month"`) or over the token's whole life (`period: "total"`). A
+request that has ended counts with the cost kept on it, in the month it ended; a running one counts
+what its calls have cost so far.
+
+- Once the cap is reached, a new request that would start work (`start` true, the default) is refused
+  with `402 budget_exceeded`; the error carries `budget: {amount, spent, period, resets_at}`
+  (`resets_at`: start of the next month, `null` for a total cap). An import alone (`start: false`)
+  costs nothing and is still accepted.
+- A running request whose token nears its cap is handled like a book near its budget (see
+  [cost budgets](user-guide.fr.md#budgets-de-coût)): its job moves to a cheaper fallback provider,
+  or pauses with the stop reason `budget_exceeded`. `…/resume` answers `409 budget_exceeded` until the
+  cap is raised (`PUT /api/tokens/{id}/budget`). A request left paused longer than
+  `API_REQUEST_STALL_MINUTES` fails with that reason.
 
 ## Send a translation request
 
@@ -500,6 +520,8 @@ the stored ZIP, and in the webhook.
   "residuals_truncated": false,
   "usage": {"calls": 1290, "prompt_tokens": 2410000, "completion_tokens": 610000,
             "cached_calls": 12, "cost": 3.41},
+  "cost": {"estimated": 3.9, "actual": 3.41, "budget": 5.0, "book_spent": 4.62, "warning": null,
+           "paused_for_budget": false, "provider_switches": 0},
   "durations": {"total_seconds": 5230.1, "queued_seconds": 0.4, "job_seconds": 5211.8},
   "autopilot": {"outcome": "completed_with_residuals", "rounds": 2, "reason": null},
   "decisions": {"autopilot": 17,
@@ -515,6 +537,7 @@ the stored ZIP, and in the webhook.
 | `passages` | Counts over the request's passages (the whole book for an EPUB). |
 | `residuals` | Passages delivered in their source text, at most 500 (`residual_total` counts them all, `residuals_truncated` says when the list is cut). `reason` is the autopilot's when it recorded one, else the passage's last error, else `source_retained`, `untranslated`, `markup_mismatch` or `epubcheck_repair`. |
 | `usage` | Model calls of the request's job and their tokens. `cost` only counts calls with a known price, and is `null` when none had one. |
+| `cost` | The estimate made when the job started (`null` when none was made) against its real cost (`usage.cost`), the book's budget (`null` without one), what the book has cost in all, the warning given at launch when the estimate exceeded what was left, whether the job was paused by a budget and how many times it moved to a cheaper provider for one. |
 | `durations` | Seconds since the request was created, spent waiting for the volume, and spent in the job. |
 | `autopilot` | How the autopilot ended (`null` when it did not run). |
 | `decisions` | `autopilot`: the number of decisions the autopilot logged for the job; `intake`: the choices made when reading the upload (volume and chapter numbers, text encoding, reused EPUB). |
@@ -638,6 +661,7 @@ Validation errors never echo the submitted values, so book text is never sent ba
 | --- | --- | --- |
 | 401 | `missing_token`, `invalid_token`, `revoked_token`, `expired_token`, `inactive_account` | No token, or a bad one (header `WWW-Authenticate: Bearer`). |
 | 401 | `unauthorized` | A request with a body but no `Authorization: Bearer` header. |
+| 402 | `budget_exceeded` (with `budget`) | The token's cost budget is reached: a request that would start work is refused (see [Token budget](#token-budget)). |
 | 403 | `insufficient_scope` (with `scope`) | The token lacks a permission. |
 | 403 | `forbidden` | A browser request from another site (see below). |
 | 404 | `request_not_found`, `series_not_found`, `volume_not_found`, `not_found` | Unknown, or owned by someone else. |
@@ -647,6 +671,7 @@ Validation errors never echo the submitted values, so book text is never sent ba
 | 409 | `volume_conflict`, `series_archived`, `volume_archived` | The target volume cannot take this content. |
 | 409 | `result_not_ready`, `request_failed`, `request_cancelled`, `format_unavailable` | The result cannot be served (see [Get the result](#get-the-result)). |
 | 409 | `not_started`, `conflict` | Pause, resume or cancel not allowed in the current state. |
+| 409 | `budget_exceeded` | Resuming a job paused by a book or token budget that is still reached. |
 | 413 | `payload_too_large` | The body is above the size limit. |
 | 415 | `unsupported_media_type` | Neither JSON, EPUB nor multipart. |
 | 422 | `invalid_payload` (with `errors: [{loc, msg, type}]`) | The document or the upload is invalid. |

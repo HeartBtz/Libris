@@ -135,6 +135,14 @@ provider setting is not changed.
 When no provider in the chain answers, the job ends **failed** with the reason
 (`stop_reason = providers_exhausted`): it never waits forever.
 
+The same chain serves the [cost budgets](user-guide.fr.md#budgets-de-coût), with or without the
+autopilot: when a book's or an API token's spending reaches the switch threshold
+(`BUDGET_SWITCH_THRESHOLD`, 90 % by default), the job moves to the first provider of the chain that is
+cheaper than its own (compared on a typical call of 14 000 input and 1 000 output tokens) and logs it
+(stage `budget`, action `fallback_provider`, `stop_reason = budget_fallback`). With no cheaper provider
+left, or at the cap itself unless a provider without a price is available, the job pauses
+(`stop_reason = budget_exceeded`, action `paused`) and resumes once the budget is raised.
+
 ## AI arbitration
 
 Open points are what a person used to arbitrate: the reviewers' remarks, the model's doubts
@@ -235,6 +243,10 @@ The report stored on the job looks like this:
 
 ### Cost
 
+The report of the last run (`GET /api/projects/{id}/autopilot`) and the completion report of an
+automation request carry `cost`: the estimate made when the job started against its real cost, with
+the book's budget and the budget switches (see [the API reference](api.md#completion-report)).
+
 The autopilot only spends calls where something is wrong. The recovery ladder only concerns failed
 passages; arbitration makes one call per passage that has open points; later rounds only review the
 passages still open or just recovered. The memory decisions make no call at all.
@@ -312,6 +324,7 @@ yourself. The pipeline then behaves like this:
 | Situation | What happens |
 | --- | --- |
 | You pause | `paused`; it resumes only when you resume it. |
+| A book or API token budget is reached | The job moves to a cheaper fallback provider (`budget_fallback`), else `paused` with `stop_reason = budget_exceeded`; resuming is refused until the budget is raised. |
 | You cancel | `cancelled`; saved results are kept, and the book can be launched again. |
 | The worker stops cleanly | Calls in flight are interrupted; the job goes back to `pending` at its checkpoint. |
 | The worker crashes | Another worker takes the job over once its 60-second lease expires. |

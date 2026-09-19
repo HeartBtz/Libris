@@ -252,6 +252,14 @@ registerTranslations({
   "Qualité haute et maximale ; un appel au lieu de deux quand la relecture trouve à corriger.":
     "High and maximum quality; one call instead of two when the review finds something to fix.",
   "Taille des passages (caractères)": "Passage size (characters)",
+  "Mode d’analyse": "Analysis mode",
+  "Parallèle, puis réconciliation chronologique": "Parallel, then chronological reconciliation",
+  "Chronologique strict (un passage après l’autre)": "Strict chronological (one passage after the other)",
+  "Parallèle : chaque passage est analysé seul, puis revu avec tout ce qui le précède ; la traduction attend la fin de l’analyse. Strict : plus lent, chaque passage attend le précédent.":
+    "Parallel: each passage is analysed on its own, then reviewed with everything before it; translation waits for the analysis to end. Strict: slower, each passage waits for the previous one.",
+  "Passages traités en même temps": "Passages worked on at once",
+  "Vide : la capacité du fournisseur, partagée entre les livres. Un nombre ne fait que la réduire ; il vaut pour l’analyse et la traduction.":
+    "Empty: the provider's capacity, shared between books. A number can only lower it; it applies to analysis and translation.",
   "Vide : réglage de l’installation. S’applique aux chapitres importés ensuite ; les passages existants ne sont pas redécoupés.":
     "Empty: installation setting. Applies to chapters imported later; existing passages are not cut again.",
   "Limites de l’installation (Paramètres › Pilote automatique) : {rounds} tours de convergence au plus, {retries} attentes d’une panne au plus, {minutes} min d’attente au plus.":
@@ -294,6 +302,8 @@ export function ProjectSettings({
   const [fallbacks, setFallbacks] = useState<string[]>(config?.fallback_provider_ids || []);
   const [reviewMode, setReviewMode] = useState<"" | "separate" | "fused">(config?.review_mode || "");
   const [passageChars, setPassageChars] = useState(config?.passage_max_chars ? String(config.passage_max_chars) : "");
+  const [analysisMode, setAnalysisMode] = useState<"" | "parallel" | "strict">(config?.analysis_mode || "");
+  const [threads, setThreads] = useState(config?.threads ? String(config.threads) : "");
   useEffect(() => {
     void run.background(async () => setProviders(await api("/providers")));
   }, [run]);
@@ -356,6 +366,8 @@ export function ProjectSettings({
                       fallback_provider_ids: fallbacks,
                       review_mode: reviewMode || null,
                       passage_max_chars: passageChars ? Number(passageChars) : null,
+                      analysis_mode: analysisMode || null,
+                      threads: threads ? Number(threads) : null,
                     }
                   : {}),
               },
@@ -549,6 +561,44 @@ export function ProjectSettings({
                     onChange={(e) => {
                       touched();
                       setPassageChars(e.target.value);
+                    }}
+                  />
+                </Field>
+                <Field
+                  label={t("Mode d’analyse")}
+                  hint={t(
+                    "Parallèle : chaque passage est analysé seul, puis revu avec tout ce qui le précède ; la traduction attend la fin de l’analyse. Strict : plus lent, chaque passage attend le précédent.",
+                  )}
+                >
+                  <Select
+                    value={analysisMode}
+                    onChange={(e) => {
+                      touched();
+                      setAnalysisMode(e.target.value as typeof analysisMode);
+                    }}
+                  >
+                    <option value="">{t("Réglage de l’installation")}</option>
+                    <option value="parallel">{t("Parallèle, puis réconciliation chronologique")}</option>
+                    <option value="strict">{t("Chronologique strict (un passage après l’autre)")}</option>
+                  </Select>
+                </Field>
+                <Field
+                  label={t("Passages traités en même temps")}
+                  hint={t(
+                    "Vide : la capacité du fournisseur, partagée entre les livres. Un nombre ne fait que la réduire ; il vaut pour l’analyse et la traduction.",
+                  )}
+                >
+                  <Input
+                    type="number"
+                    min="1"
+                    max="64"
+                    step="1"
+                    inputMode="numeric"
+                    value={threads}
+                    placeholder="—"
+                    onChange={(e) => {
+                      touched();
+                      setThreads(e.target.value);
                     }}
                   />
                 </Field>

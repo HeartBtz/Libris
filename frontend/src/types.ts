@@ -66,6 +66,10 @@ export interface ProjectSettingsConfig {
   fallback_provider_ids?: string[] | null;
   /** Absent: REVIEW_MODE. */
   review_mode?: "separate" | "fused" | null;
+  /** Absent: ANALYSIS_MODE (parallel by default). */
+  analysis_mode?: "parallel" | "strict" | null;
+  /** Passages worked on at once, analysis and translation; absent: the provider's share. */
+  threads?: number | null;
   /** Absent: PASSAGE_MAX_CHARS; only chapters imported later are cut with it. */
   passage_max_chars?: number | null;
   translation_memory?: boolean;
@@ -324,6 +328,15 @@ export interface ProgressStage {
   total: number;
   percent: number;
 }
+export interface AnalysisPhase {
+  step: "extraction" | "consolidation" | "reconciliation" | "memory" | "chapter_analysis" | "book_bible";
+  current: number;
+  total: number;
+  level?: number;
+  levels?: number;
+  percent: number;
+}
+
 export interface ProjectProgress {
   active_stage: ProgressStage["key"];
   state: string;
@@ -334,6 +347,8 @@ export interface ProjectProgress {
   model: string | null;
   current: ProgressStage;
   stages: ProgressStage[];
+  /** A running analysis: its step, i/N and, for a Book Bible built as a tree, level k/K. */
+  analysis_phase?: AnalysisPhase | null;
   review: {
     examined: number;
     total: number;

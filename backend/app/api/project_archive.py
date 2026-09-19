@@ -98,7 +98,11 @@ NOT_ARCHIVED = {
     Memory: {"id", "project_id"},
     BibleRevision: {"id", "project_id"},
     Issue: {"id", "project_id"},
-    Job: {"project_id", "provider_id", "lease_owner", "lease_until", "next_attempt"},
+    # The fair queue's place (priority, requesting token, queue and claim times) belongs to this server.
+    Job: {
+        "project_id", "provider_id", "lease_owner", "lease_until", "next_attempt",
+        "priority", "token_id", "queued_at", "claimed_at",
+    },
     JobSegmentState: set(),
     # Prompts and answers stay on the server that paid for them; the figures travel.
     RequestLog: {

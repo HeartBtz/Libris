@@ -28,6 +28,28 @@ The automation API lives under `/api/v1` and is separate from the API used by th
 | `GET /api/v1/series` | `series:read` | List your series |
 | `GET /api/v1/series/{id}` | `series:read` | One series and its volumes |
 
+## OpenAPI description and example client
+
+- **[`docs/openapi/libris-v1.json`](openapi/libris-v1.json)** describes `/api/v1` in OpenAPI 3.1: every
+  operation with its scope, parameters, bodies (JSON document, multipart upload, raw EPUB), answers, error
+  codes and examples, plus the webhook. Load it in any OpenAPI tool or client generator. It is generated
+  from the code and checked by the test suite, so it always matches the version of Libris it ships with.
+  The [website](https://libris-translate.com/api/reference/) shows it as a readable reference.
+- **[`examples/libris_client.py`](../examples/libris_client.py)** is a small client in Python with the
+  standard library only (Python 3.10 or newer, nothing to install). It sends an EPUB, TXT chapters or a JSON
+  document, waits with long polling, downloads the result, waits out `429` answers, and receives webhooks
+  after checking their signature:
+
+  ```bash
+  export LIBRIS_URL=https://libris.example.org LIBRIS_TOKEN=lbr_xxxxxxxx_...
+  python3 examples/libris_client.py epub book.epub --target-language fr --provider-id "$PROVIDER_ID" --out book.fr.epub
+  python3 examples/libris_client.py chapters "Chapter 1.txt" "Chapter 2.txt" --series "Web Saga" --volume 1 \
+    --source-language en --target-language fr --format txt-zip --out volume-1.zip
+  LIBRIS_WEBHOOK_SECRET=... python3 examples/libris_client.py webhooks --port 8080
+  ```
+
+  Its `LibrisClient` class can also be imported in your own code; run it with `--help` for every option.
+
 Every example on this page uses these shell variables:
 
 ```bash
@@ -574,7 +596,8 @@ The signature uses the token's own webhook secret when it has one, otherwise the
 
 ### Verifying a webhook
 
-Check the signature over the raw body, and refuse old timestamps to block replays:
+Check the signature over the raw body, and refuse old timestamps to block replays (the example client
+does the same in `verify_signature` and serves it with its `webhooks` command):
 
 ```python
 import hashlib

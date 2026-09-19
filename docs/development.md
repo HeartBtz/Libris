@@ -14,7 +14,8 @@ evaluated. To run Libris rather than work on it, read the [Docker guide](docker.
 | `codex_bridge/` | Optional isolated Codex transport and its own image |
 | `scripts/` | Installation, deployment, test and release utilities |
 | `deploy/` | Production deployment, backup, restore and CI-runner maintenance procedures |
-| `docs/` | Documentation; `docs/screenshots/` is generated (see [Screenshots](#screenshots)) |
+| `docs/` | Documentation; `docs/screenshots/` and `docs/openapi/` are generated (see [Screenshots](#screenshots) and [The OpenAPI description](#the-openapi-description)) |
+| `examples/` | Example client of the automation API (Python, standard library only) |
 
 How the pieces fit together is described in [architecture.md](architecture.md); the interface conventions are in
 [design-system.md](design-system.md).
@@ -93,6 +94,24 @@ docker rm -f libris-test-db
 
 Every migration must stay reversible down to an empty schema, and `alembic check` must find no difference
 between the models and the migrations.
+
+### The OpenAPI description
+
+`docs/openapi/libris-v1.json` describes the automation API (`/api/v1`) and is generated from the code by
+`backend/app/api/v1_openapi.py`. After adding or changing a `/api/v1` route, regenerate it and commit it:
+
+```bash
+.venv/bin/python scripts/export_openapi.py          # rewrite the file
+.venv/bin/python scripts/export_openapi.py --check  # only compare (prints a diff)
+```
+
+`tests/test_openapi_v1.py` fails while the committed file differs from the code, checks that every `/api/v1`
+operation is described with its scope and error responses, and compares the documented answers with real ones.
+A new route needs nothing else to appear: its tag comes from its path, its summary from the first line of its
+docstring, its scope from its `require(...)` dependency, and it gets the shared error responses. Describe what
+FastAPI cannot see (a body read by hand, the fields of a dict answer, specific error codes) in
+`v1_openapi.py`: `OPERATIONS` and `SCHEMAS`. `tests/test_example_client.py` runs `examples/libris_client.py`
+against the API.
 
 Tests marked `epubcheck` validate exports with the real EPUBCheck. They are skipped unless `EPUBCHECK_JAR` points
 to an EPUBCheck JAR and `java` is on the `PATH`; `LIBRIS_REQUIRE_EPUBCHECK=1` turns a missing validator into a
@@ -200,7 +219,7 @@ diverging refs.
 | Release tag `vX.Y.Z` | `release-policy`, `release-images`, `container-runtime`, `container-scan`, `publish-gitlab`, `publish-dockerhub`, `release-gitlab`, `deploy-production`, and the manual `rollback-production` |
 
 A merge request that changes nothing under `backend/`, `frontend/`, `codex_bridge/`, `prompts/`, `scripts/`,
-`deploy/`, the Dockerfile, the Compose files or `.gitlab-ci.yml` only runs `audit`, which still checks the
+`deploy/`, `examples/`, `docs/openapi/`, the Dockerfile, the Compose files or `.gitlab-ci.yml` only runs `audit`, which still checks the
 version pins in the documentation.
 
 ### Images and verification

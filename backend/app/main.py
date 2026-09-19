@@ -36,6 +36,7 @@ from app.api import (
     tokens,
     v1,
 )
+from app.api import budget as budget_api
 from app.api import quality as quality_dashboard
 from app.api import queue as fair_queue
 from app.config import settings
@@ -218,6 +219,7 @@ for module in (
     app.include_router(module.router)
 app.include_router(estimates.router)
 app.include_router(glossaries.router)
+app.include_router(budget_api.router)
 app.include_router(monitoring.router)
 app.include_router(openviking_cleanup.router)
 app.include_router(quality_dashboard.router)

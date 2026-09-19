@@ -30,6 +30,7 @@ contributing, see [development](development.md).
 | `engines/memory` | Human decisions, characters, glossary, OpenViking events and catalogs, the send queue, the opt-in cleanup of deleted items. |
 | `engines/translation` | Analysis, translation, review, revision and polishing, global consistency, final review, repair in groups (`repair.py`), translation memory (`memory.py`), versions. |
 | `engines/autopilot` | The convergence loop (`loop.py`), recovery ladder (`recovery.py`), AI arbitration (`arbitration.py`), memory decisions (`memory.py`), provider fallback (`providers.py`), skipping optional steps (`degrade.py`) and the decision log (`decisions.py`). |
+| `engines/budget.py` | Cost budgets of books and API tokens: the estimate against the cap before a launch, the check before every model call of a job (cheaper provider or pause), token spend, the estimated against real cost of the reports. |
 | `engines/quality` | Deterministic checks: unit ids, markup codes, empty output, length, repetition, unchanged text, terminology. |
 | `engines/delivery` | Automation requests: upload intake (`intake.py`), always-terminal lifecycle (`lifecycle.py`), completion report (`report.py`), stored results (`results.py`), EPUB delivery with automatic repair (`epub.py`), signed webhooks (`webhooks.py`) and batches of translated chapters (`chapter_events.py`). |
 | `engines/exports` | Text and Markdown renderings of a volume. |
@@ -193,10 +194,10 @@ SQL tables, grouped by purpose. Column types for documents are SQLAlchemy `JSON`
 | `users`, `login_sessions`, `memberships` | Accounts, sessions, and per-book sharing roles. |
 | `providers` | Model providers; API keys encrypted with `SECRET_KEY`. |
 | `prompts` | Prompt overrides saved from the interface. |
-| `api_tokens` | Owner, name, SHA-256 of the secret, displayable prefix, scopes, expiry, revocation, last use, optional webhook signing secret (encrypted), queue limits (`max_priority`, `max_running`, `max_queued`). |
-| `translation_requests` | Automation requests: owner, token, `external_id`, `Idempotency-Key`, payload hash, series, volume, job, status, options (input kind, intake decisions), chapters, error, report, stored `artifact` (path, format, size, SHA-256) and webhook state. |
+| `api_tokens` | Owner, name, SHA-256 of the secret, displayable prefix, scopes, expiry, revocation, last use, optional webhook signing secret (encrypted), queue limits (`max_priority`, `max_running`, `max_queued`), optional cost budget (`budget_amount`, `budget_period`: `month` or `total`). |
+| `translation_requests` | Automation requests: owner, token, `external_id`, `Idempotency-Key`, payload hash, series, volume, job, status, options (input kind, intake decisions), chapters, error, report, `cost` kept when it ends (counted by token budgets), stored `artifact` (path, format, size, SHA-256) and webhook state. |
 | `webhook_events` | Progress webhooks of a request (`chapters.translated`): batch number, chapter ids, state, attempts, next attempt, last error. |
-| `app_settings` | Settings saved from the interface (autopilot, webhooks, OpenViking, SearXNG, provider recovery, queue quotas), watermarks and markers. |
+| `app_settings` | Settings saved from the interface (autopilot, webhooks, OpenViking, SearXNG, provider recovery, queue quotas, budgets), watermarks and markers. |
 
 ### JSON rather than JSONB
 
@@ -408,6 +409,12 @@ recovery** delay, else `PROVIDER_RECOVERY_BASE_SECONDS`, capped by `PROVIDER_REC
 refused credentials make it `blocked`. Under the autopilot, the fallback chain takes over after a
 bounded wait ([autopilot](autopilot.md#fallback-providers-and-outages)). A database outage suspends the
 job as `waiting`; a worker shutdown puts it back to `pending`.
+
+Before each model call of a job, `engines/budget.guard` compares the spend of the book (usage aggregates
+plus the requests not rolled up yet) and of the API token that started it with their caps. Near a cap it
+changes the job's provider and puts it back to `pending`, or pauses it (`budget_exceeded`) with the same
+fenced transition as a user pause, then stops the running coroutine (`JobStopped`); calls already in
+flight finish and are recorded.
 
 ### Automation requests
 

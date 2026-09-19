@@ -351,6 +351,10 @@ MESSAGES = {
     "Le nom du glossaire est requis.": "The glossary name is required.",
     "Ce terme existe déjà dans le glossaire partagé.": "This term already exists in the shared glossary.",
     "Les langues de ce glossaire partagé ne correspondent pas à celles de la série.": "The languages of this shared glossary do not match those of the series.",
+    # Cost budgets
+    "Budget du livre": "Book budget",
+    "ce mois-ci": "this month",
+    "depuis sa création": "since it was created",
 }  # fmt: skip
 
 TEMPLATES = {
@@ -440,6 +444,14 @@ TEMPLATES = {
     "Un glossaire partagé « {name} » existe déjà.": "A shared glossary “{name}” already exists.",
     "Valeur non reconnue pour {field} : « {value} »": "Unrecognised value for {field}: “{value}”",
     "Terme invalide : {problem}": "Invalid term: {problem}",
+    # Cost budgets
+    "Budget du jeton d’API « {name} »": "API token budget “{name}”",
+    "{label} atteint ({spent} sur {amount}) : relevez-le avant de lancer ou de reprendre un travail.": "{label} reached ({spent} of {amount}): raise it before starting or resuming a job.",
+    "{label} atteint à {percent} % ({spent} sur {amount}) : travail mis en pause. Relevez le budget, puis reprenez le travail.": "{label} at {percent}% ({spent} of {amount}): job paused. Raise the budget, then resume the job.",
+    "{label} atteint à {percent} % ({spent} sur {amount}) : le travail continue avec « {provider} », fournisseur moins cher.": "{label} at {percent}% ({spent} of {amount}): the job continues with “{provider}”, a cheaper provider.",
+    "Coût estimé {estimate} pour {remaining} restants ({label}) : lancement refusé. Relevez le budget ou lancez un travail plus petit.": "Estimated cost {estimate} for {remaining} left ({label}): launch refused. Raise the budget or start a smaller job.",
+    "Coût estimé {estimate} pour {remaining} restants ({label}) : le travail sera mis en pause près du plafond.": "Estimated cost {estimate} for {remaining} left ({label}): the job will be paused near the cap.",
+    "{label} atteint ({spent} sur {amount}, {period}) : requête refusée. Relevez le budget du jeton ou attendez la période suivante.": "{label} reached ({spent} of {amount}, {period}): request refused. Raise the token's budget or wait for the next period.",
 }  # fmt: skip
 
 

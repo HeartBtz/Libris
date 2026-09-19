@@ -4,6 +4,8 @@ import { formatDateTime, registerTranslations, useI18n } from "../i18n";
 import type { Run } from "../types";
 import { Badge, Button, Callout, Card, Checkbox, Field, FormGrid, Input, LoadingBlock, Select, useDialogs } from "../ui";
 import type { Tone } from "../ui";
+import { TokenBudgetFields, TokenBudgetLine } from "./Budget";
+import type { TokenBudgetView } from "./Budget";
 
 registerTranslations({
   "Jetons d’API": "API tokens",
@@ -100,6 +102,8 @@ interface ApiToken {
   max_priority?: string;
   max_running?: number | null;
   max_queued?: number | null;
+  /** Cost cap of the token's requests with what the period spent (0.7; null: no cap). */
+  budget?: TokenBudgetView | null;
 }
 
 const SCOPES: [string, string][] = [
@@ -147,6 +151,8 @@ export function ApiTokens({ run }: { run: Run }) {
   const [maxPriority, setMaxPriority] = useState("normal");
   const [maxRunning, setMaxRunning] = useState("");
   const [maxQueued, setMaxQueued] = useState("");
+  const [budgetAmount, setBudgetAmount] = useState("");
+  const [budgetPeriod, setBudgetPeriod] = useState<"month" | "total">("month");
   const [copied, setCopied] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -225,6 +231,11 @@ export function ApiTokens({ run }: { run: Run }) {
                           : t("Jamais utilisé"),
                       ].join(" · ")}
                     </small>
+                    <TokenBudgetLine
+                      token={token}
+                      run={run}
+                      onSaved={async () => setTokens(await api("/tokens"))}
+                    />
                   </div>
                   <Badge tone={tone} dot>
                     {t(label)}
@@ -315,6 +326,7 @@ export function ApiTokens({ run }: { run: Run }) {
                   ...(maxPriority !== "normal" ? { max_priority: maxPriority } : {}),
                   ...(maxRunning ? { max_running: Number(maxRunning) } : {}),
                   ...(maxQueued ? { max_queued: Number(maxQueued) } : {}),
+                  ...(budgetAmount ? { budget_amount: Number(budgetAmount), budget_period: budgetPeriod } : {}),
                 },
               );
               setSecret(created.token);
@@ -323,6 +335,7 @@ export function ApiTokens({ run }: { run: Run }) {
               setMaxPriority("normal");
               setMaxRunning("");
               setMaxQueued("");
+              setBudgetAmount("");
               setCopied("");
               setName("");
               setTokens(await api("/tokens"));
@@ -412,6 +425,15 @@ export function ApiTokens({ run }: { run: Run }) {
               )}
             </p>
           </fieldset>
+          <TokenBudgetFields
+            amount={budgetAmount}
+            period={budgetPeriod}
+            disabled={busy}
+            onChange={(amount, period) => {
+              setBudgetAmount(amount);
+              setBudgetPeriod(period);
+            }}
+          />
           {error && (
             <p role="alert" className="form-status tone-text-danger">
               {error}

@@ -249,6 +249,12 @@ Three things reduce what you pay:
 Other levers: a lower quality level on books that do not need it, `FINAL_REVIEW_ENABLED=false`, and the per-book
 estimate shown before each launch.
 
+To cap what a book or an integration may spend, give it a budget: a book's own cap, the installation default
+(`BUDGET_DEFAULT_BOOK` or **Settings › Budgets**) or an API token's monthly or total cap. Near the cap, a job moves
+to a cheaper fallback provider, or pauses until the cap is raised; see the
+[user guide](user-guide.fr.md#budgets-de-coût). Budgets only see calls made with a price: give every paid
+provider its input and output prices.
+
 ### Measure a configuration
 
 `scripts/measure_prompt_cost.py` runs the translation pipeline on a synthetic book against a simulated provider (no

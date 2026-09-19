@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session, object_session
 
 from app.automation_settings import autopilot_config
 from app.jobs.queue import HELD, enqueue
-from app.models import Job, Project
+from app.models import ApiToken, Job, Project
 
 # The whole pipeline: analysis, then translation, automatic recovery and the final review.
 PIPELINE = {"continue_pipeline": True, "automatic_recovery": True, "full_review": True}
@@ -47,4 +47,15 @@ def launch(
     base = pipeline_options(project) if mode == "pipeline" else {}
     if mode != "pipeline" and autopilot_default(project):
         base = {"autopilot": True}  # an analysis alone: a refused passage is skipped, not blocking
-    return enqueue(db, project, "analyze", {**base, **(options or {})}, priority=priority, token_id=token_id), ""
+    options = {**base, **(options or {})}
+    # Cost budgets of the book and of the API token that asked (app.engines.budget).
+    from app.engines.budget import admit, request_token
+
+    token = db.get(ApiToken, token_id) if token_id else request_token(db, options.get("translation_request"))
+    estimated = ("analyze", "translate") if mode == "pipeline" else ("analyze",)
+    refusal, kept = admit(db, project, estimated, token)
+    if refusal:
+        return None, refusal
+    if kept:
+        options["budget"] = kept
+    return enqueue(db, project, "analyze", options, priority=priority, token_id=token_id), ""

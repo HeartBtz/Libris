@@ -331,6 +331,11 @@ class OpenAIProvider:
             payload = wire_payload(
                 provider.kind, params, actual_messages, schema, response_model.__name__, current_mode
             )
+            if scope := execution.get():
+                from app.engines.budget import guard
+
+                # Near a book's or a token's spending cap: a cheaper provider, or a pause (JobStopped).
+                await blocking(guard, *scope)
             # Queued here in arrival order: every passage of every book waiting for this provider.
             async with self.gate(provider):
                 request_id = await self.reserve(

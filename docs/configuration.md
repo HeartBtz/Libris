@@ -121,6 +121,19 @@ These variables are defaults that an administrator can override in **Settings �
 Change the thresholds when the autopilot accepts too much (raise them) or leaves too many decisions unmade (lower
 them).
 
+## Cost budgets
+
+Spending caps, in the currency the provider prices are entered in; see the
+[user guide](user-guide.fr.md#budgets-de-coût) and the [API reference](api.md#token-budget). A book may
+have its own cap and an API token its own; these variables are the defaults that an administrator can
+override in **Settings › Budgets**.
+
+| Variable | Default | What it does |
+| --- | --- | --- |
+| `BUDGET_DEFAULT_BOOK` | `0` | Cap of a book that has none of its own, covering everything the book has cost. `0`: no default cap. |
+| `BUDGET_SWITCH_THRESHOLD` | `0.9` (0.5–1) | Share of a cap from which a running job moves to a cheaper fallback provider, or pauses (`budget_exceeded`) when there is none. At the cap itself only a provider without a price may go on. |
+| `BUDGET_ON_ESTIMATE` | `warn` | What a launch does when its estimate exceeds what is left of a cap: `warn` (the job starts, the warning is kept in its report) or `refuse`. A cap already reached always refuses. |
+
 ## Automation API
 
 Limits of the automation API (`/api/v1`), used by scripts and other applications with API tokens. See the
@@ -216,6 +229,7 @@ makes.
 | --- | --- | --- |
 | **Autopilot** | `GET`, `PUT`, `DELETE /api/settings/autopilot` | All `AUTOPILOT_*` variables |
 | **Automation API** (webhooks part) | `GET`, `PUT`, `DELETE /api/settings/webhooks` | All `API_WEBHOOK_*` variables |
+| **Budgets** | `GET`, `PUT`, `DELETE /api/settings/budget` | All `BUDGET_*` variables |
 | **Automatic recovery** | `GET`, `PUT`, `DELETE /api/settings/recovery` | `PROVIDER_RECOVERY_BASE_SECONDS` (5–3600 seconds). `PROVIDER_RECOVERY_MAX_SECONDS` still applies. |
 | **Queue** | `GET`, `PUT`, `DELETE /api/settings/queue` | All `QUEUE_*` variables, plus quotas and a priority ceiling per account that have no variable |
 | **Memory · OpenViking** | `GET`, `PUT /api/settings/memory`, `POST /api/settings/memory/test` | `OPENVIKING_URL`, `OPENVIKING_API_KEY`, `OPENVIKING_ROOT_URI`, plus search options, budgets, minimum score, timeout and authentication mode that have no variable |
@@ -230,14 +244,15 @@ database; they have no environment equivalent.
 From strongest to weakest:
 
 1. **The launch or request itself**, e.g. `"autopilot": false` or `"final_review": false` in an API request.
-2. **The volume's own settings**: its autopilot switch, fallback providers, passage size and review mode.
+2. **The volume's own settings**: its autopilot switch, fallback providers, passage size, review mode and
+   cost budget.
 3. **A value saved in Settings.**
 4. **The environment variable** in `.env`.
 5. **The built-in default** shown on this page.
 
 Details per page:
 
-- **Autopilot** and **webhooks** show the effective values next to the environment values. **Go back to the
+- **Autopilot**, **Budgets** and **webhooks** show the effective values next to the environment values. **Go back to the
   environment values** (`DELETE`) forgets everything saved on that page. Fallback providers are saved as
   provider ids; an unknown name is refused, and a provider deleted later is skipped.
 - The **global webhook secret** entered in the interface is stored encrypted with `SECRET_KEY` and never shown

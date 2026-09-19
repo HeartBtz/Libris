@@ -364,6 +364,8 @@ def create_request(
                 "asset_id": asset.id,
                 "start": payload.pipeline.start,
                 "final_review": payload.pipeline.final_review,
+                "analysis_mode": payload.pipeline.analysis_mode,
+                "threads": payload.pipeline.threads,
                 "priority": priority,
                 "output_format": payload.output.format,
                 "ingested": False,
@@ -518,6 +520,8 @@ def create_epub_request(
                 "asset_id": asset.id if asset else None,
                 "start": options.start,
                 "final_review": options.final_review,
+                "analysis_mode": options.analysis_mode,
+                "threads": options.threads,
                 "priority": priority,
                 "output_format": options.output_format or "epub",
                 "ingested": True,
@@ -772,6 +776,9 @@ def detail_view(db, request: TranslationRequest, language: str) -> dict:
             ]
             if progress
             else [],
+            # A running analysis: extraction i/N, consolidation, reconciliation i/N, memory i/N, Book Bible
+            # level k/K (parallel mode), or chapter_analysis i/N then book_bible (strict mode).
+            "analysis": progress.get("analysis_phase") if progress else None,
         },
         "estimate": progress["estimate"] if progress and job else None,
         "error": message_for(request.error or (job.error if job else ""), language),
@@ -780,7 +787,8 @@ def detail_view(db, request: TranslationRequest, language: str) -> dict:
         "chapters": {**(request.options.get("chapters") or {}), "items": chapters,
                      "new": list(request.options.get("new_chapter_ids", request.chapter_ids) or [])},
         "options": {
-            key: request.options.get(key) for key in ("start", "final_review", "output_format")
+            key: request.options.get(key)
+            for key in ("start", "final_review", "output_format", "analysis_mode", "threads")
         },
         "priority": priority_label(job.priority if job else request.options.get("priority", 1)),
         "queue": queue_view(db, request, job),

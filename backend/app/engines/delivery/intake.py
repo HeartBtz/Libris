@@ -53,6 +53,9 @@ class UploadOptions(StrictModel):
     discard_human: bool = False
     # Place in the fair queue, within what the token allows (app.jobs.fairness); empty: normal.
     priority: Literal["low", "normal", "high"] | None = None
+    # Analysis mode and passages worked on at once (empty: the volume's choice, else the defaults).
+    analysis_mode: Literal["parallel", "strict"] | None = None
+    threads: Annotated[int, Field(ge=1, le=64)] | None = None
 
     @model_validator(mode="after")
     def one_series(self):
@@ -173,6 +176,7 @@ def text_payload(
         "pipeline": {
             "start": options.start, "provider_id": options.provider_id, "quality": options.quality,
             "context_backend": options.context_backend, "final_review": options.final_review,
+            "analysis_mode": options.analysis_mode, "threads": options.threads,
         },
         "output": {"format": options.output_format or "json"},
         "callback_url": options.callback_url,

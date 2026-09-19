@@ -80,6 +80,10 @@ class ProjectConfig(StrictModel):
     passage_max_chars: int | None = Field(default=None, ge=500, le=20000)
     # "fused": one call reviews and corrects a passage (high/maximum quality); empty: REVIEW_MODE.
     review_mode: Literal["separate", "fused"] | None = None
+    # How this volume is analysed (empty: ANALYSIS_MODE) and how many of its passages are worked on
+    # at once, analysis and translation alike (empty: the provider's capacity, shared between books).
+    analysis_mode: Literal["parallel", "strict"] | None = None
+    threads: int | None = Field(default=None, ge=1, le=64)
     # Autopilot of this book (None: AUTOPILOT_ENABLED) and the providers it falls back to, in order.
     autopilot: bool | None = None
     fallback_provider_ids: list[str] | None = Field(default=None, max_length=10)
@@ -309,6 +313,9 @@ class JobInput(StrictModel):
     autopilot: bool | None = None
     # Place in the fair queue (app.jobs.fairness); None: normal. "high" is for administrators.
     priority: Literal["low", "normal", "high"] | None = None
+    # This launch only: analysis mode and passages in flight at once (None: the volume's choice).
+    analysis_mode: Literal["parallel", "strict"] | None = None
+    threads: int | None = Field(default=None, ge=1, le=64)
 
 
 class AskInput(StrictModel):

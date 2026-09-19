@@ -53,7 +53,7 @@ from app.security import DB, CurrentUser, access
 
 router = APIRouter(prefix="/api/projects")
 # ProjectConfig fields kept in Project.config rather than in columns.
-CONFIG_KEYS = ("translation_memory", "passage_max_chars", "review_mode")
+CONFIG_KEYS = ("translation_memory", "passage_max_chars", "review_mode", "analysis_mode", "threads")
 
 
 # Settings kept in Project.config, only changed when a client sends them.

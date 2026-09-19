@@ -67,7 +67,7 @@ for (const width of [1440, 390]) {
     const dialog = page.getByRole("dialog");
     await expect(dialog).toContainText("Restore version 1?");
     await dialog.getByRole("button", { name: "Restore", exact: true }).click();
-    await expect(page.getByRole("status")).toContainText("Version restored.");
+    await expect(page.getByRole("status").filter({ hasText: "Version restored." })).toBeVisible();
     await expect(editor).toHaveValue("First custom polishing prompt.");
     expect(calls.at(-1)).toEqual({ path: "/api/prompts/polishing/restore", body: { version: 1 } });
     await expect(history.getByRole("listitem")).toHaveCount(4);
@@ -75,7 +75,7 @@ for (const width of [1440, 390]) {
     await page.getByRole("button", { name: "Go back to the original prompt" }).click();
     await expect(page.getByRole("dialog")).toContainText("Go back to the original prompt?");
     await page.getByRole("dialog").getByRole("button", { name: "Go back to the original" }).click();
-    await expect(page.getByRole("status")).toContainText("Original prompt restored.");
+    await expect(page.getByRole("status").filter({ hasText: "Original prompt restored." })).toBeVisible();
     await expect(editor).toHaveValue(BUILTIN);
     expect(calls.at(-1)).toEqual({ path: "/api/prompts/polishing/restore", body: { version: 0 } });
     await expect(page.getByRole("button", { name: "Go back to the original prompt" })).toBeDisabled();

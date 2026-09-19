@@ -180,6 +180,7 @@ SQL tables, grouped by purpose. Column types for documents are SQLAlchemy `JSON`
 | `llm_requests` | Every model call: messages, answer, tokens, cost, status, context inspector. |
 | `usage_daily` | One row per UTC day, book, provider, operation, model, outcome and cache flag. Filled by the worker's hourly rollup of requests older than two hours (`app_settings["usage_rollup"]` is the watermark); statistics read the aggregates plus the requests since the watermark. A deleted provider keeps its history; rows follow their book. |
 | `quality_issues` | Findings of the checks and reviews, open until resolved. |
+| `passage_quality` | The [quality score](#passage-quality-scores) of each translated passage (or retained original), its band and the signals behind it. |
 | `autopilot_decisions` | The [decision log](autopilot.md#the-decision-log-and-the-report). |
 
 ### Accounts, automation and settings
@@ -369,6 +370,50 @@ once no job holds it, and settles running requests from their job's state (build
 result, writing the report, failing stalled or overdue requests). The API also settles a request
 before answering, so a client never waits for the next pass. Webhooks are sent by a separate worker
 loop, never by the API.
+
+## Passage quality scores
+
+Every translated passage, and every passage kept in its original, has a score from 0 to 100 in
+`passage_quality`. It is computed from what Libris already records, without any model call
+(`app/engines/quality/score.py`): the passage starts at 100 and loses points for each signal below,
+each signal capped so that one kind of problem cannot hide the others.
+
+| Signal | Points | Source |
+| --- | --- | --- |
+| `source_retained` | 60 | The passage kept its original text. |
+| `failed` | 40 | The passage is in error or was refused. |
+| `locked_term` | 20 each, at most 40 | Unresolved alert: a locked glossary term is missing. |
+| `alert_error` / `alert_warning` | 15 / 8 each, at most 30 / 24 | Other unresolved alerts of the checks and reviews (the length and failure alerts are counted by their own signals). |
+| `critique` | 10 per error, 5 per warning, at most 25 | Review critiques still open on the passage (not those queued for application). |
+| `doubt` | 5 each, at most 15 | Uncertainties the model reported. |
+| `length_ratio` | 15, or 5 | Translation length far from the source: outside 0.25–3.5 times (the automatic check's bounds), or outside 0.45–2.4 times for a non-ideographic source of more than 80 characters. |
+| `retry` | 3 per failed call, at most 12 | Model calls for the passage that ended in error, refusal, interruption or abandonment. |
+| `recovery` | 10 recovered, 12 previous translation kept; at most 20 | Recovery-ladder decisions of the autopilot. |
+| `open_points_closed` | 12 | The autopilot closed open points on the passage without a correction. |
+| `arbitration` | 3 applied or accepted, 2 rejected, 4 deferred; at most 12 | Arbitration decisions on the passage's critiques and doubts. |
+| `error_note` | 5 | A translated passage still carries an error message. |
+
+A passage validated by a person scores 100 (signal `validated`): someone read it. Bands: `good` from
+85, `fair` from 70, `weak` from 50, `poor` below. Passages under 70 that nobody validated are the
+"review these first" list.
+
+**Kept in step.** Session events in `app/models/quality.py` collect, at each flush, the passages whose
+scored columns changed, whose alerts were added, changed or deleted, which received an autopilot decision
+or a failed model call; bulk `UPDATE`/`DELETE` statements on passages and alerts are resolved to their
+passages before they run. The scores of the collected passages are recomputed in `before_commit`, in the
+same transaction, with an upsert (`INSERT … ON CONFLICT`), so concurrent writers never conflict on a
+row. A passage that loses its translation loses its score. Every reader first repairs what is missing
+or was computed on an older passage revision (books translated before the scores existed), so no
+migration of existing data is needed.
+
+**Where it is read.** `GET /api/projects/{id}/quality` and `GET /api/series/{id}/quality` (the
+series' readable, non-archived volumes) return the summary (`scored`, `average`, `minimum`, `bands`,
+a ten-bucket `histogram`, `to_review`), the chapters ranked weakest first (lowest average, then lowest
+passage; 100 at most, `chapters_total` counts them all), the 20 passages to review first with their
+signals and, for a series, each volume's figures. `GET /api/projects/{id}/quality/passages?chapter_id=`
+gives the editor each passage's score. The summary is also part of `GET /api/projects/{id}/completion`,
+of the autopilot report (`quality`) and of the [completion report](api.md#completion-report) of the
+automation API.
 
 ## Exports and project archives
 

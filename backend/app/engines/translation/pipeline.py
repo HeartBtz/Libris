@@ -15,7 +15,7 @@ from app.engines.translation.fused_review import review_and_revise
 from app.engines.translation.memory import remembered_translation
 from app.engines.translation.versions import save_version
 from app.jobs import segment_state as state
-from app.jobs.concurrency import blocking, book_share, in_parallel, job_lock
+from app.jobs.concurrency import blocking, in_parallel, job_lock, job_share
 from app.jobs.follow_up import scoped_chapters
 from app.jobs.queue import JobStopped, checkpoint, fence, finish_segment
 from app.models import Entity, Glossary, Issue, Job, Project, Segment
@@ -191,7 +191,7 @@ async def translate(job: Job, owner: str) -> None:
 
     # Passages overlap: a passage's context shows the translation of the neighbours already done and
     # only the source of those still in flight (see docs/architecture.md).
-    await in_parallel(enumerate(ids), book_share(job.provider_id), launch)
+    await in_parallel(enumerate(ids), job_share(job, owner), launch)
     job = await blocking(checkpoint, job.id, owner)
     await after_translation(job, owner, scoped, continue_pipeline, recovery_pass)
 
@@ -748,4 +748,4 @@ async def consistency(job: Job, owner: str) -> None:
         )
         return check(sample)
 
-    await in_parallel(samples, book_share(job.provider_id), launch)
+    await in_parallel(samples, job_share(job, owner), launch)

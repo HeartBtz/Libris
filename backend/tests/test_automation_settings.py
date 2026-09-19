@@ -2,7 +2,7 @@
 
 from fastapi.testclient import TestClient
 
-from app.automation_settings import autopilot_config, webhook_config, webhook_secret
+from app.automation_settings import autopilot_config, recovery_base_seconds, webhook_config, webhook_secret
 from app.config import settings
 from app.db import SessionLocal
 from app.engines.autopilot.providers import chain
@@ -183,3 +183,33 @@ def test_webhook_settings_are_validated_in_french_and_english(seeded):
         assert client.put("/api/settings/webhooks", json={"timeout_seconds": 61}).status_code == 422
         with SessionLocal() as db:
             assert db.get(AppSetting, "webhooks") is None
+
+
+def test_recovery_delay_comes_from_the_environment_until_saved_and_can_be_reset(seeded, monkeypatch):
+    monkeypatch.setattr(settings(), "provider_recovery_base_seconds", 90)
+    with SessionLocal() as db:
+        db.add(User(username="reader", password_hash=password_hash(PASSWORD), admin=False))
+        db.commit()
+    with TestClient(app) as client:
+        signed_in(client, "reader")
+        assert client.get("/api/settings/recovery").status_code == 403
+        assert client.put("/api/settings/recovery", json={"retry_seconds": 30}).status_code == 403
+        assert client.delete("/api/settings/recovery").status_code == 403
+        client.post("/api/auth/logout")
+        signed_in(client)
+        assert client.get("/api/settings/recovery").json() == {
+            "retry_seconds": 90,
+            "default_seconds": 90,
+            "saved": False,
+        }
+        assert client.put("/api/settings/recovery", json={"retry_seconds": 4}).status_code == 422
+        view = client.put("/api/settings/recovery", json={"retry_seconds": 30}).json()
+        assert view == {"retry_seconds": 30, "default_seconds": 90, "saved": True}
+        assert recovery_base_seconds() == 30
+        view = client.delete("/api/settings/recovery").json()
+        assert view == {"retry_seconds": 90, "default_seconds": 90, "saved": False}
+        assert recovery_base_seconds() == 90
+        with SessionLocal() as db:
+            assert db.get(AppSetting, "provider_recovery") is None
+        # Resetting twice is harmless.
+        assert client.delete("/api/settings/recovery").json()["saved"] is False

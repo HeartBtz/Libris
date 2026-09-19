@@ -116,6 +116,7 @@ MESSAGES = {
     "Account et user requis en mode trusted.": "Account and user are required in trusted mode.",
     "Document inconnu.": "Unknown document.",
     "Prompt inconnu.": "Unknown prompt.",
+    "Version de prompt inconnue.": "Unknown prompt version.",
     "Document de catalogue inconnu.": "Unknown catalog document.",
     "URL HTTP(S) sans identifiants, paramètres ou fragment requise.": "An HTTP(S) URL without credentials, parameters or fragment is required.",
     "Renseignez l’URL avant d’activer SearXNG.": "Enter the URL before enabling SearXNG.",

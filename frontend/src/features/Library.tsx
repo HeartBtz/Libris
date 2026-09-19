@@ -606,7 +606,6 @@ export function Library({ run, user }: { run: Run; user: User }) {
         <ImportWizard
           run={run}
           start={wizard}
-          admin={user.admin}
           onClose={() => setWizard(null)}
           onImported={() => void run.background(load)}
         />

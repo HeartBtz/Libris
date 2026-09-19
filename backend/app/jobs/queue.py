@@ -7,7 +7,7 @@ from app.db import SessionLocal
 from app.jobs import clock
 from app.jobs.concurrency import job_lock
 from app.jobs.segment_state import FINISHED, mark
-from app.models import AppSetting, Event, Job, Project, Provider, RequestLog
+from app.models import Event, Job, Project, Provider, RequestLog
 from app.models.common import uid
 
 RUNNING = ("analyzing", "translating", "reviewing", "syncing")
@@ -209,15 +209,11 @@ def suspend(
             return
         if status == "waiting":
             job.outage_count += 1
+            from app.automation_settings import recovery_base_seconds
             from app.config import settings
             from app.providers.reliability import calculate_retry_delay
 
-            # Try user-configured recovery settings first, fall back to environment defaults
-            saved = db.get(AppSetting, "provider_recovery")
-            if saved and "retry_seconds" in saved.value:
-                base_delay = saved.value["retry_seconds"]
-            else:
-                base_delay = settings().provider_recovery_base_seconds
+            base_delay = recovery_base_seconds(db)
             max_delay = settings().provider_recovery_max_seconds
             delay = calculate_retry_delay(job.outage_count, base_delay, max_delay, retry_after)
             job.next_attempt = time.time() + delay

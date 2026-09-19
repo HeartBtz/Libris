@@ -198,3 +198,47 @@ async def test_the_description_matches_what_libris_answers(owner, api, provider_
     assert not conforms(document, answer_schema(document, base, "post", "422"), invalid.json())
     codes = document["paths"][base]["post"]["responses"]["422"]["description"]
     assert f"`{invalid.json()['detail']['code']}`" in codes
+
+
+def test_the_shared_glossary_answers_match_their_description(owner, api, provider_id):
+    document = spec()
+    secret = new_token(owner)
+    base = "/api/v1/glossaries"
+    created = api.post(base, headers=bearer(secret), json={"name": "Glass Road", "source_language": "en"})
+    assert created.status_code == 201, created.text
+    assert not conforms(document, answer_schema(document, base, "post", "201"), created.json())
+    glossary_id = created.json()["id"]
+    csv = "source;traduction;verrouillé\nGlass Road;Route de verre;oui\nEmber;Braise;non\n".encode(
+        "utf-8-sig"
+    )
+    for dry_run in ("true", "false"):
+        imported = api.post(f"{base}/{glossary_id}/import?dry_run={dry_run}", headers=bearer(secret),
+                            files={"file": ("universe.csv", csv, "text/csv")}, data={"strategy": "replace"})  # fmt: skip
+        assert imported.status_code == 200, imported.text
+        schema = answer_schema(document, base + "/{glossary_id}/import", "post", "200")
+        assert not conforms(document, schema, imported.json())
+    listed = api.get(base, headers=bearer(secret)).json()
+    assert listed and not conforms(document, answer_schema(document, base, "get", "200"), listed)
+    one = api.get(f"{base}/{glossary_id}", headers=bearer(secret)).json()
+    assert len(one["terms"]) == 2
+    assert not conforms(document, answer_schema(document, base + "/{glossary_id}", "get", "200"), one)
+
+    created_request = api.post(
+        REQUESTS, headers=bearer(secret), json=payload(provider_id, pipeline={"start": False})
+    )
+    series_id = created_request.json()["series_id"]
+    path = "/api/v1/series/{series_id}/shared-glossary"
+    attached = api.put(f"/api/v1/series/{series_id}/shared-glossary", headers=bearer(secret),
+                       json={"glossary_id": glossary_id})  # fmt: skip
+    assert attached.status_code == 200, attached.text
+    assert attached.json()["glossary"]["id"] == glossary_id
+    assert not conforms(document, answer_schema(document, path, "put", "200"), attached.json())
+    detached = api.put(f"/api/v1/series/{series_id}/shared-glossary", headers=bearer(secret),
+                       json={"glossary_id": None})  # fmt: skip
+    assert not conforms(document, answer_schema(document, path, "get", "200"), detached.json())
+    missing = api.get(f"{base}/unknown", headers=bearer(secret))
+    assert missing.status_code == 404
+    assert (
+        f"`{missing.json()['detail']['code']}`"
+        in (document["paths"][base + "/{glossary_id}"]["get"]["responses"]["404"]["description"])
+    )

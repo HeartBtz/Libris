@@ -60,6 +60,7 @@ TAGS = {
     "Results": "Download the translated book, its chapters or its JSON document.",
     "Series": "The series of the token's owner and their volumes.",
     "Providers": "The model providers a request may name.",
+    "Glossaries": "Shared glossaries: the terminology of a universe several of your series follow.",
 }
 
 
@@ -112,7 +113,30 @@ SCHEMAS: dict[str, dict] = {
                     "Validation problems (`invalid_payload`, `invalid_request`).",
                     items=ref("ValidationIssue"),
                 ),
-                "scope": s("string", "The missing scope (`insufficient_scope`)."),
+                "scope": s(
+                    "string",
+                    "The missing scope (`insufficient_scope`), or whose quota is full, `token` or `account` "
+                    "(`queue_full`).",
+                ),
+                "limit": s("integer", "The quota that is full (`queue_full`)."),
+                "max_priority": s(
+                    "string",
+                    "The highest priority the token and its account may ask for (`priority_not_allowed`).",
+                    enum=["low", "normal", "high"],
+                ),
+                "budget": obj(
+                    {
+                        "amount": s("number", "The token's cap, in the currency of the provider prices."),
+                        "spent": s("number", "What the current period has spent."),
+                        "period": s(
+                            "string", "`month` (calendar month, UTC) or `total`.", enum=["month", "total"]
+                        ),
+                        "resets_at": nullable(
+                            s("number", "Start of the next month (Unix time); `null` for a total cap.")
+                        ),
+                    },
+                    "The token's cost budget (`budget_exceeded` answered with `402`).",
+                ),
                 "request_id": s("string", "The request that already used this key (`idempotency_conflict`)."),
                 "status": s("string", "The request's status (`result_not_ready`, `request_failed`…)."),
                 "reason": s("string", "Why the request failed or was cancelled."),
@@ -201,15 +225,20 @@ SCHEMAS: dict[str, dict] = {
                 "unchanged": s("integer"),
                 "replaced": s("integer"),
                 "items": s("array", items=ref("ChapterProgress")),
+                "new": s(
+                    "array",
+                    "The chapters the request created or replaced (ids): the ones a follow-up translates.",
+                    items=s("string"),
+                ),
             },
             "How many chapters the request created, found unchanged or replaced, and each chapter's progress.",
-            required=["items"],
+            required=["items", "new"],
         ),
         "additionalProperties": True,
     },
     "StoredResult": obj(
         {
-            "format": s("string", enum=["epub", "json", "txt", "txt-zip"]),
+            "format": s("string", enum=["epub", "json", "txt", "txt-zip", "epub-bilingual"]),
             "media_type": s("string"),
             "filename": s("string"),
             "size": s("integer", "Bytes."),
@@ -321,8 +350,25 @@ SCHEMAS: dict[str, dict] = {
                         "when the delivery failed.",
                     )
                 ),
+                "cost": nullable(ref("CostReport")),
+                "quality": nullable(ref("QualityReport")),
             },
-            "What was translated, what kept its source and why, what it cost and how long it took.",
+            "What was translated, what kept its source and why, what it cost and how long it took, and the "
+            "quality scores of its passages.",
+            required=[
+                "version",
+                "outcome",
+                "reason",
+                "passages",
+                "residual_total",
+                "residuals",
+                "residuals_truncated",
+                "usage",
+                "durations",
+                "autopilot",
+                "decisions",
+                "delivery",
+            ],  # fmt: skip
         ),
         "additionalProperties": True,
     },
@@ -381,11 +427,129 @@ SCHEMAS: dict[str, dict] = {
                 "incomplete_chapters": s("array", items=s("string")),
                 "chapters": s("array", items=ref("ResultChapter")),
                 "report": nullable(ref("CompletionReport")),
+                "scope": s(
+                    "string",
+                    "What the result covers: the request's chapters, only the new ones, or the whole volume.",
+                    enum=["request", "new", "volume"],
+                ),
             },
             "The JSON result (`?format=json`).",
+            required=[
+                "schema_version",
+                "request_id",
+                "external_id",
+                "status",
+                "complete",
+                "series",
+                "volume",
+                "source_language",
+                "target_language",
+                "strategy",
+                "incomplete_chapters",
+                "chapters",
+                "report",
+            ],  # fmt: skip
         ),
         "additionalProperties": True,
     },
+    "CostReport": obj(
+        {
+            "estimated": nullable(
+                s("number", "The estimate made when the job started; `null` when none was made.")
+            ),
+            "actual": nullable(
+                s("number", "The job's real cost (`usage.cost`); `null` when no call had a price.")
+            ),
+            "budget": nullable(s("number", "The book's cost budget; `null` without one.")),
+            "book_spent": nullable(s("number", "What the book has cost in all, every job included.")),
+            "warning": nullable(
+                s(
+                    "string",
+                    "The warning given at launch when the estimate exceeded what was left of a budget.",
+                )
+            ),
+            "paused_for_budget": s("boolean", "Whether the job is paused because a budget was reached."),
+            "provider_switches": s(
+                "integer",
+                "How many times the job moved to a cheaper fallback provider to stay within a budget.",
+            ),
+        },
+        "Estimated against real cost, in the currency of the provider prices, with the book's budget.",
+    ),
+    "QualityReport": {
+        **obj(
+            {
+                "scored": s("integer", "Passages with a score."),
+                "average": nullable(s("number", "Average score (0–100); `null` when none is scored.")),
+                "minimum": nullable(s("integer", "Lowest score.")),
+                "bands": s(
+                    "object",
+                    "Passages per band: `good` (85 and above), `fair` (70), `weak` (50), `poor` (below).",
+                    additionalProperties=s("integer"),
+                ),
+                "histogram": s(
+                    "array", "Passages per ten-point bucket, from 0–9 to 90–100.", items=s("integer")
+                ),
+                "to_review": s("integer", "Passages below `review_below` that no person validated."),
+                "review_below": s("integer", "The score under which a passage should be reviewed."),
+                "weakest_chapters": s(
+                    "array",
+                    "The 10 chapters with the lowest scores: `chapter_id`, `title`, `external_id`, `number`, "
+                    "`passages`, `scored`, `average`, `minimum`, `weak`…",
+                    items=s("object"),
+                ),
+                "review_first": s(
+                    "array",
+                    "The 10 passages to review first: `segment_id`, `chapter_id`, `position`, `score`, `band` and "
+                    "the `signals` (`code`, `count`, `penalty`) that lowered them.",
+                    items=s("object"),
+                ),
+            },
+            "Quality scores (0–100) of the passages the request covers, computed from the signals Libris "
+            "records (checks, critiques, doubts, failed calls, recoveries, retained originals); no model call.",
+        ),
+        "additionalProperties": True,
+    },
+    "QueuePlace": {
+        **obj(
+            {
+                "position": nullable(
+                    s(
+                        "integer",
+                        "Place in the line of its provider (1: next); `null` when it waits for its volume.",
+                    )
+                ),
+                "reason": nullable(
+                    s(
+                        "string",
+                        "Why it waits: `starting`, `provider_busy`, `account_limit`, `token_limit`, "
+                        "`retry_scheduled`, `provider_missing`, or `volume_busy` while another job holds the volume.",
+                    )
+                ),
+                "effective_priority": s(
+                    "string",
+                    "Its priority, raised one level after a long wait.",
+                    enum=["low", "normal", "high"],
+                ),
+                "next_attempt": s("number", "When a waiting job retries (Unix time, `0` when not waiting)."),
+            },
+            "Where a request that has not started yet stands in the fair queue.",
+            required=["position", "reason"],
+        ),
+        "additionalProperties": True,
+    },
+    "ChapterEvents": obj(
+        {
+            "event": s("string", enum=["chapters.translated"]),
+            "batches": s("integer", "Batches queued so far."),
+            "delivered": s("integer"),
+            "pending": s("integer"),
+            "failed": s("integer"),
+            "waiting_chapters": s("integer", "Chapters of the request not translated (nor announced) yet."),
+            "error": s("string", "Last failure of a batch, empty when none."),
+        },
+        "The `chapters.translated` webhooks of the request.",
+    ),
     "Provider": {
         **obj(
             {
@@ -458,6 +622,203 @@ SCHEMAS: dict[str, dict] = {
         ),
         "additionalProperties": True,
     },
+    "ChaptersTranslatedEvent": {
+        **obj(
+            {
+                "event": s("string", enum=["chapters.translated"]),
+                "request_id": IDENTIFIER,
+                "external_id": nullable(s("string")),
+                "series_id": nullable(s("string")),
+                "project_id": nullable(s("string")),
+                "batch": s("integer", "Counts from 1 per request; order batches by it."),
+                "chapters": s(
+                    "array",
+                    "The chapters of this batch, in reading order.",
+                    items=obj(
+                        {
+                            "chapter_id": IDENTIFIER,
+                            "external_id": nullable(s("string")),
+                            "number": nullable(s("number")),
+                            "title": s("string"),
+                        }
+                    ),
+                ),
+                "announced": s("integer", "Chapters announced so far, this batch included."),
+                "total": s("integer", "Chapters in the request."),
+                "status_url": s("string"),
+                "result_url": s("string", "Partial result of the request (`?partial=true`)."),
+                "created_at": TIME,
+            },
+            "Sent while the job runs, once per batch of chapters whose passages all have a translation.",
+        ),
+        "additionalProperties": True,
+    },
+    "SharedGlossaryInput": {
+        **obj(
+            {
+                "name": s(
+                    "string",
+                    "1–200 characters, unique among your shared glossaries.",
+                    minLength=1,
+                    maxLength=200,
+                ),
+                "description": s("string", "At most 4000 characters.", maxLength=4000, default=""),
+                "source_language": nullable(
+                    s(
+                        "string",
+                        "BCP 47 tag; with the target, the glossary only applies to volumes of that pair.",
+                    )
+                ),
+                "target_language": nullable(s("string", "BCP 47 tag.")),
+            },
+            "A new shared glossary.",
+            required=["name"],
+        ),
+        "additionalProperties": False,
+    },
+    "SharedGlossaryAttachment": {
+        **obj(
+            {
+                "glossary_id": nullable(
+                    s("string", "The shared glossary to follow; `null` detaches the series.")
+                )
+            },
+            "The shared glossary a series follows.",
+        ),
+        "additionalProperties": False,
+    },
+    "SharedGlossary": {
+        **obj(
+            {
+                "id": IDENTIFIER,
+                "name": s("string"),
+                "description": s("string"),
+                "source_language": nullable(s("string")),
+                "target_language": nullable(s("string")),
+                "created_at": TIME,
+                "updated_at": TIME,
+                "term_count": s("integer"),
+                "locked_count": s("integer", "Locked terms: enforced and checked in every passage."),
+                "series": s(
+                    "array", "The series that follow it.", items=obj({"id": IDENTIFIER, "name": s("string")})
+                ),
+            },
+            "A named glossary several series of the same universe follow. Its accepted terms come after the "
+            "book's and the series' own (book > series > shared glossary).",
+        ),
+        "additionalProperties": True,
+    },
+    "SharedGlossaryDetail": {},  # SharedGlossary plus `terms`, filled in by `detail_schema()`
+    "SharedTerm": {
+        **obj(
+            {
+                "id": IDENTIFIER,
+                "source": s("string"),
+                "translation": s("string"),
+                "category": s("string"),
+                "description": s("string"),
+                "locked": s(
+                    "boolean", "Enforced by the pipeline and the autopilot, checked in every passage."
+                ),
+                "accepted": s("boolean", "Only accepted terms are applied."),
+            }
+        ),
+        "additionalProperties": True,
+    },
+    "SeriesSharedGlossary": obj(
+        {"glossary": nullable(ref("SharedGlossaryDetail"))},
+        "The shared glossary the series follows, with its terms; `null` when it follows none.",
+    ),
+    "GlossaryImportForm": {
+        **obj(
+            {
+                "file": s(
+                    "string", "The glossary: JSON, CSV or TBX (v2 and v3), 2 MB at most.", format="binary"
+                ),
+                "strategy": s(
+                    "string",
+                    "`skip` keeps the terms in place; `replace` replaces unlocked terms that differ; "
+                    "`replace_all` replaces locked ones too.",
+                    enum=["skip", "replace", "replace_all"],
+                    default="skip",
+                ),
+                "delimiter": s(
+                    "string", "CSV separator; detected when absent.", enum=["comma", "semicolon", "tab"]
+                ),
+                "mapping": s(
+                    "string",
+                    'JSON object from field to column number (from 0), for example `{"source": 0, "translation": 2}`; '
+                    "from the headers when absent.",
+                ),
+                "header": s("boolean", "Whether the first row holds column names; detected when absent."),
+                "skip_invalid": s(
+                    "boolean", "Leave invalid rows out instead of refusing the file.", default=False
+                ),
+            },
+            "A glossary file and how to read it. CSV files may carry a byte order mark; French or English "
+            "headers are recognised.",
+            required=["file"],
+        ),
+    },
+    "GlossaryImportReport": {
+        **obj(
+            {
+                "format": s("string", enum=["json", "csv", "tbx"]),
+                "encoding": s("string"),
+                "delimiter": nullable(s("string")),
+                "columns": s("array", "The first row of a CSV file.", items={}),
+                "header": nullable(s("boolean")),
+                "mapping": nullable(s("object", "Field → column number used.")),
+                "strategy": s("string", enum=["skip", "replace", "replace_all"]),
+                "counts": obj(
+                    {
+                        key: s("integer")
+                        for key in (
+                            "terms",
+                            "new",
+                            "unchanged",
+                            "conflicts",
+                            "replaced",
+                            "kept",
+                            "duplicates",
+                            "errors",
+                        )  # fmt: skip
+                    }
+                ),
+                "new": s("array", "Terms the import adds (at most 200).", items=s("object")),
+                "conflicts": s(
+                    "array",
+                    "Sources already present with other values: `existing`, `incoming`, the differing `fields`, "
+                    "`locked` and the `action` (`replace` or `keep`); at most 200.",
+                    items=s("object"),
+                ),
+                "duplicates": s(
+                    "array",
+                    "A source repeated in the file (the first row counts); at most 200.",
+                    items=s("object"),
+                ),
+                "errors": s("array", "Invalid rows: `line`, `message`; at most 200.", items=s("object")),
+                "truncated": s("boolean", "Whether a list was cut at 200 items."),
+                "applied": s("boolean", "`false` for a preview (`dry_run=true`)."),
+                "imported": s("integer", "Applied imports only: terms added."),
+                "replaced": s("integer", "Applied imports only: terms replaced."),
+                "skipped": s("integer", "Applied imports only: terms left as they were."),
+            },
+            "The import plan: what the file adds, what conflicts with the terms in place and what is invalid.",
+            required=[
+                "format",
+                "strategy",
+                "counts",
+                "new",
+                "conflicts",
+                "duplicates",
+                "errors",
+                "truncated",
+                "applied",
+            ],
+        ),
+        "additionalProperties": True,
+    },
 }
 
 
@@ -478,9 +839,16 @@ def detail_schema() -> None:
         "options": obj(
             {"start": s("boolean"), "final_review": s("boolean"), "output_format": nullable(s("string"))}
         ),
+        "priority": s(
+            "string",
+            "The request's priority, as changed by a person in the interface if it was.",
+            enum=["low", "normal", "high"],
+        ),
+        "queue": nullable(ref("QueuePlace")),
         "result": nullable(ref("StoredResult")),
         "report": nullable(ref("CompletionReport")),
         "webhook": nullable(ref("WebhookState")),
+        "chapter_events": nullable(ref("ChapterEvents")),
     }
     SCHEMAS["RequestDetail"] = {
         **obj({**summary["properties"], **detail}, "The status document of a request."),
@@ -493,6 +861,14 @@ def detail_schema() -> None:
                 **series["properties"],
                 "volume_list": s("array", "Sorted by volume number.", items=ref("VolumeSummary")),
             },
+        ),
+        "additionalProperties": True,
+    }
+    glossary = SCHEMAS["SharedGlossary"]
+    SCHEMAS["SharedGlossaryDetail"] = {
+        **obj(
+            {**glossary["properties"], "terms": s("array", "Sorted by source.", items=ref("SharedTerm"))},
+            "A shared glossary with its terms.",
         ),
         "additionalProperties": True,
     }
@@ -515,9 +891,11 @@ FIELD_NOTES = {
     "series_id": "The series by id (not with `series`).",
     "TranslationPayload.volume": "The volume: found by `external_id`, then by `number` in the series; otherwise "
     "created.",
-    "VolumeReference.number": "Volume number, 1–10000.",
-    "UploadOptions.volume": "Volume number, 1–10000. Required for TXT; for an EPUB in a series, taken from the "
-    "file name when free, otherwise the next number.",
+    "VolumeReference.number": "Volume number, 1–10000. Required unless `latest` is true.",
+    "VolumeReference.latest": "Follow up a webnovel: the chapters go to the series' last numbered volume (else "
+    "its continuous chapter container, else volume 1). Not with `number`.",
+    "UploadOptions.volume": "Volume number, 1–10000, or `latest` for the series' last volume (TXT only). Required "
+    "for TXT; for an EPUB in a series, taken from the file name when free, otherwise the next number.",
     "volume_external_id": "Your identifier of the volume.",
     "VolumeReference.title": "Title of a new volume (default: “Series — number”).",
     "ChapterInput.title": "Optional; without it the chapter is named by its number.",
@@ -537,7 +915,14 @@ FIELD_NOTES = {
     "provider_id": "Provider to use; defaults to the volume's, then the series' provider.",
     "final_review": "Run the final review (never when the server disables it).",
     "output": "Default format of the result.",
-    "output_format": "Default format of the result; `epub` only for an EPUB (and its default).",
+    "output_format": "Default format of the result; `epub` only for an EPUB (and its default); "
+    "`epub-bilingual` is a bilingual EPUB for proofreading, for any input.",
+    "OutputOptions.format": "Default format of the result; `epub-bilingual` is a bilingual EPUB for proofreading.",
+    "priority": "Place in the fair queue: `low`, `normal` (default) or `high`, within the token's `max_priority` and "
+    "its account's ceiling (otherwise `403 priority_not_allowed`). Does not change what the request is.",
+    "TranslationPayload.callback_events": "Extra webhooks on top of `translation_request.finished`: "
+    "`chapters.translated` sends one per batch of chapters translated while the job runs.",
+    "UploadOptions.callback_events": "Comma-separated extra webhooks, for example `chapters.translated`.",
     "callback_url": "Webhook called when the request ends; its host must be allowed by an administrator.",
     "create_if_missing": "Create the series named by `name` when it does not exist.",
 }
@@ -555,6 +940,11 @@ PARAMETERS = {
     "Idempotency-Key": "1–200 printable characters. Sending the same content again with the same key "
     "answers `200` with the original request; different content answers `409 idempotency_conflict`.",
     "filename": "The file name, used to guess the volume number.",
+    "layout": "`format=epub-bilingual` only: each source paragraph followed by its translation (`interleaved`) or "
+    "next to it in two columns that stack on a narrow screen (`side-by-side`).",
+    "scope": "The chapters covered: those the request sent (`request`, the whole book for an EPUB), only those it "
+    "created or replaced (`new`), or every chapter of the volume (`volume`). `epub` is always the whole book.",
+    "glossary_id": "The shared glossary's `id`.",
 }
 
 COMMON_ERRORS = {
@@ -593,6 +983,10 @@ MESSAGES = {
     "idempotency_conflict": "Une autre requête a déjà utilisé cette clé d’idempotence ou cet external_id avec "
     "un contenu différent.",
     "invalid_payload": "Requête de traduction invalide.",
+    "glossary_not_found": "Glossaire partagé introuvable.",
+    "queue_full": "File d’attente pleine pour ce jeton : 50 travaux en attente au plus. Réessayez quand l’un "
+    "d’eux aura démarré.",
+    "priority_not_allowed": "Priorité « high » refusée : « normal » au plus pour ce compte ou ce jeton.",
 }
 
 REQUEST_EXAMPLE = {
@@ -660,11 +1054,23 @@ DETAIL_EXAMPLE = {
                 "complete": False,
             }
         ],
+        "new": ["5b1c2d3e-0000-4000-8000-000000000005"],
     },  # fmt: skip
     "options": {"start": True, "final_review": True, "output_format": "json"},
+    "priority": "normal",
+    "queue": None,
     "result": None,
     "report": None,
     "webhook": {"state": "pending", "attempts": 0, "error": ""},
+    "chapter_events": {
+        "event": "chapters.translated",
+        "batches": 0,
+        "delivered": 0,
+        "pending": 0,
+        "failed": 0,
+        "waiting_chapters": 1,
+        "error": "",
+    },  # fmt: skip
 }
 
 # What the generic description cannot say, per operation: (method, path) → overrides.
@@ -679,10 +1085,23 @@ OPERATIONS: dict[tuple[str, str], dict] = {
         "The request is stored before the answer and its pipeline starts in the worker: `202 Accepted` with a "
         "`Location` header. The same content sent again with the same `Idempotency-Key` or `external_id` "
         "answers `200` with the original request and `Idempotent-Replayed: true`.\n\n"
-        "Without the `pipeline:start` scope, send `start=false` to import only.",
+        "Without the `pipeline:start` scope, send `start=false` to import only.\n\n"
+        "Chapters sent to a volume already translated (`volume.latest`, or the same volume again) are appended "
+        "and only they are translated. The request waits its turn in the fair queue at the `priority` it asks "
+        "for, and is refused when its token's cost budget is reached.",
         "x-libris-scopes": ["content:write", "pipeline:start"],
         "scope_note": "`content:write`, and `pipeline:start` to start the pipeline",
         "errors": {
+            "402": (
+                "The token's cost budget is reached (`budget` gives the cap, the spend, the period and when it "
+                "resets); a request that only imports (`start` false) is still accepted.",
+                ["budget_exceeded"],
+            ),
+            "403": (
+                "The token lacks a scope (`scope` names it), a browser page from another site, or the priority "
+                "asked for is above the token's or the account's ceiling (`max_priority`).",
+                ["insufficient_scope", "forbidden", "priority_not_allowed"],
+            ),
             "404": (
                 "The series named by `id` does not exist, or `create_if_missing` is false.",
                 ["series_not_found"],
@@ -700,6 +1119,12 @@ OPERATIONS: dict[tuple[str, str], dict] = {
             ),
             "413": ("The body is above `API_MAX_PAYLOAD_MB`.", ["payload_too_large"]),
             "415": ("Neither JSON, EPUB nor multipart.", ["unsupported_media_type"]),
+            "429": (
+                "Too many calls for this token (retry after `Retry-After` seconds), or the token or its account "
+                "already has its quota of requests waiting to start (`scope`, `limit`): nothing is stored, retry "
+                "once one of them has started.",
+                ["rate_limited", "queue_full"],
+            ),
             "422": (
                 "The document, the upload or an option is invalid.",
                 [
@@ -732,10 +1157,20 @@ OPERATIONS: dict[tuple[str, str], dict] = {
         "tags": ["Translation requests"],
         "summary": "Pause, resume or cancel a request",
         "description": "Same rules as the interface. A request without a job yet (`queued`) can only be "
-        "cancelled. Answers with the status document.",
+        "cancelled. Resuming a job paused by a cost budget is refused until the budget is raised, and resuming "
+        "counts as a new entry in the queue. Answers with the status document.",
         "errors": {
             "404": ("Unknown, or owned by someone else.", ["request_not_found"]),
-            "409": ("The job's state does not allow the action.", ["not_started", "conflict"]),
+            "409": (
+                "The job's state does not allow the action, or the book's or the token's cost budget that paused "
+                "it is still reached.",
+                ["not_started", "conflict", "budget_exceeded"],
+            ),
+            "429": (
+                "Too many calls for this token (retry after `Retry-After` seconds), or resuming would exceed the "
+                "token's or the account's quota of waiting requests (`scope`, `limit`).",
+                ["rate_limited", "queue_full"],
+            ),
         },
         "schema": "RequestDetail",
     },
@@ -744,8 +1179,10 @@ OPERATIONS: dict[tuple[str, str], dict] = {
         "tags": ["Results"],
         "summary": "Download the result",
         "description": "The chapters of the request in reading order (the whole book for an EPUB), as an EPUB "
-        "(EPUB requests only), a JSON document, one UTF-8 text file, or a ZIP of one text file per chapter "
-        "with a `manifest.json`. `?format=` wins, then the `Accept` header, then the request's own format.\n\n"
+        "(EPUB requests only), a bilingual EPUB for proofreading (`epub-bilingual`, any input, `layout` "
+        "interleaved or side by side), a JSON document, one UTF-8 text file, or a ZIP of one text file per "
+        "chapter with a `manifest.json`. `?format=` wins, then the `Accept` header, then the request's own "
+        "format. `scope` chooses the chapters: the request's, only its new ones, or the whole volume.\n\n"
         "Passages without a translation keep their source text. Before the end the answer is "
         "`409 result_not_ready` (with `Retry-After`), unless `partial=true`.",
         "errors": {
@@ -785,10 +1222,111 @@ OPERATIONS: dict[tuple[str, str], dict] = {
         "errors": {"404": ("Unknown, or owned by someone else.", ["series_not_found"])},
         "schema": "SeriesDetail",
     },
+    ("get", "/api/v1/glossaries"): {
+        "operationId": "listSharedGlossaries",
+        "tags": ["Glossaries"],
+        "summary": "List your shared glossaries",
+        "description": "Your shared glossaries, sorted by name, with their term counts and the series that "
+        "follow them.",
+        "schema": "SharedGlossary",
+        "array": True,
+    },
+    ("post", "/api/v1/glossaries"): {
+        "operationId": "createSharedGlossary",
+        "tags": ["Glossaries"],
+        "summary": "Create a shared glossary",
+        "description": "An empty shared glossary; fill it with an import. Languages are optional: with them, "
+        "it only applies to volumes of the same pair.",
+        "body": "SharedGlossaryInput",
+        "errors": {
+            "409": ("You already have a shared glossary of that name.", ["glossary_exists"]),
+            "422": ("A bad body, or a blank name.", ["invalid_request", "invalid_name"]),
+        },
+        "schema": "SharedGlossaryDetail",
+    },
+    ("get", "/api/v1/glossaries/{glossary_id}"): {
+        "operationId": "getSharedGlossary",
+        "tags": ["Glossaries"],
+        "summary": "Get a shared glossary and its terms",
+        "errors": {"404": ("Unknown, or owned by someone else.", ["glossary_not_found"])},
+        "schema": "SharedGlossaryDetail",
+    },
+    ("get", "/api/v1/glossaries/{glossary_id}/export/{format}"): {
+        "operationId": "exportSharedGlossary",
+        "tags": ["Glossaries"],
+        "summary": "Download a shared glossary",
+        "description": "Its terms as JSON, CSV (for spreadsheets: `delimiter=semicolon&bom=true`) or TBX, with the "
+        "fields `source`, `translation`, `category`, `description`, `locked`, `accepted`.",
+        "parameters": {
+            "format": "`json`, `csv` or `tbx`.",
+            "delimiter": "CSV separator.",
+            "bom": "Start a CSV file with a UTF-8 byte order mark (for Excel).",
+        },
+        "errors": {"404": ("Unknown, or owned by someone else.", ["glossary_not_found"])},
+        "response": {
+            "description": "The file, with a `Content-Disposition` file name.",
+            "headers": {"Content-Disposition": {"description": "File name.", "schema": {"type": "string"}}},
+            "content": {
+                "application/json": {"schema": s("array", items=s("object"))},
+                "text/csv": {"schema": s("string")},
+                "application/x-tbx+xml": {"schema": s("string")},
+            },
+        },
+    },
+    ("post", "/api/v1/glossaries/{glossary_id}/import"): {
+        "operationId": "importSharedGlossary",
+        "tags": ["Glossaries"],
+        "summary": "Import terms into a shared glossary",
+        "description": "Reads a JSON, CSV or TBX file into the glossary and answers the import report. With "
+        "`dry_run=true`, nothing changes: the report is a preview that lists invalid rows instead of refusing "
+        "the file. Sources are matched case-insensitively.",
+        "parameters": {"dry_run": "Preview the import without changing anything."},
+        "requestBody": {
+            "description": "The glossary file and its import options.",
+            "required": True,
+            "content": {"multipart/form-data": {"schema": ref("GlossaryImportForm")}},
+        },
+        "errors": {
+            "404": ("Unknown, or owned by someone else.", ["glossary_not_found"]),
+            "413": ("The file is above 2 MB.", ["glossary_too_large"]),
+            "422": (
+                "The file cannot be read, has invalid rows (without `skip_invalid`), or an import option is invalid.",
+                ["invalid_glossary", "invalid_strategy", "invalid_mapping", "invalid_request"],
+            ),
+        },
+        "schema": "GlossaryImportReport",
+    },
+    ("get", "/api/v1/series/{series_id}/shared-glossary"): {
+        "operationId": "getSeriesSharedGlossary",
+        "tags": ["Glossaries"],
+        "summary": "Get the shared glossary a series follows",
+        "errors": {"404": ("Unknown series, or owned by someone else.", ["series_not_found"])},
+        "schema": "SeriesSharedGlossary",
+    },
+    ("put", "/api/v1/series/{series_id}/shared-glossary"): {
+        "operationId": "attachSeriesSharedGlossary",
+        "tags": ["Glossaries"],
+        "summary": "Attach a series to a shared glossary",
+        "description": "The series follows this shared glossary from its next passages on (at most one per "
+        "series); `glossary_id: null` detaches it. A glossary with languages only fits a series of the same pair.",
+        "body": "SharedGlossaryAttachment",
+        "errors": {
+            "404": (
+                "Unknown series or glossary, or owned by someone else.",
+                ["series_not_found", "glossary_not_found"],
+            ),
+            "409": ("The glossary's languages differ from the series'.", ["language_mismatch"]),
+            "422": ("A bad body.", ["invalid_request"]),
+        },
+        "schema": "SeriesSharedGlossary",
+    },
 }
 
 RESULT_MEDIA = {
-    "application/epub+zip": ({"type": "string", "format": "binary"}, "The translated EPUB (`format=epub`)."),
+    "application/epub+zip": (
+        {"type": "string", "format": "binary"},
+        "The translated EPUB (`format=epub`), or the bilingual EPUB (`format=epub-bilingual`).",
+    ),
     "application/json": (ref("JsonResult"), "The JSON document (`format=json`)."),
     "text/plain": ({"type": "string"}, "One UTF-8 text file, chapters under their headings (`format=txt`)."),
     "application/zip": (
@@ -898,7 +1436,7 @@ def error_response(description: str, codes: list[str]) -> dict:
     if examples:
         content["examples"] = examples
     response = {"description": f"{description} Codes: {listed}.", "content": {"application/json": content}}
-    if codes == ["rate_limited"] or "result_not_ready" in codes:
+    if "rate_limited" in codes or "result_not_ready" in codes:
         response["headers"] = {
             "Retry-After": {"description": "Seconds to wait.", "schema": {"type": "integer"}}
         }
@@ -1029,8 +1567,9 @@ def shape(operation: dict, method: str, path: str, endpoint, scopes: list[str], 
         if parameter.get("in") == "header" and parameter["name"].casefold() == "authorization":
             continue  # the Bearer token is the security scheme
         parameter = clean(parameter)
-        if "description" not in parameter and parameter["name"] in PARAMETERS:
-            parameter["description"] = PARAMETERS[parameter["name"]]
+        note = (extra.get("parameters") or {}).get(parameter["name"]) or PARAMETERS.get(parameter["name"])
+        if "description" not in parameter and note:
+            parameter["description"] = note
         parameters.append(parameter)
     if (method, path) == ("post", f"{PREFIX}/translation-requests"):
         parameters += raw_epub_parameters(options)
@@ -1038,6 +1577,13 @@ def shape(operation: dict, method: str, path: str, endpoint, scopes: list[str], 
         shaped["parameters"] = parameters
     if (method, path) == ("post", f"{PREFIX}/translation-requests"):
         shaped["requestBody"] = upload_body(options)
+    elif "requestBody" in extra:
+        shaped["requestBody"] = extra["requestBody"]
+    elif "body" in extra:
+        shaped["requestBody"] = {
+            "required": True,
+            "content": {"application/json": {"schema": ref(extra["body"])}},
+        }
     elif "requestBody" in operation:
         shaped["requestBody"] = clean(operation["requestBody"])
     responses = {}
@@ -1051,6 +1597,8 @@ def shape(operation: dict, method: str, path: str, endpoint, scopes: list[str], 
         schema = {"type": "array", "items": schema} if extra.get("array") else schema
         code = next(iter(generated), "200")
         responses[code] = json_response("Success.", schema, extra.get("example"))
+    if "response" in extra:
+        responses[next(iter(generated), "200")] = extra["response"]
     if "success" in extra:
         responses = {}
         for code, (text, located) in extra["success"].items():
@@ -1090,43 +1638,67 @@ def shape(operation: dict, method: str, path: str, endpoint, scopes: list[str], 
     return shaped
 
 
-def webhooks() -> dict:
+def webhook_operation(
+    name: str, event: str, delivery: str, summary: str, description: str, schema: str
+) -> dict:
     headers = {
-        "X-Libris-Event": "`translation_request.finished`.",
-        "X-Libris-Delivery": "`<request id>:<attempt number>`.",
+        "X-Libris-Event": f"`{event}`.",
+        "X-Libris-Delivery": delivery,
         "X-Libris-Timestamp": "Unix time in seconds.",
         "X-Libris-Signature": "`sha256=<hex>`: HMAC-SHA256 of `<timestamp>.<raw body>` with the token's webhook "
         "secret, or the server's `API_WEBHOOK_SECRET`.",
     }
     return {
-        "translationRequestFinished": {
-            "post": {
-                "operationId": "translationRequestFinished",
-                "tags": ["Translation requests"],
-                "summary": "A request ended",
-                "description": "Sent by the worker to the request's `callback_url` when it ends. Check the "
-                "signature over the raw body and refuse old timestamps. Any `2xx` counts as delivered; anything "
-                "else is retried with an exponential backoff (30 s, 60 s… up to one hour) at most "
-                "`API_WEBHOOK_MAX_ATTEMPTS` times. Redirects are not followed.",
-                "parameters": [
-                    {
-                        "name": name,
-                        "in": "header",
-                        "required": True,
-                        "description": text,
-                        "schema": {"type": "string"},
-                    }
-                    for name, text in headers.items()
-                ],  # fmt: skip
-                "requestBody": {
+        "post": {
+            "operationId": name,
+            "tags": ["Translation requests"],
+            "summary": summary,
+            "description": description
+            + " Check the signature over the raw body and refuse old timestamps. Any "
+            "`2xx` counts as delivered; anything else is retried with an exponential backoff (30 s, 60 s… up to "
+            "one hour) at most `API_WEBHOOK_MAX_ATTEMPTS` times. Redirects are not followed.",
+            "parameters": [
+                {
+                    "name": header,
+                    "in": "header",
                     "required": True,
-                    "content": {"application/json": {"schema": ref("WebhookEvent")}},
-                },
-                "responses": {"2XX": {"description": "Delivered."}},
-                # Authenticated by its signature header, not by a token.
-                "security": [],
-            }
+                    "description": text,
+                    "schema": {"type": "string"},
+                }
+                for header, text in headers.items()
+            ],  # fmt: skip
+            "requestBody": {
+                "required": True,
+                "content": {"application/json": {"schema": ref(schema)}},
+            },
+            "responses": {"2XX": {"description": "Delivered."}},
+            # Authenticated by its signature header, not by a token.
+            "security": [],
         }
+    }
+
+
+def webhooks() -> dict:
+    return {
+        "chaptersTranslated": webhook_operation(
+            "chaptersTranslated",
+            "chapters.translated",
+            "`<request id>:chapters.translated:<batch>:<attempt number>`.",
+            "Chapters were translated",
+            "Sent by the worker to the request's `callback_url` while its job runs, once per batch of chapters "
+            "whose passages all have a translation, when the request listed `chapters.translated` in "
+            "`callback_events`. Batches go before the final webhook when both are due, but a retried batch can "
+            "arrive after it: order them by `batch`. The text of a batch is a draft until the request ends.",
+            "ChaptersTranslatedEvent",
+        ),
+        "translationRequestFinished": webhook_operation(
+            "translationRequestFinished",
+            "translation_request.finished",
+            "`<request id>:<attempt number>`.",
+            "A request ended",
+            "Sent by the worker to the request's `callback_url` when it ends.",
+            "WebhookEvent",
+        ),
     }
 
 

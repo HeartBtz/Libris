@@ -9,7 +9,7 @@ A deployment only dumps the database just before it migrates, on the production 
 | File | Content |
 | --- | --- |
 | `database.dump` | `pg_dump -Fc` of the whole database, transactionally consistent, taken while Libris keeps running |
-| `books.tar.gz` | the complete `/data` volume (`<project>_books`): original EPUBs (`books/`), TXT chapter files and JSON payloads of text volumes (`sources/<project>/`), project files, exports, and `staging/` (files of imports not confirmed yet, removed at confirmation or expiry: harmless but not needed) |
+| `books.tar.gz` | the complete `/data` volume (`<project>_books`): original EPUBs (`books/`), TXT chapter files and JSON payloads of text volumes (`sources/<project>/`), project files, exports, `staging/` (files of imports not confirmed yet, removed at confirmation or expiry: harmless but not needed) and `results/` (stored results of automation requests; rebuilt from the database when missing) |
 | `config.env` | only with `LIBRIS_BACKUP_INCLUDE_ENV=true`: a copy of the installation's `.env`. It is left out by default because it holds every secret; without its `SECRET_KEY`, a restore on another host asks for the provider keys again |
 | `backup.info` | date, Compose project, volume, database image, deployed Libris version |
 | `SHA256SUMS` | checksums of the files above |

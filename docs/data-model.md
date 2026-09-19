@@ -56,8 +56,11 @@ volumes: identities under the names those volumes used, their terms and human de
 ## Automation
 
 `api_tokens` (owner, name, SHA-256 of the secret, displayable prefix, scopes, expiry, revocation, last
-use) and `translation_requests` (owner, token, `external_id`, `Idempotency-Key`, payload hash, series,
-volume, job, status, options, chapters, error) — see [the API guide](api.md).
+use, optional webhook signing secret encrypted with `SECRET_KEY`) and `translation_requests` (owner,
+token, `external_id`, `Idempotency-Key`, payload hash, series, volume, job, status, options — input kind
+and intake decisions among them —, chapters, error, `finished_at`, completion `report`, stored `artifact`
+(path under `DATA_DIR/results/<request>/`, format, size, SHA-256) and the webhook's `callback_url`,
+`webhook_state`, attempts, next attempt and last error) — see [the API guide](api.md).
 
 ## External memory
 

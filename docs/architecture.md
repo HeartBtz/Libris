@@ -12,7 +12,7 @@
 - `engines/translation` : analyse hiérarchique, versions, orchestration, contrôle global, traduction par parties (`repair.py`) et mémoire de traduction (`memory.py`).
 - `engines/quality` : identifiants d’unités, codes DOM, sorties vides, longueur, répétition, texte inchangé et terminologie.
 - `jobs` : prise en charge transactionnelle, bail, fencing, événements persistants, reprise, état par passage (`segment_state`) et exécution hors de la boucle asyncio (`concurrency`).
-- `api` : authentification, autorisations, projets, édition, paramètres, exports et SSE ; `api/v1.py` + `api/tokens.py` : API d’automatisation par jetons (voir [api.md](api.md)), dont les requêtes attendent en SQL que leur volume soit libre (`jobs/requests.py`, répartiteur du worker).
+- `api` : authentification, autorisations, projets, édition, paramètres, exports et SSE ; `api/v1.py` + `api/tokens.py` : API d’automatisation par jetons (voir [api.md](api.md)), dont les requêtes attendent en SQL que leur volume soit libre (`jobs/requests.py`, répartiteur du worker). `engines/delivery` fait aboutir chaque requête : entrées EPUB et TXT (`intake`), fin toujours terminale et bornée (`lifecycle`), rapport de fin (`report`), résultat stocké sous `DATA_DIR/results` (`results`), EPUB traduit réparé automatiquement quand EPUBCheck le refuse (`epub`), webhooks signés envoyés par le worker (`webhooks`).
 
 ## Modèle SQL
 

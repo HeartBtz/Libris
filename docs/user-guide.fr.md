@@ -24,10 +24,11 @@ française.
 10. [Exporter](#exporter)
 11. [Les séries](#les-séries)
 12. [Glossaires partagés](#glossaires-partagés)
-13. [Mon compte et les jetons d’API](#mon-compte-et-les-jetons-dapi)
-14. [Paramètres de l’installation (administrateurs)](#paramètres-de-linstallation-administrateurs)
-15. [Comprendre la traduction](#comprendre-la-traduction)
-16. [Questions fréquentes](#questions-fréquentes)
+13. [La file d’attente](#la-file-dattente)
+14. [Mon compte et les jetons d’API](#mon-compte-et-les-jetons-dapi)
+15. [Paramètres de l’installation (administrateurs)](#paramètres-de-linstallation-administrateurs)
+16. [Comprendre la traduction](#comprendre-la-traduction)
+17. [Questions fréquentes](#questions-fréquentes)
 
 ## Premiers pas
 
@@ -43,8 +44,8 @@ Libris vous ramène à cet écran avec le message « Votre session a expiré ou 
 
 ### Se repérer
 
-La **barre latérale** à gauche mène à la **Bibliothèque** et, pour les administrateurs, aux **Statistiques** et
-aux **Paramètres**. Le bouton en haut de la barre la réduit à une colonne d’icônes (**Réduire la barre
+La **barre latérale** à gauche mène à la **Bibliothèque**, à la **File d’attente** et, pour les administrateurs,
+aux **Statistiques** et aux **Paramètres**. Le bouton en haut de la barre la réduit à une colonne d’icônes (**Réduire la barre
 latérale**). Sur téléphone ou fenêtre étroite, elle devient un menu qui s’ouvre avec le bouton **Menu** en haut
 de l’écran.
 
@@ -329,6 +330,9 @@ Des bandeaux apparaissent sous l’en-tête quand quelque chose mérite votre at
   passage à traiter** vous y mène, et vous pouvez **Compléter la Book Bible manuellement** si le refus a eu
   lieu pendant l’analyse.
 - **Pause volontaire — utilisez Reprendre pour continuer.**
+- **Ce travail attend son tour dans la file d’attente.** : sa position et ce qui le retient (fournisseur
+  occupé, nombre de travaux simultanés du compte ou du jeton atteint) ; **Voir la file d’attente** ouvre la
+  [file d’attente](#la-file-dattente).
 - **Intervention requise** : par exemple, la connexion Codex doit être renouvelée (**Ouvrir les paramètres de
   connexion du provider**, pour un administrateur).
 
@@ -743,6 +747,34 @@ la série** liste les décisions qui l’engagent : fusions, séparations, gloss
 Une série suit un glossaire partagé depuis son onglet **Glossaire**. Le pilote automatique respecte les termes
 verrouillés : une proposition de l’analyse qui les contredit est retirée.
 
+## La file d’attente
+
+Quand plusieurs livres attendent, Libris ne les démarre pas simplement du plus ancien au plus récent. Il prend
+d’abord les travaux de **priorité** la plus haute, puis ceux du compte qui a le moins de travaux en cours, à tour
+de rôle entre les comptes : le premier livre d’une personne n’attend pas derrière les dix livres d’une autre. Un
+travail qui attend longtemps monte d’un niveau de priorité (toutes les 60 minutes par défaut), si bien qu’un
+travail de priorité basse finit toujours par passer. La capacité de chaque provider (**Livres en parallèle**)
+reste la limite principale.
+
+La page **File d’attente** (barre latérale) montre :
+
+- en haut, **Vos travaux en cours** et **Vos travaux en attente**, avec les limites de votre compte (« sans
+  limite » ou « N au plus »), et votre **Priorité maximale** ;
+- **En attente** : chaque travail avec sa **Position** dans la file de son provider (1 : le prochain à démarrer
+  quand une place se libère), sa priorité (« Basse → Normale (relevée par l’attente) » quand l’attente l’a
+  relevée), depuis quand il attend, et la raison : provider occupé, nombre de travaux simultanés du compte ou du
+  jeton atteint, nouvel essai prévu après une panne, ou aucun provider choisi ;
+- **En cours** : les travaux qui tournent.
+
+Vous voyez vos livres et ceux qu’on partage avec vous ; un administrateur voit tous les comptes. Le menu
+**Priorité** d’un travail le fait passer en **Basse**, **Normale** ou, pour un administrateur (ou un compte
+qu’il y autorise), **Haute**. La page se met à jour toutes les 10 secondes.
+
+Si l’administrateur a limité le nombre de travaux **en attente** de votre compte, lancer un travail de plus est
+refusé avec le message « File d’attente pleine pour ce compte… » : réessayez quand l’un d’eux a démarré. Un
+import qui démarre ses volumes est conservé, mais les volumes en trop ne sont pas lancés (un avertissement le
+dit) ; lancez-les plus tard depuis leur page.
+
 ## Mon compte et les jetons d’API
 
 **Mon compte** (menu du compte) permet de :
@@ -764,9 +796,14 @@ compte** ou, pour un administrateur, depuis **Paramètres → API d’automatisa
    et une **Expiration** (30, 90 ou 365 jours, ou Jamais).
 2. Cochez au besoin **Signer les webhooks avec un secret propre à ce jeton** : les requêtes qui donnent une
    adresse de rappel préviendront votre serveur à leur fin, avec une signature HMAC-SHA256 (voir [webhooks](api.md#webhooks)).
-3. Copiez le secret (`lbr_…`) : **il n’est affiché qu’une fois**. Libris n’en garde qu’une empreinte.
+3. Au besoin, réglez sa **File d’attente** : la **Priorité maximale des requêtes** que le jeton peut demander
+   (Basse, Normale ou Haute si votre compte y a droit), et des limites propres au jeton, plus basses que celles
+   du compte : **Travaux simultanés au plus** (les suivants attendent) et **Requêtes en attente au plus** (au-delà,
+   l’API répond 429). Vides, seules les limites du compte s’appliquent.
+4. Copiez le secret (`lbr_…`) : **il n’est affiché qu’une fois**. Libris n’en garde qu’une empreinte.
 
-La liste montre pour chaque jeton sa date de création, d’expiration et de dernière utilisation. **Révoquer**
+La liste montre pour chaque jeton sa date de création, d’expiration et de dernière utilisation, et ses limites
+de file d’attente quand il en a. **Révoquer**
 est définitif : les clients qui l’utilisent reçoivent une erreur 401. La référence complète de l’API, avec des
 exemples `curl`, est dans [api.md](api.md).
 
@@ -870,6 +907,21 @@ défaut) qui s’applique ; elle est rappelée sous le champ, et un badge indiqu
 confirmation. Le travail reprend depuis son dernier point enregistré. Le délai demandé par le provider et sa
 capacité restent prioritaires ; les pauses manuelles et les erreurs d’authentification attendent toujours une
 personne.
+
+### File d’attente
+
+Les règles de la [file d’attente](#la-file-dattente) pour toute l’installation : **Travaux simultanés par
+compte** (au-delà, les suivants attendent leur tour ; 0 : sans limite), **Travaux en attente par compte**
+(au-delà, un nouveau travail ou une requête d’API est refusé ; 0 : sans limite) et **Relèvement de priorité
+(minutes)** (0 : jamais). Sous chaque champ, la valeur de l’installation (`QUEUE_*`) est rappelée ; un badge
+indique **Valeurs enregistrées ici** ou **Valeurs de l’environnement**.
+
+**Quotas par compte** : **Ajouter un compte** crée une ligne où fixer ses propres **Travaux simultanés**,
+**Travaux en attente** et sa **Priorité maximale** (Haute l’autorise à demander la priorité haute, réservée
+sinon aux administrateurs). Un champ vide reprend la valeur de l’installation, 0 retire la limite pour ce
+compte ; l’icône corbeille retire la ligne. **Enregistrer la file d’attente** applique les valeurs aux
+prochaines décisions, sans redémarrage ; **Revenir aux valeurs de l’environnement** oublie tout, après
+confirmation.
 
 ### API d’automatisation
 

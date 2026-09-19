@@ -25,6 +25,7 @@ import {
 } from "../ui";
 import { ApiTokens } from "./ApiTokens";
 import { AutopilotSettings, WebhookSettings } from "./AutomationSettings";
+import { QueueSettings } from "./Queue";
 import { CodexConnection } from "./CodexConnection";
 import { OpenVikingCleanup } from "./OpenVikingCleanup";
 import { RecoverySettings } from "./Account";
@@ -253,6 +254,7 @@ export function Settings({ run }: { run: Run }) {
             { id: "users", label: t("Utilisateurs") },
             { id: "autopilot", label: t("Pilote automatique") },
             { id: "recovery", label: t("Reprise automatique") },
+            { id: "queue", label: t("File d’attente") },
             { id: "api", label: t("API d’automatisation") },
           ]}
         />
@@ -270,6 +272,8 @@ export function Settings({ run }: { run: Run }) {
             <SearchSettings run={run} />
           ) : tab === "recovery" ? (
             <RecoverySettings run={run} />
+          ) : tab === "queue" ? (
+            <QueueSettings run={run} />
           ) : tab === "autopilot" ? (
             <AutopilotSettings run={run} />
           ) : tab === "api" ? (

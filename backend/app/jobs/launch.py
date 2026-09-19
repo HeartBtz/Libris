@@ -25,8 +25,17 @@ def pipeline_options(project: Project) -> dict:
     return {**PIPELINE, **(AUTOPILOT if autopilot_default(project) else {})}
 
 
-def launch(db: Session, project: Project, mode: str, options: dict | None = None) -> tuple[Job | None, str]:
-    """`mode` is "analyze" or "pipeline"; `options` are added to the new job's (e.g. `final_review`).
+def launch(
+    db: Session,
+    project: Project,
+    mode: str,
+    options: dict | None = None,
+    *,
+    priority: int = 1,
+    token_id: str | None = None,
+) -> tuple[Job | None, str]:
+    """`mode` is "analyze" or "pipeline"; `options` are added to the new job's (e.g. `final_review`);
+    `priority` and `token_id` place it in the fair queue (app.jobs.fairness).
     Returns the job, or none and why nothing was started."""
     if project.archived_at is not None:
         return None, f"« {project.title} » est archivé : aucun travail lancé."
@@ -38,4 +47,4 @@ def launch(db: Session, project: Project, mode: str, options: dict | None = None
     base = pipeline_options(project) if mode == "pipeline" else {}
     if mode != "pipeline" and autopilot_default(project):
         base = {"autopilot": True}  # an analysis alone: a refused passage is skipped, not blocking
-    return enqueue(db, project, "analyze", {**base, **(options or {})}), ""
+    return enqueue(db, project, "analyze", {**base, **(options or {})}, priority=priority, token_id=token_id), ""

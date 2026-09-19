@@ -131,7 +131,10 @@ def advance(db: Session, request: TranslationRequest, files: Files, payload: Tra
     if request.options.get("input") != "epub":
         # Chapters sent to a volume already translated: only them (and anything unfinished) are worked on.
         options.update(follow_up_options(db, project, request.options.get("new_chapter_ids") or []))
-    job, reason = launch(db, project, "pipeline", options)
+    job, reason = launch(
+        db, project, "pipeline", options,
+        priority=int(request.options.get("priority", 1)), token_id=request.token_id,
+    )  # fmt: skip
     if job is None:
         fail(db, request, reason)
         return

@@ -85,6 +85,12 @@ Two limits decide how much work runs at once:
   provider's capacity, shared between the books using it. `1` processes one passage at a time. Passage analysis
   and the Book Bible synthesis always run in order.
 
+When books wait, they do not start oldest first: the [fair queue](architecture.md#fair-queue) takes the highest
+priority, then the account with the fewest jobs running, in turn between accounts, so one person's backlog does
+not hold everyone else back. On a shared installation, **Settings › Queue** (or `QUEUE_*`, see
+[configuration](configuration.md#fair-queue)) can also cap each account's running and waiting jobs. The **Queue**
+page shows each waiting job's place and what holds it.
+
 A book stays **queued** while its provider has no free slot. To change a book's provider mid-way, pause it, choose
 the new provider in its configuration and resume: the rest of the book uses the new one.
 
@@ -279,7 +285,8 @@ statistics under the operation `provider_comparison`.
 
 | Symptom | Cause and fix |
 | --- | --- |
-| A book stays **queued** | The worker is not running (`docker compose ps worker`), or its provider has no free **Concurrent books** slot. |
+| A book stays **queued** | The worker is not running (`docker compose ps worker`), or its provider has no free **Concurrent books** slot, or its account (or API token) already runs its quota of jobs. The **Queue** page gives the reason for each job. |
+| Launching answers "Queue full" (HTTP 429 `queue_full`) | The account or the API token already has its quota of waiting jobs (**Settings › Queue**, `QUEUE_MAX_QUEUED_PER_ACCOUNT`, or the token's own limit). Wait until one starts, or raise the quota. |
 | A book is **waiting** | The provider is unreachable, timed out or answered 429/5xx. Libris retries on its own: first after the **Automatic recovery** delay (`PROVIDER_RECOVERY_BASE_SECONDS`, 60 seconds by default), then doubling up to an hour; a provider's `Retry-After` is respected up to 24 hours. Under the autopilot, after `AUTOPILOT_OUTAGE_MAX_RETRIES` waits it switches to the next fallback provider. |
 | A book is **blocked** | The provider rejected the credentials. Fix the key or sign in again, then resume. Under the autopilot, the next fallback provider takes over, or the job fails if none is left. |
 | A book **failed** with "providers exhausted" | Every provider in the autopilot chain was unavailable. Add a fallback provider in **Settings › Autopilot**, then resume. |

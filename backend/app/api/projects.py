@@ -29,6 +29,7 @@ from app.engines.memory.cleanup import queue_volume_cleanup
 from app.engines.memory.identities import canonical_bible
 from app.engines.series.bible import refresh_series
 from app.engines.translation.memory import translation_memory_enabled
+from app.jobs.fairness import QueueRefused, admit, requested_priority
 from app.jobs.launch import AUTOPILOT, autopilot_default, pipeline_options
 from app.jobs.queue import ACTIVE, HELD, emit, enqueue
 from app.models import (
@@ -286,7 +287,12 @@ def configure(project_id: str, body: ProjectConfig, user: CurrentUser, db: DB):
     if provider_selected and project.archived_at is None and not db.scalar(
         select(Job.id).where(Job.project_id == project_id, Job.status.in_(HELD))
     ):
-        enqueue(db, project, "analyze", pipeline_options(project))
+        try:
+            admit(db, project.owner_id)  # a full queue leaves the analysis to be started later
+        except QueueRefused:
+            pass
+        else:
+            enqueue(db, project, "analyze", pipeline_options(project))
     db.commit()
     return project_view(db, project)
 
@@ -454,7 +460,7 @@ def start_job(project_id: str, body: JobInput, user: CurrentUser, db: DB):
         segment = db.get(Segment, body.segment_id)
         if not segment or segment.project_id != project_id:
             raise HTTPException(404, "Passage introuvable.")
-    options = body.model_dump(exclude={"operation", "autopilot"})
+    options = body.model_dump(exclude={"operation", "autopilot", "priority"})
     whole_book = not any(
         options.get(key) for key in ("chapter_id", "segment_id", "segment_ids", "refused_only")
     )
@@ -463,7 +469,12 @@ def start_job(project_id: str, body: JobInput, user: CurrentUser, db: DB):
         if body.autopilot if body.autopilot is not None else autopilot_default(project):
             options.update(AUTOPILOT)
     try:
-        job = enqueue(db, project, body.operation, options)
+        priority = requested_priority(db, user, body.priority)
+        admit(db, project.owner_id)
+    except QueueRefused as exc:
+        raise HTTPException(exc.status, exc.detail) from None
+    try:
+        job = enqueue(db, project, body.operation, options, priority=priority)
     except ValueError as exc:  # A job is already held for this book: a state conflict, not bad input.
         raise HTTPException(409, str(exc)) from None
     if body.operation == "analyze" and body.force:
@@ -510,6 +521,11 @@ def control(
     job = db.scalar(select(Job).where(Job.id == job_id).with_for_update())
     if not job or job.project_id != project_id:
         raise HTTPException(404, "Travail introuvable.")
+    if action in {"resume", "retry"} and job.status not in ("pending", "waiting"):
+        try:
+            admit(db, project.owner_id)
+        except QueueRefused as exc:
+            raise HTTPException(exc.status, exc.detail) from None
     control_job(db, project, job, action)
     db.commit()
     return row(job)
@@ -543,6 +559,7 @@ def control_job(db, project: Project, job: Job, action: str) -> Job:
     job.lease_owner, job.lease_until, job.error = "", 0, ""
     if action in {"resume", "retry"}:
         job.checkpoint = {**job.checkpoint, "consecutive_failures": 0}
+        job.queued_at = time.time()  # back in the fair queue, behind the jobs already waiting
     job.next_attempt, job.outage_count = 0, 0
     job.stop_reason = (
         "user_pause" if action == "pause" else "user_cancel" if action == "cancel" else "manual_resume"

@@ -66,7 +66,23 @@ registerTranslations({
   "J’ai copié les secrets": "I have copied the secrets",
   "Lister et lire les séries": "List and read series",
   "Exemple": "Example",
+  "File d’attente": "Queue",
+  "Priorité maximale des requêtes": "Highest priority of requests",
+  "Une requête peut demander pipeline.priority (ou le champ priority d’un envoi de fichier) jusqu’à ce niveau. Haute : réservée aux administrateurs et aux comptes autorisés.":
+    "A request may ask for pipeline.priority (or the priority field of a file upload) up to this level. High: reserved to administrators and allowed accounts.",
+  "Travaux simultanés au plus": "Simultaneous jobs at most",
+  "Requêtes en attente au plus": "Waiting requests at most",
+  "Vide : les quotas du compte seulement. Au-delà, les requêtes attendent (simultanés) ou sont refusées en 429 (en attente).":
+    "Empty: the account's quotas only. Beyond them, requests wait (simultaneous) or are refused with 429 (waiting).",
+  "Priorité max : {priority}": "Max priority: {priority}",
+  "{count} simultanés au plus": "{count} simultaneous at most",
+  "{count} en attente au plus": "{count} waiting at most",
+  Basse: "Low",
+  Normale: "Normal",
+  Haute: "High",
 });
+
+const PRIORITY_NAMES: Record<string, string> = { low: "Basse", normal: "Normale", high: "Haute" };
 
 interface ApiToken {
   id: string;
@@ -80,6 +96,10 @@ interface ApiToken {
   state: "active" | "expired" | "revoked";
   /** Whether webhooks of this token's requests are signed with its own secret (0.6). */
   webhook_secret?: boolean;
+  /** Fair queue (0.7): highest priority its requests may ask for, and its own quotas. */
+  max_priority?: string;
+  max_running?: number | null;
+  max_queued?: number | null;
 }
 
 const SCOPES: [string, string][] = [
@@ -124,6 +144,9 @@ export function ApiTokens({ run }: { run: Run }) {
   const [secret, setSecret] = useState("");
   const [signing, setSigning] = useState("");
   const [withWebhookSecret, setWithWebhookSecret] = useState(false);
+  const [maxPriority, setMaxPriority] = useState("normal");
+  const [maxRunning, setMaxRunning] = useState("");
+  const [maxQueued, setMaxQueued] = useState("");
   const [copied, setCopied] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -181,6 +204,15 @@ export function ApiTokens({ run }: { run: Run }) {
                         <Badge key={scope}>{scope}</Badge>
                       ))}
                       {token.webhook_secret && <Badge tone="info">{t("Webhooks signés")}</Badge>}
+                      {token.max_priority && token.max_priority !== "normal" && (
+                        <Badge tone="accent">
+                          {t("Priorité max : {priority}", { priority: t(PRIORITY_NAMES[token.max_priority] || token.max_priority) })}
+                        </Badge>
+                      )}
+                      {!!token.max_running && (
+                        <Badge>{t("{count} simultanés au plus", { count: String(token.max_running) })}</Badge>
+                      )}
+                      {!!token.max_queued && <Badge>{t("{count} en attente au plus", { count: String(token.max_queued) })}</Badge>}
                     </span>
                     <small className="subtle">
                       {[
@@ -280,11 +312,17 @@ export function ApiTokens({ run }: { run: Run }) {
                   expires_in_days: days ? Number(days) : null,
                   // Only sent when asked: servers before 0.6 refuse unknown fields.
                   ...(withWebhookSecret ? { webhook_secret: true } : {}),
+                  ...(maxPriority !== "normal" ? { max_priority: maxPriority } : {}),
+                  ...(maxRunning ? { max_running: Number(maxRunning) } : {}),
+                  ...(maxQueued ? { max_queued: Number(maxQueued) } : {}),
                 },
               );
               setSecret(created.token);
               setSigning(typeof created.webhook_secret === "string" ? created.webhook_secret : "");
               setWithWebhookSecret(false);
+              setMaxPriority("normal");
+              setMaxRunning("");
+              setMaxQueued("");
               setCopied("");
               setName("");
               setTokens(await api("/tokens"));
@@ -330,6 +368,50 @@ export function ApiTokens({ run }: { run: Run }) {
             checked={withWebhookSecret}
             onChange={(event) => setWithWebhookSecret(event.target.checked)}
           />
+          <fieldset className="token-scope-picker">
+            <legend>{t("File d’attente")}</legend>
+            <FormGrid columns={3}>
+              <Field
+                label={t("Priorité maximale des requêtes")}
+                hint={t(
+                  "Une requête peut demander pipeline.priority (ou le champ priority d’un envoi de fichier) jusqu’à ce niveau. Haute : réservée aux administrateurs et aux comptes autorisés.",
+                )}
+              >
+                <Select value={maxPriority} onChange={(event) => setMaxPriority(event.target.value)}>
+                  {["low", "normal", "high"].map((value) => (
+                    <option key={value} value={value}>
+                      {t(PRIORITY_NAMES[value])}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+              <Field label={t("Travaux simultanés au plus")}>
+                <Input
+                  type="number"
+                  min={1}
+                  max={1000}
+                  inputMode="numeric"
+                  value={maxRunning}
+                  onChange={(event) => setMaxRunning(event.target.value)}
+                />
+              </Field>
+              <Field label={t("Requêtes en attente au plus")}>
+                <Input
+                  type="number"
+                  min={1}
+                  max={100000}
+                  inputMode="numeric"
+                  value={maxQueued}
+                  onChange={(event) => setMaxQueued(event.target.value)}
+                />
+              </Field>
+            </FormGrid>
+            <p className="field-hint">
+              {t(
+                "Vide : les quotas du compte seulement. Au-delà, les requêtes attendent (simultanés) ou sont refusées en 429 (en attente).",
+              )}
+            </p>
+          </fieldset>
           {error && (
             <p role="alert" className="form-status tone-text-danger">
               {error}

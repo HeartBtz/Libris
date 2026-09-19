@@ -87,6 +87,8 @@ class PipelineOptions(StrictModel):
     quality: Literal["fast", "normal", "high", "maximum"] | None = None
     context_backend: Literal["internal", "openviking", "hybrid"] | None = None
     final_review: bool = True
+    # Place in the fair queue, within what the token allows (app.jobs.fairness); None: normal.
+    priority: Literal["low", "normal", "high"] | None = None
 
 
 class OutputOptions(StrictModel):
@@ -138,6 +140,8 @@ class TranslationPayload(StrictModel):
             data["callback_events"] = sorted(set(data["callback_events"]))
         if not data["volume"].get("latest"):
             data["volume"].pop("latest", None)
+        # The priority changes when the work runs, not the work: the same request either way.
+        data.get("pipeline", {}).pop("priority", None)
         return json.dumps(data, ensure_ascii=False, sort_keys=True).encode()
 
 

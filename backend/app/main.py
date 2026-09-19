@@ -37,6 +37,7 @@ from app.api import (
     v1,
 )
 from app.api import quality as quality_dashboard
+from app.api import queue as fair_queue
 from app.config import settings
 from app.db import SessionLocal
 from app.diagnostics import safe_trace
@@ -220,6 +221,7 @@ app.include_router(glossaries.router)
 app.include_router(monitoring.router)
 app.include_router(openviking_cleanup.router)
 app.include_router(quality_dashboard.router)
+app.include_router(fair_queue.router)
 
 
 @app.get("/openapi.json", include_in_schema=False)

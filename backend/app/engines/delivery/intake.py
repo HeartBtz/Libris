@@ -51,6 +51,8 @@ class UploadOptions(StrictModel):
     callback_events: str = Field(default="", max_length=200)
     replace_changed_chapters: bool = False
     discard_human: bool = False
+    # Place in the fair queue, within what the token allows (app.jobs.fairness); empty: normal.
+    priority: Literal["low", "normal", "high"] | None = None
 
     @model_validator(mode="after")
     def one_series(self):
@@ -86,7 +88,7 @@ def callback_events(options: UploadOptions) -> list[str]:
 
 def epub_digest(data: bytes, options: UploadOptions) -> str:
     """Same file and same options: same request (idempotence); the callback does not change the work."""
-    meaning = options.model_dump(mode="json", exclude={"callback_url", "callback_events"})
+    meaning = options.model_dump(mode="json", exclude={"callback_url", "callback_events", "priority"})
     return hashlib.sha256(
         hashlib.sha256(data).digest() + json.dumps(meaning, sort_keys=True).encode()
     ).hexdigest()

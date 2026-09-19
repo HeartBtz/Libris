@@ -73,13 +73,37 @@ stores only its SHA-256 and compares it in constant time.
 
 ### Managing tokens from a script
 
-The interface manages tokens through three routes that use the **session cookie**, not a token:
+The interface manages tokens through these routes, which use the **session cookie**, not a token:
 
 | Route | Body and answer |
 | --- | --- |
-| `GET /api/tokens` | The caller's tokens: `id, name, prefix, scopes, created_at, expires_at, revoked_at, last_used_at, state, webhook_secret` (a boolean: whether the token has its own signing secret). |
-| `POST /api/tokens` | Body `{"name": "…", "scopes": ["…"], "expires_in_days": 90, "webhook_secret": false}`. `name` 1–100 characters, at least one scope, `expires_in_days` 1–3650 or `null` for no expiry. Answers `201` with the token view plus `token` (the secret) and, when asked, `webhook_secret` (the signing secret). This is the only answer that ever contains them. |
+| `GET /api/tokens` | The caller's tokens: `id, name, prefix, scopes, created_at, expires_at, revoked_at, last_used_at, state, webhook_secret` (a boolean: whether the token has its own signing secret), `max_priority`, `max_running`, `max_queued` (see [Queue priority and quotas](#queue-priority-and-quotas)). |
+| `POST /api/tokens` | Body `{"name": "…", "scopes": ["…"], "expires_in_days": 90, "webhook_secret": false}`, optionally with `max_priority` (`low`, `normal` (default) or `high`), `max_running` (1–1000) and `max_queued` (1–100000). `name` 1–100 characters, at least one scope, `expires_in_days` 1–3650 or `null` for no expiry. Answers `201` with the token view plus `token` (the secret) and, when asked, `webhook_secret` (the signing secret). This is the only answer that ever contains them. |
+| `PUT /api/tokens/{id}/queue` | Body `{"max_priority": "normal", "max_running": null, "max_queued": null}`: changes the token's queue limits without changing its secret; returns its view. |
 | `DELETE /api/tokens/{id}` | Revokes the token and returns its view. |
+
+### Queue priority and quotas
+
+Libris shares its providers between accounts with a fair queue: waiting jobs start by priority, then from the
+account (and the token) with the fewest jobs running, in turn between accounts (see
+[architecture](architecture.md#fair-queue)). A request may ask for a priority, `pipeline.priority` in a JSON
+document or the `priority` option of a file upload: `low`, `normal` (the default) or `high`.
+
+- The priority may not exceed the token's `max_priority` (`normal` unless set otherwise) nor the account's
+  ceiling (`high` for administrators and for accounts an administrator allowed in **Settings › Queue**,
+  `normal` otherwise). Above it, the request is refused with `403 priority_not_allowed` and `max_priority` in
+  the error. A token whose `max_priority` is `low` sends its requests at low priority by default.
+- `max_running` limits the token's jobs running at once: the next ones wait (`queue.reason` is
+  `token_limit`). The account's own limit (`QUEUE_MAX_RUNNING_PER_ACCOUNT` or its row in **Settings ›
+  Queue**) applies as well (`account_limit`).
+- `max_queued` limits the token's requests and jobs waiting to start. A new request over it, or over the
+  account's waiting quota, is refused with `429 queue_full` and `scope` (`token` or `account`) and `limit` in
+  the error; nothing is stored. Retry once one of them has started. A replay of an accepted request (same
+  `Idempotency-Key` or `external_id`) is still answered. Resuming a paused request counts as a new entry in
+  the queue.
+
+The priority does not change the request's content: sending the same request again with another priority is a
+replay of the first one.
 
 ## Send a translation request
 
@@ -213,7 +237,7 @@ Each file becomes one chapter, and the request behaves exactly like the JSON doc
   "replace_changed_chapters": false,
   "discard_human": false,
   "pipeline": {"start": true, "provider_id": null, "quality": "high",
-               "context_backend": "hybrid", "final_review": true},
+               "context_backend": "hybrid", "final_review": true, "priority": "normal"},
   "output": {"format": "json"},
   "callback_url": "https://hooks.example.org/libris"
 }
@@ -250,6 +274,7 @@ curl -sS -X POST "$LIBRIS_URL/api/v1/translation-requests" \
 | `pipeline.quality` | no | `fast`, `normal`, `high` or `maximum` (see [the autopilot guide](autopilot.md#what-each-quality-level-does)). |
 | `pipeline.context_backend` | no | `internal`, `openviking` or `hybrid` (see [OpenViking](openviking.md)). |
 | `pipeline.final_review` | no | Default `true`. `false` skips the final review. It never runs when the server sets `FINAL_REVIEW_ENABLED=false`. |
+| `pipeline.priority` | no | `low`, `normal` (default) or `high`, within the token's ceiling (see [Queue priority and quotas](#queue-priority-and-quotas)). |
 | `output.format` | no | Default format of the result: `json`, `txt`, `txt-zip` or `epub-bilingual`. |
 | `callback_url` | no | A webhook called when the request ends (see [Webhooks](#webhooks)). |
 | `callback_events` | no | Extra webhook events, on top of the final one: `["chapters.translated"]` sends a batch each time chapters of the request are translated (see [Batches of translated chapters](#batches-of-translated-chapters)). Needs `callback_url`. |
@@ -274,7 +299,7 @@ values count as "not given"; unknown options are refused.
 | `volume_external_id` | Your identifier of the volume. |
 | `title`, `author` | Volume title and author (an EPUB keeps its own otherwise). |
 | `source_language`, `target_language` | BCP 47 tags. Both required for TXT. |
-| `provider_id`, `quality`, `context_backend`, `final_review` | As in `pipeline` above. |
+| `provider_id`, `quality`, `context_backend`, `final_review`, `priority` | As in `pipeline` above. |
 | `start` | `true` (default) runs the whole pipeline; `false` only imports. |
 | `output_format` | `epub` (EPUB input only; the default for an EPUB), `json`, `txt`, `txt-zip` or `epub-bilingual`. |
 | `callback_url` | See [Webhooks](#webhooks). |
@@ -392,6 +417,8 @@ the autopilot reports that it failed, the request fails with the autopilot's rea
                "items": [{"chapter_id": "…", "external_id": "chapter-001", "number": 1, "title": "Chapter 1",
                           "segments": 140, "translated": 60, "validated": 0, "flagged": 0, "complete": false}]},
   "options": {"start": true, "final_review": true, "output_format": "json"},
+  "priority": "normal",
+  "queue": null,
   "result": null,
   "report": null,
   "webhook": {"state": "pending", "attempts": 0, "error": ""},
@@ -406,6 +433,8 @@ the autopilot reports that it failed, the request fails with the autopilot's rea
 | `progress` | `segments`, `translated` and `percent` for the request's chapters (every chapter for an EPUB), and `stages`, the volume's progress per stage. |
 | `estimate` | Remaining time and cost, once enough model calls have been observed; otherwise `null`. |
 | `error`, `stop_reason`, `next_attempt` | Why the job stopped or is waiting, and when it will retry (Unix time, `0` when not waiting). |
+| `priority` | The request's priority (`low`, `normal`, `high`), as changed by a person in the interface if it was. |
+| `queue` | While the request waits to start: `position` (its place in the line of its provider, 1 = next), `reason` (`starting`, `provider_busy`, `account_limit`, `token_limit`, `retry_scheduled`, `provider_missing`, or `volume_busy` while another job holds the volume), `effective_priority` (raised by waiting) and `next_attempt`. `null` once it runs or ended. |
 | `chapters` | How many chapters were `created`, `unchanged` or `replaced`, `new` (the ids of the created and replaced ones), and per chapter its passages, translated, validated and flagged counts, and whether it is `complete`. |
 | `result` | Once stored: `format`, `media_type`, `filename`, `size`, `sha256`, `created_at`. |
 | `report` | The [completion report](#completion-report), once the request ended. |
@@ -802,6 +831,7 @@ Validation errors never echo the submitted values, so book text is never sent ba
 | 401 | `unauthorized` | A request with a body but no `Authorization: Bearer` header. |
 | 403 | `insufficient_scope` (with `scope`) | The token lacks a permission. |
 | 403 | `forbidden` | A browser request from another site (see below). |
+| 403 | `priority_not_allowed` (with `max_priority`) | The priority asked for is above the token's or the account's ceiling. |
 | 404 | `request_not_found`, `series_not_found`, `volume_not_found`, `glossary_not_found`, `not_found` | Unknown, or owned by someone else. |
 | 409 | `idempotency_conflict` (with `request_id`) | Same key or `external_id`, different content. |
 | 409 | `chapter_conflict` (with `conflicts`) | Chapters exist with another text; send `replace_changed_chapters`. |
@@ -817,6 +847,7 @@ Validation errors never echo the submitted values, so book text is never sent ba
 | 422 | `invalid_idempotency_key`, `unknown_provider`, `provider_required`, `invalid_epub`, `callback_refused`, `delivery_failed` | See the sections above. |
 | 422 | `invalid_glossary`, `invalid_strategy`, `invalid_mapping`, `invalid_name` | The glossary file, its import options or the glossary name (see [Shared glossaries](#shared-glossaries)). |
 | 429 | `rate_limited` | Too many calls for this token (header `Retry-After`). |
+| 429 | `queue_full` (with `scope`, `limit`) | The token or the account already has its quota of requests waiting (see [Queue priority and quotas](#queue-priority-and-quotas)). |
 | 500 | `server_error` | Unexpected failure; the message carries a diagnostic reference for the server logs. |
 
 Server-to-server clients do not send an `Origin` header and are accepted. A browser page on another
@@ -836,6 +867,7 @@ site is refused like for the interface (`ALLOWED_ORIGINS`, `Sec-Fetch-Site`).
 | `DELIVERY_REPAIR_ATTEMPTS` | 3 | EPUBCheck repair rounds of a delivered EPUB. |
 | `RETENTION_RESULTS_DAYS` | 30 | Days a stored result file is kept (it can be rendered again afterwards). |
 | `API_WEBHOOK_*` | see [Webhooks](#enabling-webhooks-administrators) | Webhook hosts, networks, secret, attempts and timeout. |
+| `QUEUE_*` | see [configuration](configuration.md#fair-queue) | Jobs per account running and waiting, priority aging; a token can have lower limits of its own. |
 
 An EPUB is also bounded by the archive limits of every import (`MAX_UNPACKED_MB`, `MAX_ENTRIES`,
 `MAX_COMPRESSION_RATIO`). All settings are described in [the configuration reference](configuration.md).

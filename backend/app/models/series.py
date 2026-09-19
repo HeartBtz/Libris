@@ -163,6 +163,10 @@ class ApiToken(Identified, Base):
     last_used_at: Mapped[float | None] = mapped_column(Float)
     # Signs the webhooks of this token's requests (HMAC-SHA256), encrypted with SECRET_KEY; shown once.
     webhook_secret: Mapped[str | None] = mapped_column(Text)
+    # Fair queue: highest priority this token may ask for, and its own quotas (NULL: the account's).
+    max_priority: Mapped[str] = mapped_column(String(10), default="normal", server_default="normal")
+    max_running: Mapped[int | None] = mapped_column(Integer)
+    max_queued: Mapped[int | None] = mapped_column(Integer)
 
 
 LIVE_REQUEST = "status IN ('queued','running')"

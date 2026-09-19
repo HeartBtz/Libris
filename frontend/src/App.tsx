@@ -9,6 +9,7 @@ import { SeriesPage } from "./features/SeriesPage";
 import { Login } from "./features/Login";
 import { Statistics } from "./features/Statistics";
 import { SharedGlossaries } from "./features/SharedGlossaries";
+import { QueuePage } from "./features/Queue";
 import { message, registerTranslations, useI18n } from "./i18n";
 import type { Locale } from "./i18n";
 import { useTheme } from "./theme";
@@ -32,6 +33,7 @@ registerTranslations({
   Utilisateur: "User",
   Série: "Series",
   "Glossaires partagés": "Shared glossaries",
+  "File d’attente": "Queue",
 });
 
 export function App() {
@@ -109,7 +111,7 @@ export function App() {
     localStorage.setItem("sidebar", collapsed ? "collapsed" : "expanded");
   }, [collapsed]);
   useEffect(() => {
-    document.title = `${route === "settings" ? t("app.settings") : route === "statistics" ? t("app.statistics") : route === "account" ? t("Mon compte") : route === "library" ? t("app.library") : route.startsWith("series/") ? t("Série") : route === "glossaries" ? t("Glossaires partagés") : t("app.project")} · Libris`;
+    document.title = `${route === "settings" ? t("app.settings") : route === "statistics" ? t("app.statistics") : route === "account" ? t("Mon compte") : route === "queue" ? t("File d’attente") : route === "library" ? t("app.library") : route.startsWith("series/") ? t("Série") : route === "glossaries" ? t("Glossaires partagés") : t("app.project")} · Libris`;
   }, [route, t]);
   const drawer = useFocusTrap<HTMLElement>(drawerOpen, () => setDrawerOpen(false));
   if (checking)
@@ -154,6 +156,7 @@ export function App() {
   const links: [string, string, IconName][] = [
     ["library", t("app.library"), "book"],
     ["glossaries", t("Glossaires partagés"), "languages"],
+    ["queue", t("File d’attente"), "list"],
     ...(user.admin
       ? ([
           ["statistics", t("app.statistics"), "chart"],
@@ -244,6 +247,8 @@ export function App() {
             <Account user={user} run={run} onUserChange={setUser} onLogout={() => setUser(null)} />
           ) : route === "settings" && user.admin ? (
             <Settings run={run} />
+          ) : route === "queue" ? (
+            <QueuePage run={run} user={user} />
           ) : route === "statistics" && user.admin ? (
             <Statistics run={run} />
           ) : route === "glossaries" ? (

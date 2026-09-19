@@ -6,6 +6,7 @@ import weakref
 from sqlalchemy import delete, func, or_, select
 
 from app.db import SessionLocal
+from app.engines.autopilot.degrade import degradable, note, reason_of
 from app.engines.context.builder import ContextTooLarge, build_context
 from app.engines.context.series import enforced_glossary
 from app.engines.memory.store import propose_terms, remember
@@ -276,7 +277,7 @@ def _skip_failed_passage(job: Job, owner: str, sid: str, refused: bool, error: s
         }
         state.mark(db, job.id, state.FINISHED, sid)
         failures = current_job.checkpoint["consecutive_failures"]
-        stop = failures >= 10 and not job.options.get("automatic_recovery")
+        stop = failures >= 10 and not (job.options.get("automatic_recovery") or job.options.get("autopilot"))
         if stop:
             current_job.stop_reason = "consecutive_failures"
         db.commit()
@@ -329,18 +330,32 @@ async def _translate_passage(job, owner, project, segment, force, restarted, reu
     sid = segment.id
     needs = None
     if job.options.get("deep") and reused is None:
-        built = await build_context(project.id, sid, "context_planner", provider_id=job.provider_id)
-        plan = await llm.complete(
-            project_id=project.id,
-            provider_id=job.provider_id,
-            segment_id=sid,
-            operation="context_planner",
-            messages=built.messages,
-            response_model=ContextNeeds,
-            context=built.inspector,
-            temperature=0.1,
-        )
-        needs = plan.needs
+        try:
+            built = await build_context(project.id, sid, "context_planner", provider_id=job.provider_id)
+            plan = await llm.complete(
+                project_id=project.id,
+                provider_id=job.provider_id,
+                segment_id=sid,
+                operation="context_planner",
+                messages=built.messages,
+                response_model=ContextNeeds,
+                context=built.inspector,
+                temperature=0.1,
+            )
+            needs = plan.needs
+        except Exception as exc:
+            if not degradable(job, exc):
+                raise
+            await blocking(
+                note,
+                job,
+                owner,
+                stage="translation",
+                kind="context_planner",
+                action="skipped",
+                reason=f"Plan de contexte abandonné ({reason_of(exc)}) ; contexte standard utilisé.",
+                segment_id=sid,
+            )
     try:
         if not segment.translation or (force and not restarted):
             result = reused or await translation_call(project, segment, "translation", job, needs=needs)
@@ -354,26 +369,31 @@ async def _translate_passage(job, owner, project, segment, force, restarted, reu
                 await blocking(finish_segment, job.id, owner, sid)
                 return
             if segment.stage == "translated" or job.operation == "review":
-                built = await build_context(
-                    project.id,
-                    sid,
-                    "translation_review",
-                    extra={"CURRENT_TRANSLATION": segment.translated_units},
-                    provider_id=job.provider_id,
-                )
-                review = await llm.complete(
-                    project_id=project.id,
-                    provider_id=job.provider_id,
-                    segment_id=sid,
-                    operation="translation_review",
-                    messages=built.messages,
-                    response_model=ReviewResult,
-                    context=built.inspector,
-                    temperature=0.1,
-                )
-                allowed = {u["id"] for u in segment.units}
-                critique = [i.model_dump() for i in review.issues if i.unit_id in allowed]
-                await blocking(_store_review, job, owner, segment, critique)
+
+                async def review_call(segment=segment):
+                    built = await build_context(
+                        project.id,
+                        sid,
+                        "translation_review",
+                        extra={"CURRENT_TRANSLATION": segment.translated_units},
+                        provider_id=job.provider_id,
+                    )
+                    return await llm.complete(
+                        project_id=project.id,
+                        provider_id=job.provider_id,
+                        segment_id=sid,
+                        operation="translation_review",
+                        messages=built.messages,
+                        response_model=ReviewResult,
+                        context=built.inspector,
+                        temperature=0.1,
+                    )
+
+                review = await _improvement(job, owner, sid, "translation_review", review_call)
+                if review is not None:
+                    allowed = {u["id"] for u in segment.units}
+                    critique = [i.model_dump() for i in review.issues if i.unit_id in allowed]
+                    await blocking(_store_review, job, owner, segment, critique)
             segment = await blocking(_reload, sid)
             if segment.human:
                 await blocking(finish_segment, job.id, owner, sid)
@@ -383,27 +403,41 @@ async def _translate_passage(job, owner, project, segment, force, restarted, reu
                 and segment.critique
                 and segment.stage == "reviewed"
             ):
-                result = await translation_call(
-                    project,
-                    segment,
-                    "translation_revision",
+                result = await _improvement(
                     job,
-                    {"CURRENT_TRANSLATION": segment.translated_units, "REVIEW": segment.critique},
-                    needs=needs,
+                    owner,
+                    sid,
+                    "translation_revision",
+                    lambda segment=segment: translation_call(
+                        project,
+                        segment,
+                        "translation_revision",
+                        job,
+                        {"CURRENT_TRANSLATION": segment.translated_units, "REVIEW": segment.critique},
+                        needs=needs,
+                    ),
                 )
-                await blocking(persist, job, owner, segment, result, "revision", "revised")
+                if result is not None:
+                    await blocking(persist, job, owner, segment, result, "revision", "revised")
             if project.quality == "maximum":
                 segment = await blocking(_reload, sid)
                 if segment.stage != "polished":
-                    result = await translation_call(
-                        project,
-                        segment,
-                        "polishing",
+                    result = await _improvement(
                         job,
-                        {"CURRENT_TRANSLATION": segment.translated_units},
-                        needs=needs,
+                        owner,
+                        sid,
+                        "polishing",
+                        lambda segment=segment: translation_call(
+                            project,
+                            segment,
+                            "polishing",
+                            job,
+                            {"CURRENT_TRANSLATION": segment.translated_units},
+                            needs=needs,
+                        ),
                     )
-                    await blocking(persist, job, owner, segment, result, "polishing", "polished")
+                    if result is not None:
+                        await blocking(persist, job, owner, segment, result, "polishing", "polished")
         await blocking(_complete_passage, job, owner, project, sid)
     except (ProviderContentRefused, InvalidResponseExhausted) as exc:
         refused = isinstance(exc, ProviderContentRefused)
@@ -414,8 +448,33 @@ async def _translate_passage(job, owner, project, segment, force, restarted, reu
     except JobStopped:
         raise
     except Exception as exc:
+        if degradable(job, exc):
+            # Autopilot: the recovery ladder takes this passage up once the book is translated.
+            await blocking(_skip_failed_passage, job, owner, sid, False, reason_of(exc))
+            return
         await blocking(_flag_passage, job, owner, sid, exc)
         raise
+
+
+async def _improvement(job: Job, owner: str, sid: str, operation: str, call):
+    """A review, revision or polish of a passage already translated. Under the autopilot, its failure
+    keeps the translation it had instead of making the passage a failure (None is returned)."""
+    try:
+        return await call()
+    except Exception as exc:
+        if not degradable(job, exc):
+            raise
+        await blocking(
+            note,
+            job,
+            owner,
+            stage="translation",
+            kind=operation,
+            action="skipped",
+            reason=f"Étape abandonnée ({reason_of(exc)}) ; la traduction existante est conservée.",
+            segment_id=sid,
+        )
+        return None
 
 
 def _recovery_count(job: Job) -> int:
@@ -473,6 +532,12 @@ def _project(project_id: str) -> Project:
 async def after_translation(
     job: Job, owner: str, scoped: bool, continue_pipeline: bool, recovery_pass: bool
 ) -> None:
+    if job.options.get("autopilot") and continue_pipeline and not scoped and not recovery_pass:
+        from app.engines.autopilot.loop import converge
+
+        # Recovery, consistency, final review and every decision a person used to take.
+        await converge(job, owner)
+        return
     recovery_count = await blocking(_recovery_count, job)
     if recovery_pass:
         await blocking(
@@ -615,17 +680,36 @@ async def consistency(job: Job, owner: str) -> None:
     system, _ = await blocking(load_prompt, "consistency_check", project.source_language, project.target_language)
 
     async def check(sample: dict) -> None:
-        review = await llm.complete(
-            project_id=project.id,
-            provider_id=job.provider_id,
-            operation="consistency_check",
-            messages=[
-                {"role": "system", "content": system},
-                {"role": "user", "content": json.dumps(sample["payload"], ensure_ascii=False)},
-            ],
-            response_model=ReviewResult,
-            temperature=0.1,
-        )
+        try:
+            review = await llm.complete(
+                project_id=project.id,
+                provider_id=job.provider_id,
+                operation="consistency_check",
+                messages=[
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": json.dumps(sample["payload"], ensure_ascii=False)},
+                ],
+                response_model=ReviewResult,
+                temperature=0.1,
+            )
+        except Exception as exc:
+            if not degradable(job, exc):
+                raise
+            # A sampled check only looks for improvements: its failure costs the book nothing else.
+            subject = sample["payload"]["subject"]["source"]
+            await blocking(
+                note,
+                job,
+                owner,
+                stage="consistency",
+                kind="consistency_sample",
+                action="skipped",
+                reason=f"Échantillon de cohérence « {subject} » abandonné ({reason_of(exc)}).",
+                mark=lambda db: state.mark(
+                    db, job.id, state.CONSISTENCY, key=sample["key"], outcome="skipped"
+                ),
+            )
+            return
         await blocking(_store_consistency, job, owner, project.id, sample, review)
 
     async def launch(sample: dict):

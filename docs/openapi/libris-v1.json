@@ -574,7 +574,7 @@
             "name": "quality",
             "in": "query",
             "required": false,
-            "description": "Raw EPUB body only (`Content-Type: application/epub+zip`). `fast`, `normal`, `high` or `maximum`.",
+            "description": "Raw EPUB body only (`Content-Type: application/epub+zip`).",
             "schema": {
               "enum": [
                 "fast",
@@ -590,7 +590,7 @@
             "name": "context_backend",
             "in": "query",
             "required": false,
-            "description": "Raw EPUB body only (`Content-Type: application/epub+zip`). `internal`, `openviking` or `hybrid`.",
+            "description": "Raw EPUB body only (`Content-Type: application/epub+zip`).",
             "schema": {
               "enum": [
                 "internal",
@@ -793,8 +793,7 @@
                       "high",
                       "maximum"
                     ],
-                    "type": "string",
-                    "description": "`fast`, `normal`, `high` or `maximum`."
+                    "type": "string"
                   },
                   "context_backend": {
                     "enum": [
@@ -802,8 +801,7 @@
                       "openviking",
                       "hybrid"
                     ],
-                    "type": "string",
-                    "description": "`internal`, `openviking` or `hybrid`."
+                    "type": "string"
                   },
                   "start": {
                     "default": true,
@@ -2367,8 +2365,7 @@
               "string",
               "null"
             ],
-            "default": null,
-            "description": "`fast`, `normal`, `high` or `maximum`."
+            "default": null
           },
           "context_backend": {
             "enum": [
@@ -2380,8 +2377,7 @@
               "string",
               "null"
             ],
-            "default": null,
-            "description": "`internal`, `openviking` or `hybrid`."
+            "default": null
           },
           "final_review": {
             "default": true,

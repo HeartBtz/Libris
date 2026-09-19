@@ -535,8 +535,6 @@ FIELD_NOTES = {
     "pipeline": "How to run the pipeline.",
     "start": "Run the whole pipeline (needs the `pipeline:start` scope); false only imports.",
     "provider_id": "Provider to use; defaults to the volume's, then the series' provider.",
-    "quality": "`fast`, `normal`, `high` or `maximum`.",
-    "context_backend": "`internal`, `openviking` or `hybrid`.",
     "final_review": "Run the final review (never when the server disables it).",
     "output": "Default format of the result.",
     "output_format": "Default format of the result; `epub` only for an EPUB (and its default).",

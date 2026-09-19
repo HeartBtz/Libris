@@ -169,7 +169,7 @@ def test_control_characters_right_to_left_and_free_form_languages(client):
     with SessionLocal() as db:
         project = db.get(Project, pid)
         project.target_language, project.source_language = "ar", "Old Norse"
-        project.title = "Glass\x00 Road"
+        project.title = "Glass\x0b Road"
         db.commit()
         content = build_bilingual_epub(project, volume_pairs(db, project), "side-by-side")
     files = unzip(content)

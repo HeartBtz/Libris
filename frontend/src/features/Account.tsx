@@ -3,6 +3,7 @@ import { api, send } from "../api";
 import { formatDateTime, registerTranslations, useI18n } from "../i18n";
 import type { Run, User } from "../types";
 import { Button, Card, Field, Icon, Input, LoadingBlock, Page, PageHeader } from "../ui";
+import { ApiTokens } from "./ApiTokens";
 
 registerTranslations({
   "Mon compte": "My account",
@@ -199,6 +200,7 @@ export function Account({
             </ul>
           )}
         </Card>
+        <ApiTokens run={run} />
       </div>
     </Page>
   );

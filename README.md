@@ -8,9 +8,9 @@
   <img src="frontend/public/assets/libris-logo.png" alt="Libris" width="360">
 </p>
 
-**Self-hosted, context-aware EPUB translation — from the first chapter to the final review.**
+**A self-hosted library for literary translation — series, volumes and chapters, from the first chapter to the final review.**
 
-Libris combines a persistent translation pipeline with a book bible, character memory, a glossary and a human review workspace. Bring your own local or hosted language model. Your books and translation history stay on your server; selected content is sent to the providers you configure.
+Libris organises your translation work as a library of series. A series holds numbered volumes (EPUB books) or a continuous flow of webnovel chapters (TXT files, one per chapter), and automation clients can send volumes as JSON through a versioned API. Every volume goes through the same persistent pipeline — analysis, contextual translation, review, human validation, export — with a Book Bible per volume, a Series Bible, shared characters and a two-level glossary. Bring your own local or hosted language model. Your books and translation history stay on your server; selected content is sent to the providers you configure.
 
 [Install](#quick-start) · [Docker guide](docs/docker.md) · [Deployment guide](docs/installation.md) · [Guide français](docs/user-guide.fr.md) · [Codex](docs/codex.md) · [Contributing](CONTRIBUTING.md)
 
@@ -24,7 +24,9 @@ default), a single indigo accent, Inter for the interface and a book serif for t
 text being translated. Formatting codes are shown as formatting, never as raw
 markers, and every screen works from phone to wide desktop.
 
-- **Multiple books:** import EPUBs together and follow analysis and translation separately.
+- **Series, volumes and chapters:** the library shows series first, then standalone volumes. A guided import (**Add content** · *Ajouter du contenu*) inspects the files before anything is created, proposes the series and the volume or chapter numbers from the whole batch (`Vol. 2`, `Tome IV`, `v03`, `#04`, `[05]`, `Chapter 012`…), lets you correct them, and refuses ambiguous or duplicate numbers.
+- **Three sources:** EPUB books (one volume each, or explicitly a standalone volume), TXT chapters of a webnovel (UTF-8, UTF-8/UTF-16 with BOM, flagged Windows-1252; layout kept; chapters added later without retranslating the others), and JSON content sent by the [automation API](docs/api.md) with API tokens, scopes, idempotency and asynchronous results.
+- **Series memory:** characters, aliases, places, relations and terms known from earlier volumes are reused by the next ones, never the other way round; ambiguous identities are proposed, merged or split only by you; a volume can deliberately override a series term, and the decision is audited.
 - **Consistent context:** book bible, character identities, relationships and a lockable glossary.
 - **Your provider:** OpenAI-compatible APIs, OpenAI Responses, the native Anthropic and OpenAI APIs, or optional Codex/ChatGPT authentication.
 - **Independent concurrency:** each provider has its own limit, shared by analysis, translation and review jobs.
@@ -34,11 +36,12 @@ markers, and every screen works from phone to wide desktop.
 - **Refusal recovery:** after two translation refusals, continue the book and retry refused passages later with a chosen provider.
 - **Failure isolation:** an invalid response is asked again with the reason for its rejection; after three of them, try checkpointed small-batch repair before skipping the passage; stop after ten consecutive failed passages. See [recovery](docs/recovery.md).
 - **Completion report:** see missing passages and remaining alerts, select failed passages and retry them with a chosen provider from **Bilan & récupération**.
-- **Series library:** assign and number a selection atomically, inspect reading-order gaps, and reuse accepted terminology and human decisions from earlier volumes without sharing narrative spoilers.
+- **Series pages:** a dashboard per series with its ordered volumes, webnovel chapters, Series Bible, series glossary, characters and relations, external memory backlog, defaults and archives; missing or duplicate volume numbers are shown, and every volume still opens in the translation workspace.
 - **Interface locale:** French and English catalogs, persistent language choice, and locale-aware date, number, sorting, and status formatting. New interface text is added through `frontend/src/i18n.tsx`.
 - **Reversible archives:** hide inactive projects without deleting their EPUB, translations, memory or history; restore them from the Archives view.
 - **EPUB preservation:** preserve resources and inline structure, with EPUBCheck validation on export.
-- **Optional external memory:** use internal SQL memory alone, or connect your own OpenViking instance.
+- **Optional external memory:** use internal SQL memory alone, or connect your own OpenViking instance, organised per series and rebuildable from PostgreSQL at any time ([OpenViking guide](docs/openviking.md)).
+- **Exports per format:** EPUB for EPUB volumes (EPUBCheck-validated), one UTF-8 file per chapter in a ZIP with a checksum manifest, a consolidated text with chapter headings, Markdown, the Book Bible and a full project archive.
 
 ### Review with context
 
@@ -73,8 +76,8 @@ do not represent translation quality benchmarks or expose a user's books or cred
 
 ### Navigating Libris
 
-The library offers search, activity filters, series and sort selectors, a dense table or
-card view, and drag-and-drop import; actions on several books sit in a floating bar.
+The library lists series, then standalone volumes, with search, activity filters and sorting;
+**Add content** opens the guided import; actions on several volumes sit in a floating bar.
 Inside a book, one highlighted button always shows the next step (configure, analyze,
 recover, translate, review, export), a thin stepper follows the five stages, and tabs
 lead to translation, validations, recovery, quality, Book Bible, characters, glossary,
@@ -144,11 +147,11 @@ Then open http://localhost:8088 on your computer. For LAN, HTTPS, updates, backu
 ### Translate your first book
 
 1. Open **Settings / Paramètres → Providers LLM** and add your endpoint, model and credentials.
-2. Import an EPUB for which you have the necessary rights.
-3. Choose the provider, languages and quality mode in the book's configuration. Select **internal** memory to start without any external service.
-4. Analyze the book, review the book bible and glossary, then start translation.
+2. Click **Add content**, choose EPUB or TXT, then a series (existing or new) or, for an EPUB, **Standalone volume**. Only import content you have the rights to translate.
+3. Check the proposed titles and numbers, choose the provider, languages and quality mode (select **internal** memory to start without any external service), and import — with or without starting the analysis.
+4. Analyze, review the Book Bible, the Series Bible and the glossaries, then start translation.
 5. Use **Validations** to resolve flagged passages and **Traduction** to edit.
-6. Export EPUB, TXT, Markdown, the Book Bible (JSON) or a project archive.
+6. Export EPUB, the chapters as TXT files, a consolidated text, Markdown, the Book Bible (JSON) or a project archive.
 
 The UI is available in French and English. Model quality, language coverage, latency and costs depend on your chosen provider. Structural validation is not a guarantee of literary fidelity.
 
@@ -172,11 +175,13 @@ Never delete persistent volumes during an update. Back up PostgreSQL, book stora
 ## Architecture
 
 ```text
-Browser → FastAPI → PostgreSQL (projects, jobs, versions, memory)
-              └── book storage (EPUBs and exports)
-Worker  → configured model providers
-        → optional OpenViking
-        → optional private Codex bridge
+Browser ─────────────┐
+Automation (API v1) ─┴→ FastAPI → PostgreSQL (series, volumes, chapters, jobs, versions, memory)
+                          ├── source adapters (EPUB, TXT, JSON) → the same chapters and passages
+                          └── DATA_DIR (EPUB books, TXT/JSON sources, import staging)
+Worker → configured model providers
+       → optional OpenViking (one space per series, rebuilt from SQL)
+       → optional private Codex bridge
 ```
 
 React + TypeScript · FastAPI · PostgreSQL · Python worker · Docker Compose · EbookLib/lxml · EPUBCheck
@@ -216,7 +221,9 @@ docker compose logs --since=5m api worker
 - [Installation, configuration, updates, backup and removal](docs/installation.md)
 - [Docker deployment for beginners](docs/docker.md)
 - [GitLab CI/CD, Docker registries and GitHub mirror](docs/ci-cd.md)
-- [Architecture](docs/architecture.md)
+- [Architecture](docs/architecture.md) and [data model](docs/data-model.md)
+- [Automation API (JSON, tokens, curl examples)](docs/api.md)
+- [OpenViking external memory](docs/openviking.md)
 - [Compatibility matrix](docs/compatibility.md)
 - [Operations](docs/operations.md)
 - [Scheduled backup and restore](docs/backup.md)

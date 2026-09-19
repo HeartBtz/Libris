@@ -54,6 +54,8 @@ def host(tmp_path):
     books = tmp_path / "books-volume"
     (books / "books").mkdir(parents=True)
     (books / "books" / "one.epub").write_bytes(b"epub")
+    (books / "sources" / "volume").mkdir(parents=True)
+    (books / "sources" / "volume" / "chapter.txt").write_bytes(b"Chapter 1")
     destination = tmp_path / "backups"
     destination.mkdir()
     secret = tmp_path / "secret.env"
@@ -82,7 +84,8 @@ def test_a_backup_holds_a_verified_dump_books_and_configuration(host):
     assert made.name.startswith("libris-") and made.name.endswith("Z")
     assert {p.name for p in made.iterdir()} == {"database.dump", "books.tar.gz", "config.env", "backup.info", "SHA256SUMS"}
     listing = subprocess.run(["tar", "-tzf", str(made / "books.tar.gz")], capture_output=True, text=True).stdout
-    assert "./books/one.epub" in listing
+    # TXT and JSON sources live next to the EPUBs: the whole data volume is archived.
+    assert "./books/one.epub" in listing and "./sources/volume/chapter.txt" in listing
     assert subprocess.run(["sha256sum", "--check", "--quiet", "SHA256SUMS"], cwd=made).returncode == 0
     assert oct(made.joinpath("config.env").stat().st_mode & 0o777) == "0o600"
 
@@ -141,6 +144,7 @@ def test_the_restore_dry_run_checks_the_backup_and_prints_an_isolated_plan(host,
     assert "checksums and books archive verified" in plan
     assert "--project-name libris-restore-test" in plan and "--project-name epub-translator" not in plan
     assert "pg_restore" in plan and "tar -C /data -xzf -" in plan and "alembic check" in plan
+    assert "source files in /data/sources" in plan
     assert f"--env-file {env['LIBRIS_BACKUP_SECRET_ENV']}" in plan and " worker" not in plan
     assert (tmp_path / "docker.log").read_text() == calls  # a dry run calls no Docker command
 

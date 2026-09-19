@@ -15,9 +15,9 @@ from lxml import etree
 from pydantic import ValidationError
 
 from app.engines.epub.archive import xml
-from app.schemas import GlossaryInput
+from app.schemas import GlossaryTerm
 
-FIELDS = list(GlossaryInput.model_fields)
+FIELDS = list(GlossaryTerm.model_fields)
 FORMULA = ("=", "+", "-", "@")
 TBX_NAMESPACE = "urn:iso:std:iso:30042:ed-2"
 XML_LANG = "{http://www.w3.org/XML/1998/namespace}lang"
@@ -116,7 +116,7 @@ def decoded(data: bytes, fallback: str | None = None) -> str:
 
 def read_glossary(
     data: bytes, filename: str, source_language: str, target_language: str
-) -> list[GlossaryInput]:
+) -> list[GlossaryTerm]:
     kind = glossary_format(data, filename)
     if kind == "tbx":
         items = read_tbx(data, source_language, target_language)
@@ -131,7 +131,7 @@ def read_glossary(
     terms = []
     for number, item in enumerate(items, 1):
         try:
-            terms.append(GlossaryInput.model_validate(item))
+            terms.append(GlossaryTerm.model_validate(item))
         except ValidationError as exc:
             raise ValueError(f"Terme de glossaire invalide n° {number} : {problem(exc)}") from None
     return terms

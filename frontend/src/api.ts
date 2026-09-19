@@ -4,6 +4,8 @@ export class ApiError extends Error {
   constructor(
     public status: number,
     message: string,
+    /** The answer's `detail`, for callers that act on a structured refusal (conflicts to confirm…). */
+    public detail: unknown = null,
   ) {
     super(message);
   }
@@ -58,7 +60,8 @@ export function errorMessage(status: number, body: unknown): string {
 export async function responseError(response: Response): Promise<ApiError> {
   // A reverse proxy answers HTML on 502/504/413: the body is not always JSON.
   const body: unknown = await response.json().catch(() => null);
-  return new ApiError(response.status, errorMessage(response.status, body));
+  const detail = body && typeof body === "object" && "detail" in body ? (body as { detail: unknown }).detail : null;
+  return new ApiError(response.status, errorMessage(response.status, body), detail);
 }
 export function send<T>(
   path: string,

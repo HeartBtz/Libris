@@ -70,17 +70,19 @@ En mode Hybrid/OpenViking, un catalogue nommé est publié et actualisé :
 
 Dans **Book Bible → Mémoire OpenViking**, les liens ouvrent les fichiers réellement lus sur l’instance distante à travers le backend. **Synchroniser le livre et le graphe** fonctionne même pendant une analyse. **Vérifier dans OpenViking** distingue lecture et présence dans l’index.
 
+Depuis la 0.6, un volume de série publie dans l’espace de sa série (`…/series/<série>/volumes/<volume>`) et un volume unique dans `…/standalone/<volume>` ; la page de série montre le backlog et propose resynchronisation, reconstruction depuis SQL et réindexation. Détails : [guide OpenViking](openviking.md).
+
 Les documents globaux sont séparés du retrieval narratif, limité aux événements admissibles sous `/events`. Les fichiers de catalogue sont des projections contextuelles compactes ; SQL conserve les données complètes et exactes.
 
 ## Archive de projet
 
-**Exporter → Archive de projet** produit `translation-project.zip` : l’EPUB original et `project.json` (format `schema_version: 2`). Elle sert de sauvegarde d’un livre ou à le déplacer vers une autre instance ; **Restaurer** (import d’archive) recrée un nouveau projet.
+**Exporter → Projet complet (.zip)** produit `translation-project.zip` : les fichiers sources du volume (EPUB, chapitres TXT ou payload JSON, sous `sources/`) et `project.json` (format `schema_version: 3`, voir [architecture](architecture.md#archive-de-projet-version-3)). Elle sert de sauvegarde d’un volume ou à le déplacer vers une autre instance ; **Restaurer** (import d’archive) recrée un nouveau projet, rattaché à la série du même nom de la personne qui restaure (créée au besoin).
 
 L’archive conserve tout ce qui fait le travail sur le livre : configuration (titre, série et tome, langues, qualité, source mémoire, instructions globales), consignes par chapitre et par passage, traductions avec leur statut (validé, à vérifier, refusé, original conservé), étape, critiques et incertitudes, historique complet des versions (sans doublon), glossaire, Book Bible et ses révisions, personnages, fusions et liens, mémoires, problèmes qualité, travaux avec leurs checkpoints (dont les résultats de la revue finale) et les chiffres des requêtes LLM (opération, modèle, tokens, durée, coût, statut).
 
 Ne sont **pas** restaurés, par sécurité : le propriétaire (la personne qui restaure devient propriétaire), les membres et leurs droits (à repartager), le provider (à choisir parmi ceux du serveur ; les travaux qui en épinglaient un reprennent sur celui du livre), les prompts et réponses complets des requêtes, les événements de progression et la file d’envoi OpenViking. Un travail qui était en cours revient **en pause** : rien ne repart ni n’est facturé sans action. Un livre archivé revient actif.
 
-L’archive est validée avant toute écriture : une archive incomplète ou altérée est refusée (422) en nommant les champs fautifs, et une archive dont le texte source ne correspond pas à son EPUB est refusée sans laisser de livre partiel. Les archives de l’ancien format (`schema_version: 1`) restent lisibles. L’export refuse une archive que l’import ne pourrait pas relire (`MAX_UPLOAD_MB`, `MAX_UNPACKED_MB`) ; le message indique le réglage à augmenter sur les deux serveurs.
+L’archive est validée avant toute écriture : une archive incomplète ou altérée est refusée (422) en nommant les champs fautifs, et une archive dont le texte source ne correspond pas à son EPUB ou à ses fichiers texte est refusée sans laisser de livre partiel. Les archives des anciens formats (`schema_version: 1` et `2`) restent lisibles. L’export refuse une archive que l’import ne pourrait pas relire (`MAX_UPLOAD_MB`, `MAX_UNPACKED_MB`) ; le message indique le réglage à augmenter sur les deux serveurs.
 
 ## Limites de charge
 
@@ -105,9 +107,11 @@ Le worker borne lui-même la croissance de la base : une passe au démarrage, pu
 |---|---|---|
 | `RETENTION_REQUEST_BODIES_DAYS` | `30` | vide le prompt, la réponse brute et la trace de contexte des requêtes LLM terminées plus anciennes. La ligne reste : tokens, coût, durée, statut, erreur et réponse validée (utilisée par le cache) sont conservés. |
 | `RETENTION_EVENTS_DAYS` | `7` | supprime les événements de progression plus anciens, en gardant toujours les 500 derniers de chaque livre. |
-| `RETENTION_OUTBOX_SENT_DAYS` | `7` | supprime les envois OpenViking déjà transmis. |
+| `RETENTION_OUTBOX_SENT_DAYS` | `7` | supprime les envois OpenViking déjà transmis. La recherche OpenViking et la reconstruction s’appuient sur les mémoires SQL, pas sur ces lignes. |
 | `RETENTION_BIBLE_REVISIONS` | `20` | garde les 20 dernières révisions automatiques de la Book Bible par livre ; les révisions humaines sont toutes conservées. |
 | `RETENTION_JOB_STATE_DAYS` | `30` | pour les jobs terminés, échoués ou annulés depuis plus longtemps, supprime l'état par passage qui ne sert qu'à la reprise (`job_segment_state` : passages finis, cibles, groupes réparés, lots de synthèse et de cohérence). Les issues de la revue finale (`reviewed`) sont gardées : elles alimentent l'historique de relecture du livre. Les jobs en pause ou en attente ne sont jamais touchés ; si un job échoué ou annulé est repris après ce délai, ses passages déjà terminés ne sont pas retraduits, sauf retraduction forcée, qui les refait. |
+
+La même passe supprime les fichiers des imports expirés (`DATA_DIR/staging`, `IMPORT_SESSION_HOURS`) ; la réponse d’un import confirmé est gardée une semaine de plus pour qu’une confirmation répétée reste idempotente.
 
 Les jobs terminés avant la 0.5 comptent à partir de leur création. `0` désactive une règle. Pour mesurer avant d'appliquer : `docker compose exec api python -m app.maintenance.retention --dry-run`. Conséquence visible : l'inspecteur de requêtes n'affiche plus le prompt des requêtes de plus de 30 jours.
 

@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.engines.epub.text import plain
 from app.languages import primary
-from app.models import Glossary, Memory, Project
+from app.models import Entity, Glossary, Memory, Project, SeriesEntity, SeriesEntityLink, SeriesTerm
 
 MAX_DECISIONS = 12
 COMMON_CAPITALS = {
@@ -20,7 +20,7 @@ COMMON_CAPITALS = {
 
 
 @dataclass
-class SeriesTerm:
+class InheritedTerm:
     """Duck-types a Glossary row for the output checks."""
 
     source: str
@@ -33,43 +33,66 @@ def series_key(name: str) -> str:
 
 
 def prior_volumes(db: Session, project: Project) -> list[Project]:
-    """Earlier volumes of the same series, same owner and language pair, most recent first."""
-    key = series_key(project.series_name)
-    if not key or not project.volume_number:
+    """Earlier volumes of the same series, same owner and language pair, most recent first.
+
+    Only numbered volumes have an "earlier": a continuous webnovel container or an unnumbered volume
+    relies on its own chapters, which the context already reads in order.
+    """
+    if not project.series_id or not project.volume_number:
         return []
     candidates = db.scalars(
         select(Project)
         .where(
+            Project.series_id == project.series_id,
             Project.owner_id == project.owner_id,
             Project.id != project.id,
-            Project.series_name != "",
             Project.volume_number.is_not(None),
             Project.volume_number < project.volume_number,
         )
         .order_by(Project.volume_number.desc(), Project.created_at.desc())
     )
-    # "Saga" and "saga ", "en" and "en-US" name the same series and language: an exact SQL match
-    # silently cut a volume off its predecessors.
+    # "en" and "en-US" name the same language: an exact match silently cut a volume off its predecessors.
     return [
         candidate
         for candidate in candidates
-        if series_key(candidate.series_name) == key
-        and primary(candidate.source_language) == primary(project.source_language)
+        if primary(candidate.source_language) == primary(project.source_language)
         and primary(candidate.target_language) == primary(project.target_language)
     ]
 
 
-def series_terms(db: Session, prior: list[Project]) -> list[dict]:
-    """One entry per source term: a locked choice beats any unlocked one, then the latest volume wins."""
+def series_terms(db: Session, prior: list[Project], project: Project | None = None) -> list[dict]:
+    """One entry per source term: a person's series decision first, then a locked choice beats any
+    unlocked one, then the latest volume wins. Nothing a later volume introduced is ever offered."""
+    chosen: dict[str, dict] = {}
+    if project is not None and project.series_id:
+        for term in db.scalars(
+            select(SeriesTerm)
+            .where(
+                SeriesTerm.series_id == project.series_id,
+                SeriesTerm.origin == "human",
+                SeriesTerm.accepted.is_(True),
+            )
+            .order_by(SeriesTerm.locked.desc(), SeriesTerm.updated_at.desc())
+        ):
+            chosen.setdefault(
+                term.source.casefold(),
+                {
+                    "source": term.source,
+                    "translation": term.translation,
+                    "locked": term.locked,
+                    "source_volume": None,
+                    "source_project": "series",
+                    "origin": "series_decision",
+                },
+            )
     if not prior:
-        return []
+        return list(chosen.values())
     volumes = {candidate.id: candidate for candidate in prior}
     rank = {candidate.id: index for index, candidate in enumerate(prior)}
     terms = db.scalars(
         select(Glossary).where(Glossary.project_id.in_(volumes), Glossary.accepted.is_(True))
     ).all()
     terms = sorted(terms, key=lambda term: (not term.locked, rank[term.project_id], -term.created_at))
-    chosen: dict[str, dict] = {}
     for term in terms:
         chosen.setdefault(
             term.source.casefold(),
@@ -85,17 +108,48 @@ def series_terms(db: Session, prior: list[Project]) -> list[dict]:
 
 
 def enforced_glossary(db: Session, project: Project) -> list:
-    """The book's accepted glossary plus the locked series terms it does not lock differently itself."""
+    """The book's accepted glossary plus the locked series terms it does not decide otherwise itself.
+
+    A volume term locked, or marked as a deliberate override of the series, wins over the series.
+    """
     local = list(
         db.scalars(select(Glossary).where(Glossary.project_id == project.id, Glossary.accepted.is_(True)))
     )
-    locked_here = {term.source.casefold() for term in local if term.locked}
+    decided_here = {term.source.casefold() for term in local if term.locked or term.series_override}
     inherited = [
-        SeriesTerm(term["source"], term["translation"])
-        for term in series_terms(db, prior_volumes(db, project))
-        if term["locked"] and term["source"].casefold() not in locked_here
+        InheritedTerm(term["source"], term["translation"])
+        for term in series_terms(db, prior_volumes(db, project), project)
+        if term["locked"] and term["source"].casefold() not in decided_here
     ]
     return [*local, *inherited]
+
+
+def series_identities(db: Session, project: Project, prior: list[Project]) -> list[dict]:
+    """Characters already met in earlier volumes, with only the names those volumes used for them."""
+    if not prior:
+        return []
+    volume_ids = [volume.id for volume in prior]
+    rows = db.execute(
+        select(SeriesEntity, Entity)
+        .join(SeriesEntityLink, SeriesEntityLink.series_entity_id == SeriesEntity.id)
+        .join(Entity, Entity.id == SeriesEntityLink.entity_id)
+        .where(
+            SeriesEntityLink.project_id.in_(volume_ids),
+            SeriesEntityLink.status == "linked",
+            SeriesEntity.series_id == project.series_id,
+        )
+    ).all()
+    found: dict[str, dict] = {}
+    for series_entity, entity in rows:
+        target = series_entity
+        entry = found.setdefault(
+            target.merged_into_id or target.id,
+            {"canonical_name": target.name, "aliases": [], "validated": target.validated},
+        )
+        for name in [entity.name, *entity.data.get("aliases", [])]:
+            if name and name != entry["canonical_name"] and name not in entry["aliases"]:
+                entry["aliases"].append(name)
+    return list(found.values())
 
 
 def anchors(text: str) -> list[str]:

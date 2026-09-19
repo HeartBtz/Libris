@@ -37,7 +37,8 @@ def seed(pid: str, provider_id: str) -> None:
 def test_retention_empties_bodies_and_trims_logs_but_keeps_what_counts(seeded):
     pid, _, provider_id = seeded
     seed(pid, provider_id)
-    expected = {"request_bodies": 2, "events": 41, "outbox": 1, "bible_revisions": 4, "job_state": 0}
+    expected = {"request_bodies": 2, "events": 41, "outbox": 1, "bible_revisions": 4, "job_state": 0,
+                "import_sessions": 0}
     assert retention.apply(dry_run=True) == expected
     with SessionLocal() as db:  # a dry run writes nothing
         assert db.scalar(select(func.count()).select_from(Event).where(Event.project_id == pid)) == retention.KEPT_EVENTS + 41
@@ -66,7 +67,9 @@ def test_zero_disables_a_rule(seeded, monkeypatch):
         "retention_bible_revisions", "retention_job_state_days",
     ):
         monkeypatch.setattr(settings(), name, 0)
-    assert retention.apply() == dict.fromkeys(("request_bodies", "events", "outbox", "bible_revisions", "job_state"), 0)
+    assert retention.apply() == dict.fromkeys(
+        ("request_bodies", "events", "outbox", "bible_revisions", "job_state", "import_sessions"), 0
+    )
 
 
 @respx.mock

@@ -7,7 +7,7 @@ from sqlalchemy import select
 from app.db import SessionLocal
 from app.engines.context.config import memory_config
 from app.engines.context.providers import ContextItem, HybridContextProvider
-from app.engines.context.series import prior_volumes, series_decisions, series_terms
+from app.engines.context.series import prior_volumes, series_decisions, series_identities, series_terms
 from app.engines.memory.identities import effective_names, plausible_name
 from app.jobs.concurrency import blocking
 from app.models import Chapter, CharacterRelation, Entity, Glossary, Memory, Project, Provider, Segment
@@ -192,13 +192,14 @@ def _prepare(
             select(Glossary).where(Glossary.project_id == project_id, Glossary.accepted.is_(True))
         ).all()
         prior = prior_volumes(db, project)
-        local_locked = {g.source.casefold() for g in glossary if g.locked}
+        # A term this volume locks, or deliberately overrides, is decided here.
+        local_locked = {g.source.casefold() for g in glossary if g.locked or g.series_override}
         local_sources = {g.source.casefold() for g in glossary}
         # A locked series term outranks this book's unlocked entry (showing both would offer two names);
         # an unlocked one yields to any local entry.
         series_terms_used = [
             term
-            for term in series_terms(db, prior)
+            for term in series_terms(db, prior, project)
             if term["source"].casefold() not in local_locked
             and (term["locked"] or term["source"].casefold() not in local_sources)
             and mentioned(term["source"], local_source)
@@ -207,7 +208,8 @@ def _prepare(
         applicable = [
             g
             for g in glossary
-            if mentioned(g.source, local_source) and (g.locked or g.source.casefold() not in series_locked)
+            if mentioned(g.source, local_source)
+            and (g.locked or g.series_override or g.source.casefold() not in series_locked)
         ]
         series_decisions_used = series_decisions(db, prior, local_source, set(local_sources), mentioned)
         entities = db.scalars(
@@ -243,6 +245,12 @@ def _prepare(
             ),
             "terms": series_terms_used,
             "human_decisions": series_decisions_used,
+            # Identities met in earlier volumes, under the names those volumes used: never a later one.
+            "known_identities": [
+                identity
+                for identity in series_identities(db, project, prior)
+                if any(mentioned(name, local_source) for name in [identity["canonical_name"], *identity["aliases"]])
+            ][:20],
         }
         if extra:
             mandatory.update(extra)

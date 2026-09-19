@@ -4,7 +4,7 @@ import logging
 import signal
 import time
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.config import settings
@@ -13,12 +13,13 @@ from app.diagnostics import safe_trace
 from app.engines.context.config import memory_config
 from app.engines.context.providers import OpenVikingContextProvider
 from app.engines.memory.catalog import schedule_catalogs
+from app.engines.memory.events import refresh_layouts
 from app.engines.translation.analysis import analyze
 from app.engines.translation.pipeline import consistency, translate
 from app.jobs.concurrency import blocking, renewal
 from app.jobs.execution import execution
 from app.jobs.queue import JobStopped, checkpoint, claim, emit, fence, suspend
-from app.models import Issue, Job, Outbox, Project, Segment
+from app.models import Chapter, Issue, Job, Outbox, Project, Segment
 from app.providers.llm import ProviderAuthenticationRequired, ProviderContentRefused, ProviderUnavailable
 
 logger = logging.getLogger("epub.worker")
@@ -43,16 +44,24 @@ async def sync_outbox(project_id: str | None = None) -> None:
             query = query.where(Outbox.project_id == project_id)
         events = list(db.scalars(query.limit(20)))
     for event in events:
+        uri, document = None, None
         try:
-            await provider.ingest(event)
+            uri, document = await provider.publish(event)
             status, error = "sent", ""
         except Exception as exc:
             status, error = "error", f"OpenViking : {type(exc).__name__}"
         with SessionLocal() as db:
             current = db.get(Outbox, event.id)
+            # A row changed meanwhile (a position moved, a new catalog) is written again on the next turn.
             if current and current.payload == event.payload:
+                if status == "sent" and uri is None:
+                    db.delete(current)  # its memory no longer exists: nothing to mirror
+                    db.commit()
+                    continue
                 current.status, current.error = status, error
                 current.attempts += 1
+                if status == "sent":
+                    current.uri, current.payload = uri, document
                 current.next_attempt = (
                     0 if status == "sent" else time.time() + min(3600, 2 ** min(current.attempts, 11))
                 )
@@ -101,6 +110,13 @@ def _complete(job_id: str, owner: str, project_id: str) -> None:
             select(Segment.id).where(Segment.project_id == project.id, Segment.translation == "").limit(1)
         )
         project.status = "ready" if incomplete else "completed"
+        # Chapters left with an outdated context by an earlier chapter's new source are checked again
+        # by a review (or a forced analysis) that covers them.
+        if current.operation == "review" or (current.operation == "analyze" and current.options.get("force")):
+            stale = update(Chapter).where(Chapter.project_id == project.id, Chapter.context_stale.is_(True))
+            if current.options.get("chapter_id"):
+                stale = stale.where(Chapter.id == current.options["chapter_id"])
+            db.execute(stale.values(context_stale=False))
         emit(db, project.id, job_id=job_id, status="completed")
         db.commit()
 
@@ -310,6 +326,8 @@ async def memory_pump(stopped: asyncio.Event) -> None:
         if catalog_due(last_catalog, time.monotonic()):
             with contextlib.suppress(SQLAlchemyError):
                 schedule_catalogs()
+                if memory_config()["base_url"]:
+                    refresh_layouts()
             last_catalog = time.monotonic()
         work = asyncio.create_task(sync_outbox())
         shutdown = asyncio.create_task(stopped.wait())
@@ -327,6 +345,22 @@ async def memory_pump(stopped: asyncio.Event) -> None:
             await asyncio.wait_for(stopped.wait(), timeout=3)
         except TimeoutError:
             pass
+
+
+REQUEST_INTERVAL = 2
+
+
+async def request_dispatcher(stopped: asyncio.Event, interval: float = REQUEST_INTERVAL) -> None:
+    """Starts queued automation requests once their volume is free; everything it needs is in SQL."""
+    from app.jobs.requests import dispatch
+
+    while not stopped.is_set():
+        try:
+            await asyncio.to_thread(dispatch)
+        except SQLAlchemyError as exc:
+            logger.warning("operation=request_dispatch status=deferred reason=%s", type(exc).__name__)
+        with contextlib.suppress(TimeoutError):
+            await asyncio.wait_for(stopped.wait(), timeout=interval)
 
 
 RETENTION_INTERVAL = 3600
@@ -359,6 +393,7 @@ async def main() -> None:
         provider_dispatcher(stopped),
         worker_slot(stopped, ("sync_memory",)),
         retention_loop(stopped),
+        request_dispatcher(stopped),
     )
 
 

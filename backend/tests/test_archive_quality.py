@@ -64,13 +64,17 @@ def round_trip(pid: str, edit=None) -> str:
         login(client)
         exported = client.get(f"/api/projects/{pid}/export/project")
         assert exported.status_code == 200, exported.text
-        with zipfile.ZipFile(io.BytesIO(exported.content)) as archive:
-            payload = json.loads(archive.read("project.json"))
-            original = archive.read("original.epub")
+        content = exported.content
         if edit:
+            # An older archive: version 2 layout (`original.epub` + `project.json`), edited to match.
+            with zipfile.ZipFile(io.BytesIO(exported.content)) as archive:
+                payload = json.loads(archive.read("project.json"))
+                original = archive.read("sources/1.epub")
+            payload["schema_version"] = 2
             edit(payload)
+            content = zipped(original, payload)
         assert client.delete(f"/api/projects/{pid}").status_code == 200
-        imported = client.post("/api/projects/import", files={"file": ("p.zip", zipped(original, payload))})
+        imported = client.post("/api/projects/import", files={"file": ("p.zip", content)})
         assert imported.status_code == 201, imported.text
         new_id = imported.json()["id"]
         assert client.get(f"/api/projects/{new_id}").json()["translation_memory"] is False

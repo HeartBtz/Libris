@@ -10,10 +10,12 @@ from app.api.common import row
 from app.config import settings
 from app.engines.context.config import memory_config
 from app.engines.memory.catalog import CATALOG_NAME, catalog_uri, queue_catalog
+from app.engines.memory.events import ensure_events
 from app.engines.memory.glossary_files import export_csv, export_json, export_tbx, read_glossary
 from app.engines.memory.identities import canonical_bible, identities, names, normalized, upsert_profiles
 from app.engines.memory.store import invalidate_after_decision
-from app.models import AppSetting, BibleRevision, Entity, Glossary, Outbox, Prompt
+from app.engines.series.audit import audit
+from app.models import AppSetting, BibleRevision, Entity, Glossary, Outbox, Prompt, SeriesTerm
 from app.providers.openviking import OpenVikingClient, project_uri, validate_root
 from app.providers.search import search_config
 from app.schemas import BookBible, Character, GlossaryInput, ProviderInput
@@ -136,6 +138,27 @@ def character(pid: str, eid: str, body: Character, user: CurrentUser, db: DB):
     return row(entity)
 
 
+def audit_override(db, project, user, term: Glossary, before: dict | None) -> None:
+    """A volume that departs from its series glossary leaves a trace of who decided it and when."""
+    series_term = None
+    if project.series_id:
+        series_term = db.scalar(
+            select(SeriesTerm).where(SeriesTerm.series_id == project.series_id, SeriesTerm.source == term.source)
+        )
+    audit(
+        db,
+        owner_id=project.owner_id,
+        actor_id=user.id,
+        action="glossary.series_override" if term.series_override else "glossary.series_override_removed",
+        series_id=project.series_id,
+        project_id=project.id,
+        source=term.source,
+        translation=term.translation,
+        series_translation=series_term.translation if series_term else None,
+        previous=before,
+    )
+
+
 @router.get("/projects/{pid}/glossary")
 def glossary(pid: str, user: CurrentUser, db: DB):
     access(db, pid, user)
@@ -150,6 +173,8 @@ def add_term(pid: str, body: GlossaryInput, user: CurrentUser, db: DB):
     project = access(db, pid, user, write=True)
     term = Glossary(project_id=pid, **body.model_dump())
     db.add(term)
+    if term.series_override:
+        audit_override(db, project, user, term, None)
     invalidate_after_decision(db, project, term.source)
     db.commit()
     return row(term)
@@ -161,8 +186,13 @@ def edit_term(pid: str, gid: str, body: GlossaryInput, user: CurrentUser, db: DB
     term = db.get(Glossary, gid)
     if not term or term.project_id != pid:
         raise HTTPException(404, "Terme introuvable.")
+    before = {"translation": term.translation, "series_override": term.series_override}
     for key, value in body.model_dump().items():
         setattr(term, key, value)
+    if term.series_override != before["series_override"] or (
+        term.series_override and term.translation != before["translation"]
+    ):
+        audit_override(db, project, user, term, before)
     invalidate_after_decision(db, project, term.source)
     db.add(
         Outbox(
@@ -192,7 +222,7 @@ def delete_term(pid: str, gid: str, user: CurrentUser, db: DB):
 def export_terms(pid: str, format: Literal["json", "csv", "tbx"], user: CurrentUser, db: DB):
     project = access(db, pid, user)
     values = [
-        row(g, ("id", "project_id", "created_at"))
+        row(g, ("id", "project_id", "created_at", "series_override"))
         for g in db.scalars(select(Glossary).where(Glossary.project_id == pid).order_by(Glossary.source))
     ]
     content, media_type = {
@@ -423,13 +453,17 @@ async def reindex_memory(pid: str, user: CurrentUser, db: DB):
 
 @router.post("/projects/{pid}/memory/rebuild")
 def rebuild_memory(pid: str, user: CurrentUser, db: DB):
-    access(db, pid, user, owner=True)
-    entries = list(db.scalars(select(Outbox).where(Outbox.project_id == pid)))
-    for event in entries:
+    project = access(db, pid, user, owner=True)
+    # Every memory is written again from SQL, including those whose outbox rows the retention removed.
+    queued = ensure_events(db, project, force=True)
+    others = list(
+        db.scalars(select(Outbox).where(Outbox.project_id == pid, Outbox.session_name.in_(("decisions", "catalog"))))
+    )
+    for event in others:
         event.status, event.next_attempt, event.error = "pending", 0, ""
     db.commit()
     return {
-        "queued": len(entries),
+        "queued": queued + len(others),
         "message": "Réécriture idempotente depuis SQL ; l’indexation est asynchrone.",
     }
 

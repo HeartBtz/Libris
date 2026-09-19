@@ -1,14 +1,18 @@
-"""Project archive: everything a book's work is made of, in a versioned and validated format.
+"""Project archive: everything a volume's work is made of, in a versioned and validated format.
 
-Version 2 carries the whole state of the translation: passage statuses, critiques, uncertainties,
-version history, bible revisions, quality issues, jobs with their per-passage state and request
-statistics. Version 1 archives
-are still read. Owners, members, permissions and the provider are never restored: the person who
-restores becomes the owner, shares the book again and chooses a provider of this server.
+Version 3 carries every source file of the volume (EPUB, TXT chapters, JSON payloads) under names
+Libris chooses, its series (name and kind) and the whole state of the translation: passage statuses,
+critiques, uncertainties, version history, bible revisions, quality issues, jobs with their
+per-passage state and request statistics. Versions 1 and 2 (`original.epub` + `project.json`) are
+still read. Owners, members, permissions and the provider are never restored: the person who restores
+becomes the owner, shares the volume again and chooses a provider of this server.
 """
 
+import hashlib
 import io
 import json
+import re
+import stat
 import time
 import zipfile
 from typing import Literal
@@ -20,7 +24,17 @@ from sqlalchemy import select
 from app import __version__
 from app.api.common import row
 from app.config import settings
-from app.engines.epub.archive import safe_name
+from app.engines.exports.text import chapter_segments, reparse_options, source_text
+from app.engines.ingestion import ImportedAsset, ImportedChapter, ImportedVolume, TextRejected, TxtAdapter
+from app.engines.ingestion.store import (
+    EXTENSIONS,
+    Files,
+    create_volume,
+    get_or_create_series,
+    read_asset,
+    store_asset,
+)
+from app.engines.ingestion.text import text_chapter
 from app.engines.memory.archive import restore_graph
 from app.engines.quality.checks import validate_translation
 from app.jobs.queue import HELD
@@ -39,18 +53,32 @@ from app.models import (
     Project,
     RequestLog,
     Segment,
+    Series,
+    SourceAsset,
     TranslationVersion,
 )
 from app.models.common import uid
 from app.schemas import BookBible, GlossaryInput, TranslationResult
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
+LEGACY_EPUB = "original.epub"
+# Version 3 entries: nothing else is read, and no name from the archive is ever used as a path.
+SOURCE_ENTRY = r"sources/[1-9][0-9]{0,5}\.(?:epub|txt|json)"
+TEXT_ENTRY = r"(?:sources/[1-9][0-9]{0,5}|texts/[1-9][0-9]{0,5})\.txt"
+ENTRY = re.compile(rf"(?:{SOURCE_ENTRY}|{TEXT_ENTRY})")
 
 # Columns deliberately left out of the archive. Everything else is exported and restored; a test
 # fails when a new column is neither restored nor listed here.
 NOT_ARCHIVED = {
-    Project: {"id", "owner_id", "provider_id", "original_path", "original_hash", "archived_at", "updated_at"},
-    Chapter: {"project_id"},
+    # The series is found again by name among the restoring person's series (`series` since version 3,
+    # `series_name` before), or created.
+    Project: {
+        "id", "owner_id", "provider_id", "original_path", "original_hash", "archived_at", "updated_at", "series_id",
+    },
+    # Source files are re-stored; their new rows get new identifiers (`asset` names the file instead).
+    Chapter: {"project_id", "source_asset_id"},
+    # Stored again at a path Libris chooses; the size is the file's.
+    SourceAsset: {"id", "project_id", "storage_path", "size", "created_at"},
     # The structure comes from the EPUB itself; `translation` and `source_key` are derived from the units.
     Segment: {"project_id", "chapter_id", "section", "units", "translation", "source_key"},
     TranslationVersion: {"id", "author_id"},
@@ -92,6 +120,37 @@ class ArchivedProject(Archived):
     bible: dict = Field(default_factory=dict)
     bible_validated: bool = False
     memory_revision: int = Field(default=0, ge=0)
+    source_format: Literal["epub", "txt", "json"] = "epub"
+    project_kind: Literal["volume", "serial"] = "volume"
+    external_id: str | None = Field(default=None, max_length=200)
+    import_meta: dict = Field(default_factory=dict)
+
+
+class ArchivedTextSource(BaseModel):
+    """What a TXT or JSON chapter is cut again from: a TXT source file, or its text rebuilt from its
+    units, with the options that give back the same units."""
+
+    model_config = ConfigDict(extra="ignore")
+    file: str = Field(pattern=rf"^{TEXT_ENTRY}$")
+    title: str = Field(default="", max_length=500)
+    first_line_title: bool = False
+
+
+class ArchivedSource(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    file: str = Field(pattern=rf"^{SOURCE_ENTRY}$")
+    format: Literal["epub", "txt", "json"]
+    original_name: str = Field(default="", max_length=500)
+    media_type: str = Field(default="application/octet-stream", max_length=100)
+    sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    meta: dict = Field(default_factory=dict)
+
+
+class ArchivedSeries(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    name: str = Field(min_length=1, max_length=500)
+    kind: Literal["books", "webnovel"] = "books"
+    authors: list[str] = Field(default_factory=list, max_length=50)
 
 
 class ArchivedChapter(Archived):
@@ -103,6 +162,15 @@ class ArchivedChapter(Archived):
     instructions: str = Field(default="", max_length=10000)
     analyzed: bool = False
     kind: Literal["narrative", "auxiliary", "navigation", "metadata"] | None = None
+    external_id: str | None = Field(default=None, max_length=200)
+    chapter_number: float | None = None
+    source_checksum: str | None = Field(default=None, max_length=64)
+    import_meta: dict = Field(default_factory=dict)
+    context_stale: bool = False
+    # Version 3: the source file of the chapter (`sources/<n>.<ext>`) and, for text chapters, what
+    # its units are cut again from.
+    asset: str | None = Field(default=None, pattern=rf"^{SOURCE_ENTRY}$")
+    text_source: ArchivedTextSource | None = None
 
 
 class ArchivedSegment(Archived):
@@ -232,8 +300,10 @@ class ArchivedRequest(Archived):
 
 class ProjectArchive(BaseModel):
     model_config = ConfigDict(extra="ignore")
-    schema_version: Literal[1, 2]
+    schema_version: Literal[1, 2, 3]
     project: ArchivedProject
+    series: ArchivedSeries | None = None
+    sources: list[ArchivedSource] = Field(default_factory=list)
     chapters: list[ArchivedChapter] = Field(default_factory=list)
     segments: list[ArchivedSegment] = Field(default_factory=list)
     versions: list[ArchivedVersion] = Field(default_factory=list)
@@ -252,6 +322,7 @@ class ProjectArchive(BaseModel):
 ARCHIVED_FIELDS = {
     Project: ArchivedProject,
     Chapter: ArchivedChapter,
+    SourceAsset: ArchivedSource,
     Segment: ArchivedSegment,
     TranslationVersion: ArchivedVersion,
     Glossary: ArchivedTerm,
@@ -280,14 +351,82 @@ def _limit_message(size: int, limit_mb: int, setting: str) -> str:
     )
 
 
-def build_archive(db, project: Project, original: bytes) -> bytes:
+def missing_sources_message(title: str) -> str:
+    return (
+        f"Des fichiers sources de « {title} » sont introuvables sur le serveur : l’archive de projet est "
+        "indisponible. Les exports texte restent possibles ; restaurez le dossier des sources (DATA_DIR/sources) "
+        "pour la retrouver."
+    )
+
+
+def archive_sources(db, project: Project, epub: bytes | None) -> tuple[list[dict], dict[str, str], dict[str, bytes]]:
+    """Source rows, the archive name of each source file row, and the files, under names Libris chooses."""
+    assets = list(
+        db.scalars(select(SourceAsset).where(SourceAsset.project_id == project.id).order_by(SourceAsset.created_at))
+    )
+    if project.source_format == "epub":
+        # One EPUB, found again even for books imported before source file rows existed.
+        pairs = [(next((item for item in assets if item.format == "epub"), None), epub)]
+    else:
+        pairs = [(asset, read_asset(asset)) for asset in assets]
+    if any(content is None for _, content in pairs):
+        raise HTTPException(409, missing_sources_message(project.title))
+    sources, names, files = [], {}, {}
+    for number, (asset, content) in enumerate(pairs, 1):
+        fmt = asset.format if asset else "epub"
+        name = f"sources/{number}.{EXTENSIONS[fmt]}"
+        files[name] = content
+        if asset:
+            names[asset.id] = name
+        sources.append(
+            {
+                "file": name,
+                "format": fmt,
+                "original_name": asset.original_name if asset else f"{project.id}.epub",
+                "media_type": asset.media_type if asset else "application/epub+zip",
+                "sha256": hashlib.sha256(content).hexdigest(),
+                "meta": asset.meta if asset else {},
+            }
+        )
+    return sources, names, files
+
+
+def archive_chapters(db, project: Project, names: dict[str, str], files: dict[str, bytes]) -> list[dict]:
+    formats = {name: name.rsplit(".", 1)[1] for name in names.values()}
+    segments = chapter_segments(db, project)
+    chapters = []
+    rebuilt = 0
+    for chapter in db.scalars(select(Chapter).where(Chapter.project_id == project.id).order_by(Chapter.position)):
+        value = row(chapter, tuple(NOT_ARCHIVED[Chapter]))
+        value["asset"] = names.get(chapter.source_asset_id or "")
+        if (chapter.import_meta or {}).get("layout"):
+            rows = segments.get(chapter.id, [])
+            title, first_line_title = reparse_options(chapter, rows)
+            if value["asset"] and formats[value["asset"]] == "txt":
+                source = value["asset"]
+            else:
+                # A JSON payload is not a chapter text: the chapter's source text travels on its own.
+                rebuilt += 1
+                source = f"texts/{rebuilt}.txt"
+                files[source] = source_text(chapter, rows).encode("utf-8")
+            value["text_source"] = {"file": source, "title": title, "first_line_title": first_line_title}
+        chapters.append(value)
+    return chapters
+
+
+def build_archive(db, project: Project, epub: bytes | None = None) -> bytes:
+    """`epub` is the volume's original EPUB (EPUB volumes); TXT and JSON sources are read here."""
     pid = project.id
+    sources, names, files = archive_sources(db, project, epub)
+    series = db.get(Series, project.series_id) if project.series_id else None
     payload = {
         "schema_version": SCHEMA_VERSION,
         "libris_version": __version__,
         "exported_at": time.time(),
         "project": row(project, tuple(NOT_ARCHIVED[Project])),
-        "chapters": _rows(db, Chapter, Chapter.project_id == pid, order=Chapter.position),
+        "series": {"name": series.name, "kind": series.kind, "authors": series.authors} if series else None,
+        "sources": sources,
+        "chapters": archive_chapters(db, project, names, files),
         "segments": _rows(db, Segment, Segment.project_id == pid, order=Segment.position),
         "versions": _rows(
             db,
@@ -312,40 +451,104 @@ def build_archive(db, project: Project, original: bytes) -> bytes:
     }
     document = json.dumps(payload, ensure_ascii=False).encode()
     limits = settings()
-    unpacked = len(original) + len(document)
+    unpacked = sum(len(content) for content in files.values()) + len(document)
     if unpacked > limits.max_unpacked_mb * 1024**2:
         raise HTTPException(413, _limit_message(unpacked, limits.max_unpacked_mb, "MAX_UNPACKED_MB"))
+    if len(files) + 1 > limits.max_entries:
+        raise HTTPException(413, entries_message(len(files) + 1, limits.max_entries))
     output = io.BytesIO()
     with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as archive:
-        archive.writestr("original.epub", original)
+        for name, content in files.items():
+            archive.writestr(name, content)
         archive.writestr("project.json", document)
     if output.tell() > limits.max_upload_mb * 1024**2:
         raise HTTPException(413, _limit_message(output.tell(), limits.max_upload_mb, "MAX_UPLOAD_MB"))
     return output.getvalue()
 
 
-def read_archive(data: bytes) -> tuple[bytes, ProjectArchive]:
+def entries_message(count: int, limit: int) -> str:
+    return (
+        f"Archive de projet trop volumineuse pour être réimportée : {count} fichiers pour {limit} autorisés "
+        "(MAX_ENTRIES). Augmentez ce réglage sur les serveurs d’export et de restauration."
+    )
+
+
+def _unpack(data: bytes) -> dict[str, bytes]:
+    """The archive's files, read within the upload, entry, size and compression limits."""
     limits = settings()
     if len(data) > limits.max_upload_mb * 1024**2:
         raise HTTPException(413, "Archive projet trop volumineuse.")
+    files: dict[str, bytes] = {}
     with zipfile.ZipFile(io.BytesIO(data)) as archive:
         infos = archive.infolist()
-        if len(infos) != 2 or {safe_name(i.filename) for i in infos} != {"original.epub", "project.json"}:
-            raise ValueError("Archive projet invalide.")
-        if sum(i.file_size for i in infos) > limits.max_unpacked_mb * 1024**2:
+        if len(infos) > limits.max_entries:
+            raise ValueError("Trop de fichiers dans l’archive.")
+        for info in infos:
+            name = info.filename
+            if name in files or not (name in {"project.json", LEGACY_EPUB} or ENTRY.fullmatch(name)):
+                raise ValueError("Archive projet invalide : fichier inattendu ou en double.")
+            if stat.S_ISLNK(info.external_attr >> 16) or info.flag_bits & 1:
+                raise ValueError("Liens symboliques et archives ZIP chiffrées non pris en charge.")
+            files[name] = b""
+        declared = sum(info.file_size for info in infos)
+        packed = sum(info.compress_size for info in infos)
+        if declared > limits.max_unpacked_mb * 1024**2:
             raise ValueError("Archive projet trop volumineuse après décompression.")
-        original = archive.read("original.epub")
-        document = archive.read("project.json")
+        if declared > 8 * 1024**2 and declared / max(packed, 1) > limits.max_compression_ratio:
+            raise ValueError("Ratio de compression global excessif (archive bomb possible).")
+        for info in infos:
+            # The declared size bounds every read: a header that lies cannot get past the limits.
+            with archive.open(info) as stream:
+                content = stream.read(info.file_size + 1)
+            if len(content) != info.file_size:
+                raise ValueError("Taille ZIP incohérente.")
+            files[info.filename] = content
+    if "project.json" not in files:
+        raise ValueError("Archive projet invalide.")
+    return files
+
+
+def read_archive(data: bytes) -> tuple[dict[str, bytes], ProjectArchive]:
+    """The archive's files other than project.json, and its validated description."""
+    files = _unpack(data)
+    document = files.pop("project.json")
     try:
         payload = json.loads(document)
     except ValueError:
         raise HTTPException(422, "Archive de projet invalide : project.json n’est pas un JSON lisible.") from None
-    if not isinstance(payload, dict) or payload.get("schema_version") not in {1, 2}:
+    if not isinstance(payload, dict) or payload.get("schema_version") not in {1, 2, 3}:
         raise HTTPException(422, "Version de projet non prise en charge.")
+    legacy = payload["schema_version"] < 3
+    if legacy and set(files) != {LEGACY_EPUB} or not legacy and LEGACY_EPUB in files:
+        raise ValueError("Archive projet invalide.")
     try:
-        return original, ProjectArchive.model_validate(payload)
+        archive = ProjectArchive.model_validate(payload)
     except ValidationError as exc:
         raise HTTPException(422, invalid_archive_message(exc)) from None
+    if not legacy:
+        check_sources(archive, files)
+    return files, archive
+
+
+def check_sources(archive: ProjectArchive, files: dict[str, bytes]) -> None:
+    """Every file is described and used, every description has its file, intact."""
+    sources = {source.file: source for source in archive.sources}
+    texts = {chapter.text_source.file for chapter in archive.chapters if chapter.text_source}
+    if len(sources) != len(archive.sources) or set(files) != set(sources) | texts:
+        raise ValueError("Archive projet invalide : fichier inattendu ou manquant.")
+    for name, source in sources.items():
+        if name.rsplit(".", 1)[1] != EXTENSIONS[source.format] or hashlib.sha256(files[name]).hexdigest() != source.sha256:
+            raise ValueError("Archive de projet altérée : un fichier source ne correspond pas à son empreinte.")
+    epubs = [source for source in archive.sources if source.format == "epub"]
+    text = archive.project.source_format != "epub"
+    if (len(epubs) != (0 if text else 1)) or any(
+        (chapter.text_source is None) == text
+        or (chapter.asset is not None and chapter.asset not in sources)
+        or (chapter.text_source and chapter.text_source.file.startswith("sources/")
+            and chapter.text_source.file not in sources)
+        for chapter in archive.chapters
+    ):
+        raise ValueError("Archive projet invalide : sources incohérentes avec le format du volume.")
 
 
 def invalid_archive_message(exc: ValidationError) -> str:
@@ -371,13 +574,102 @@ def _dated(values: dict) -> dict:
     return {"created_at": values["created_at"]} if values.get("created_at") is not None else {}
 
 
+def restore_series(db, owner_id: str, archive: ProjectArchive) -> Series | None:
+    """The restoring person's series of that normalized name, created if needed; checked before
+    anything is written so that a volume it cannot hold is refused as a whole."""
+    info = archive.project
+    name = archive.series.name if archive.series else info.series_name
+    if not name.strip():
+        if info.project_kind == "serial":
+            raise ValueError("Archive de projet invalide : des chapitres en feuilleton appartiennent à une série.")
+        return None
+    series = get_or_create_series(db, owner_id, name, archive.series.kind if archive.series else "books")
+    if archive.series and not series.authors:
+        series.authors = archive.series.authors
+    if info.project_kind == "serial" and db.scalar(
+        select(Project.id).where(Project.series_id == series.id, Project.project_kind == "serial")
+    ):
+        raise HTTPException(
+            409, f"La série « {series.name} » a déjà ses chapitres en feuilleton : cette archive ne peut pas y être restaurée."
+        )
+    if info.external_id and db.scalar(
+        select(Project.id).where(Project.series_id == series.id, Project.external_id == info.external_id)
+    ):
+        raise HTTPException(
+            409, f"La série « {series.name} » contient déjà le volume d’identifiant « {info.external_id} »."
+        )
+    return series
+
+
+def text_chapters(archive: ProjectArchive, files: dict[str, bytes]) -> list[ImportedChapter]:
+    """TXT and JSON chapters cut again with the adapters of their import and their own resources: the
+    units get the same identifiers, which `restore_archive` then checks against the saved passages."""
+    names = {source.file: source.original_name for source in archive.sources}
+    limit = settings().text_chapter_max_chars
+    chapters = []
+    for saved in sorted(archive.chapters, key=lambda chapter: chapter.position):
+        source = saved.text_source
+        try:
+            if source.file.startswith("sources/"):
+                chapter = TxtAdapter(limit).parse(
+                    names[source.file], files[source.file], title=source.title, resource=saved.resource,
+                    first_line_title=source.first_line_title,
+                )
+            else:
+                chapter, _ = text_chapter(
+                    files[source.file].decode("utf-8"), title=source.title, resource=saved.resource,
+                    first_line_title=source.first_line_title, max_length=limit,
+                )
+        except (TextRejected, UnicodeDecodeError) as exc:
+            raise ValueError(f"Le texte source du chapitre « {saved.title or saved.position} » est illisible : {exc}") from None
+        chapter.title = saved.title or chapter.title
+        chapter.kind = saved.kind or "narrative"
+        chapter.asset = None
+        chapters.append(chapter)
+    return chapters
+
+
+def restore_text_volume(db, owner_id: str, archive: ProjectArchive, files: dict[str, bytes], series: Series | None,
+                        written: Files) -> Project:
+    info = archive.project
+    volume = ImportedVolume(
+        title=info.title or "Sans titre",
+        author=info.author or "",
+        language=info.source_language or "en",
+        chapters=text_chapters(archive, files),
+        info=info.book_info,
+    )
+    project = create_volume(
+        db, owner_id, volume, written, series=series, source_format=info.source_format,
+        project_kind=info.project_kind, number=info.volume_number, title=info.title, external_id=info.external_id,
+        meta=info.import_meta,
+    )  # fmt: skip
+    stored = {
+        source.file: store_asset(
+            db,
+            project,
+            ImportedAsset(source.original_name, source.format, source.media_type, files[source.file], source.meta),
+            written,
+        )
+        for source in archive.sources
+    }
+    saved = sorted(archive.chapters, key=lambda chapter: chapter.position)
+    rows = list(db.scalars(select(Chapter).where(Chapter.project_id == project.id).order_by(Chapter.position)))
+    if len({chapter.position for chapter in saved}) != len(saved) or len(rows) != len(saved):
+        raise ValueError("Structure du projet incompatible avec ses fichiers sources.")
+    for chapter, value in zip(rows, saved, strict=True):
+        chapter.position = value.position
+        chapter.source_asset_id = stored[value.asset].id if value.asset else None
+    db.flush()
+    return project
+
+
 def restore_archive(db, project: Project, archive: ProjectArchive) -> None:
     """Fill a freshly imported book (new identifiers, restoring user as owner) from its archive."""
     info = archive.project
     for key in ("title", "author", "source_language"):
         if getattr(info, key):
             setattr(project, key, getattr(info, key))
-    project.series_name = info.series_name
     project.volume_number = info.volume_number
     project.target_language = info.target_language
     project.quality = info.quality
@@ -390,6 +682,9 @@ def restore_archive(db, project: Project, archive: ProjectArchive) -> None:
     project.bible = info.bible
     project.bible_validated = info.bible_validated
     project.memory_revision = info.memory_revision
+    project.external_id = info.external_id
+    if info.import_meta:
+        project.import_meta = {**info.import_meta, **project.import_meta}
     # A book whose work was running waits for Resume; "pending" is also the status of a fresh import.
     project.status = "paused" if info.status in HELD and info.status != "pending" else info.status
     if info.created_at:
@@ -402,10 +697,15 @@ def restore_archive(db, project: Project, archive: ProjectArchive) -> None:
         (chapter.position, chapter.resource): chapter
         for chapter in db.scalars(select(Chapter).where(Chapter.project_id == project.id))
     }
+    from_epub = project.source_format == "epub"
     for saved in archive.chapters:
         chapter = chapters.get((saved.position, saved.resource))
         if not chapter:
-            raise ValueError("Structure du projet incompatible avec son EPUB original.")
+            raise ValueError(
+                "Structure du projet incompatible avec son EPUB original."
+                if from_epub
+                else "Structure du projet incompatible avec ses fichiers sources."
+            )
         ids[saved.id] = chapter.id
         if saved.title:
             chapter.title = saved.title
@@ -415,6 +715,12 @@ def restore_archive(db, project: Project, archive: ProjectArchive) -> None:
         # Archives written before chapter kinds keep the kind the fresh import derived from the EPUB.
         if saved.kind:
             chapter.kind = saved.kind
+        chapter.context_stale = saved.context_stale
+        for key in ("external_id", "chapter_number", "source_checksum"):
+            if getattr(saved, key) is not None:
+                setattr(chapter, key, getattr(saved, key))
+        if saved.import_meta:
+            chapter.import_meta = saved.import_meta
         if saved.created_at:
             chapter.created_at = saved.created_at
 
@@ -422,10 +728,18 @@ def restore_archive(db, project: Project, archive: ProjectArchive) -> None:
         db.scalars(select(Segment).where(Segment.project_id == project.id).order_by(Segment.position))
     )
     if len(current) != len(archive.segments):
-        raise ValueError("Structure du projet incompatible avec son EPUB original.")
+        raise ValueError(
+            "Structure du projet incompatible avec son EPUB original."
+            if from_epub
+            else "Structure du projet incompatible avec ses fichiers sources."
+        )
     for segment, saved in zip(current, sorted(archive.segments, key=lambda s: s.position), strict=True):
         if segment.source != saved.source:
-            raise ValueError("Le texte source du projet ne correspond pas à l’EPUB.")
+            raise ValueError(
+                "Le texte source du projet ne correspond pas à l’EPUB."
+                if from_epub
+                else "Le texte source du projet ne correspond pas à ses fichiers sources."
+            )
         ids[saved.id] = segment.id
         if saved.translated_units:
             units = [u.model_dump() for u in TranslationResult(units=saved.translated_units).units]

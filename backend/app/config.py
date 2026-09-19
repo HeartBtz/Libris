@@ -17,6 +17,17 @@ class Settings(BaseSettings):
     allowed_origins: str = "http://localhost:8088,http://127.0.0.1:8088"
     session_duration_hours: int = Field(default=24, ge=1, le=24 * 90)
     max_upload_mb: int = 60
+    # Two-phase imports: files kept for inspection before the commit (DATA_DIR/staging).
+    import_max_files: int = Field(default=500, ge=1, le=5000)
+    import_max_session_mb: int = Field(default=2048, ge=1)
+    import_session_hours: int = Field(default=24, ge=1, le=24 * 30)
+    # Characters of one text chapter (TXT file or JSON chapter), after decoding.
+    text_chapter_max_chars: int = Field(default=2_000_000, ge=1000, le=50_000_000)
+    # Automation API (/api/v1): JSON body of one request (empty: MAX_UPLOAD_MB), chapters per request,
+    # and calls per token and per minute in each API process (0: no limit).
+    api_max_payload_mb: int | None = Field(default=None, ge=1, le=4096)
+    api_max_chapters: int = Field(default=2000, ge=1, le=100_000)
+    api_rate_limit_per_minute: int = Field(default=120, ge=0, le=100_000)
     max_unpacked_mb: int = 300
     max_entries: int = 5000
     # Whole-archive compression ratio above which an EPUB is refused as a possible zip bomb.
@@ -55,8 +66,12 @@ class Settings(BaseSettings):
     # Empty: GET /metrics does not exist. Set: Prometheus must send it as a Bearer token.
     metrics_token: str = ""
 
+    @property
+    def api_payload_mb(self) -> int:
+        return self.api_max_payload_mb or self.max_upload_mb
+
     def prepare(self) -> None:
-        for name in ("books", "projects", "exports"):
+        for name in ("books", "projects", "exports", "sources", "staging"):
             (self.data_dir / name).mkdir(parents=True, exist_ok=True)
         if len(self.secret_key) < 32:
             raise RuntimeError("SECRET_KEY doit contenir au moins 32 caractères (voir .env.example).")

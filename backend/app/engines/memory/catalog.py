@@ -126,7 +126,8 @@ def queue_catalog(db: Session, project: Project, force: bool = False) -> Outbox 
     if project.context_backend == "internal":
         return None
     files = files_for(db, project)
-    digest = hashlib.sha256(json.dumps(files, sort_keys=True).encode()).hexdigest()
+    # The place is part of the fingerprint: a volume moved into a series writes its catalog again.
+    digest = hashlib.sha256(json.dumps([project_uri(project), files], sort_keys=True).encode()).hexdigest()
     key = f"catalog:{project.id}"
     entry = db.scalar(select(Outbox).where(Outbox.event_key == key))
     if entry and entry.status == "pending" and not entry.error:

@@ -89,13 +89,27 @@ class BatchExportInput(StrictModel):
     project_ids: list[str] = Field(min_length=1, max_length=100)
 
 
-class GlossaryInput(StrictModel):
+class TextBatchExportInput(BatchExportInput):
+    # Unfinished volumes keep their untranslated passages in the original; the manifests say which.
+    allow_source: bool = False
+    # Each volume folder also holds its chapters in one file.
+    consolidated: bool = False
+
+
+class GlossaryTerm(StrictModel):
+    """A term as exchanged in glossary files (JSON, CSV, TBX)."""
+
     source: str = Field(min_length=1, max_length=300)
     translation: str = Field(min_length=1, max_length=300)
     category: str = Field(default="autre", max_length=50)
     description: str = Field(default="", max_length=4000)
     locked: bool = False
     accepted: bool = True
+
+
+class GlossaryInput(GlossaryTerm):
+    # This volume deliberately departs from the series glossary for this term (audited).
+    series_override: bool = False
 
 
 class TextUnit(StrictModel):

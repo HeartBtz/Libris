@@ -157,3 +157,69 @@ def test_legacy_checkpoints_become_rows_and_come_back_on_downgrade(tmp_path):
     assert restored == legacy
     alembic(database, "upgrade", "head")
     assert "No new upgrade operations detected" in alembic(database, "check")
+
+
+def test_existing_books_are_grouped_into_series_and_keep_their_identifiers(tmp_path):
+    database = tmp_path / "series.db"
+    alembic(database, "upgrade", "582f68907489")
+    books = [
+        # (id, owner, series_name, volume, created_at)
+        ("p1", "u1", "Star Saga", 1, 10),
+        ("p2", "u1", "  star   saga ", 2, 20),
+        ("p3", "u2", "Star Saga", 1, 30),
+        ("p4", "u1", "", None, 40),
+    ]
+    with sqlite3.connect(database) as connection:
+        for user in ("u1", "u2"):
+            connection.execute(
+                "INSERT INTO users (id, created_at, username, password_hash, admin) VALUES (?, 0, ?, 'x', 1)",
+                (user, user),
+            )
+        for pid, owner, series, number, created in books:
+            connection.execute(
+                "INSERT INTO projects (id, created_at, owner_id, title, author, source_language, target_language,"
+                " quality, context_backend, status, original_hash, original_path, book_info, config, instructions,"
+                " bible, bible_validated, memory_revision, updated_at, series_name, volume_number) VALUES"
+                " (?, ?, ?, ?, 'A', 'en', 'fr', 'fast', 'internal', 'completed', ?, ?, ?, '{}', '', '{}', 0, 0, 0, ?, ?)",
+                (pid, created, owner, f"Book {pid}", f"hash-{pid}", f"/data/books/{pid}.epub",
+                 json.dumps({"size": 1234}), series, number),
+            )
+            connection.execute(
+                "INSERT INTO chapters (id, project_id, position, title, resource, summary, instructions, analyzed,"
+                " created_at, kind) VALUES (?, ?, 0, 't', 'c.xhtml', '{}', '', 1, 0, 'narrative')",
+                (f"c-{pid}", pid),
+            )
+            connection.execute(
+                "INSERT INTO segments (id, project_id, chapter_id, position, section, source, units, translation,"
+                " translated_units, status, stage, human, retained_source, validated, revision, instructions,"
+                " uncertainties, critique, narrative, error, created_at) VALUES (?, ?, ?, 0, '', 'x', '[]',"
+                " 'traduit', '[]', 'ok', 'done', 1, 0, 1, 3, '', '[]', '[]', '{}', '', 0)",
+                (f"s-{pid}", pid, f"c-{pid}"),
+            )
+    alembic(database, "upgrade", "head")
+    with sqlite3.connect(database) as connection:
+        series = connection.execute("SELECT id, owner_id, name, normalized_name, kind FROM series ORDER BY owner_id").fetchall()
+        projects = dict(connection.execute("SELECT id, series_id FROM projects").fetchall())
+        assets = connection.execute(
+            "SELECT project_id, format, storage_path, sha256, size FROM source_assets ORDER BY project_id"
+        ).fetchall()
+        chapters = dict(connection.execute("SELECT id, source_asset_id FROM chapters").fetchall())
+        segment = connection.execute("SELECT translation, human, validated, revision FROM segments WHERE id='s-p2'").fetchone()
+    assert [(owner, name, key, kind) for _, owner, name, key, kind in series] == [
+        ("u1", "Star Saga", "star saga", "books"),
+        ("u2", "Star Saga", "star saga", "books"),
+    ]
+    assert projects["p1"] == projects["p2"] == series[0][0] and projects["p3"] == series[1][0]
+    assert projects["p4"] is None
+    assert [(pid, fmt, path, sha, size) for pid, fmt, path, sha, size in assets][0] == (
+        "p1", "epub", "/data/books/p1.epub", "hash-p1", 1234,
+    )
+    assert all(chapters[f"c-{pid}"] for pid, *_ in books)
+    assert segment == ("traduit", 1, 1, 3)
+    alembic(database, "downgrade", "582f68907489")
+    with sqlite3.connect(database) as connection:
+        names = dict(connection.execute("SELECT id, series_name FROM projects").fetchall())
+        assert connection.execute("SELECT count(*) FROM segments").fetchone()[0] == 4
+    assert names["p2"] == "  star   saga " and names["p4"] == ""
+    alembic(database, "upgrade", "head")
+    assert "No new upgrade operations detected" in alembic(database, "check")

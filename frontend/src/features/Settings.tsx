@@ -23,10 +23,12 @@ import {
   cx,
   useDialogs,
 } from "../ui";
+import { ApiTokens } from "./ApiTokens";
 import { CodexConnection } from "./CodexConnection";
 import { RecoverySettings } from "./Account";
 
 registerTranslations({
+  "API d’automatisation": "Automation API",
   "Modèle local": "Local model",
   Administration: "Administration",
   Paramètres: "Settings",
@@ -218,6 +220,7 @@ export function Settings({ run }: { run: Run }) {
             { id: "prompts", label: "Prompts" },
             { id: "users", label: t("Utilisateurs") },
             { id: "recovery", label: t("Reprise automatique") },
+            { id: "api", label: t("API d’automatisation") },
           ]}
         />
         <TabPanel idPrefix="settings" value={tab}>
@@ -231,6 +234,8 @@ export function Settings({ run }: { run: Run }) {
             <SearchSettings run={run} />
           ) : tab === "recovery" ? (
             <RecoverySettings run={run} />
+          ) : tab === "api" ? (
+            <ApiTokens run={run} />
           ) : (
             <Users run={run} />
           )}

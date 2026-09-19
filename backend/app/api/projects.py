@@ -1,4 +1,5 @@
 import hashlib
+import shutil
 import time
 from pathlib import Path
 from typing import Literal
@@ -10,11 +11,22 @@ from starlette.concurrency import run_in_threadpool
 
 from app.api.common import row
 from app.config import settings
-from app.engines.epub import parse_book
 from app.engines.epub.book import SEGMENTATION
 from app.engines.epub.check import epubcheck
+from app.engines.ingestion import EpubAdapter
+from app.engines.ingestion.store import (
+    Files,
+    attach,
+    create_volume,
+    data_path,
+    epub_duplicate,
+    get_or_create_series,
+    lock,
+    safe_display_name,
+)
 from app.engines.memory.identities import canonical_bible
-from app.engines.translation.memory import memory_key, translation_memory_enabled
+from app.engines.series.bible import refresh_series
+from app.engines.translation.memory import translation_memory_enabled
 from app.jobs.queue import ACTIVE, HELD, emit, enqueue
 from app.models import (
     Chapter,
@@ -26,9 +38,9 @@ from app.models import (
     Project,
     Provider,
     Segment,
+    Series,
     User,
 )
-from app.models.common import uid
 from app.progress import book_facts, books_progress, project_progress, project_stats
 from app.schemas import InstructionInput, JobInput, ProjectConfig, SeriesBatchInput
 from app.security import DB, CurrentUser, access
@@ -79,18 +91,35 @@ def check_series_access(db, project: Project, user: User, series_name: str) -> N
 
 
 def discard_book_file(project: Project) -> None:
-    """The import is rolled back: its stored EPUB must not stay behind as an orphan."""
-    Path(project.original_path).unlink(missing_ok=True)
+    """The import is rolled back or the project deleted: its stored sources must not stay behind."""
+    for path in project_files(project):
+        if path.is_dir():
+            shutil.rmtree(path, ignore_errors=True)
+        else:
+            path.unlink(missing_ok=True)
 
 
-def import_book(db, owner_id: str, data: bytes, segmentation: int = SEGMENTATION) -> Project:
+def project_files(project: Project) -> list[Path]:
+    paths = [data_path(f"books/{project.id}.epub"), data_path(f"sources/{project.id}")]
+    if project.original_path:
+        paths.insert(0, Path(project.original_path))
+    return paths
+
+
+def import_book(
+    db,
+    owner_id: str,
+    data: bytes,
+    segmentation: int = SEGMENTATION,
+    *,
+    name: str = "book.epub",
+    series: Series | None = None,
+    volume_number: int | None = None,
+    files: Files | None = None,
+) -> Project:
     original_hash = hashlib.sha256(data).hexdigest()
-    if db.get_bind().dialect.name == "postgresql":
-        lock_digest = hashlib.sha256(f"{owner_id}:{original_hash}".encode()).digest()
-        db.execute(select(func.pg_advisory_xact_lock(int.from_bytes(lock_digest[:8], signed=True))))
-    existing = db.scalar(
-        select(Project).where(Project.owner_id == owner_id, Project.original_hash == original_hash)
-    )
+    lock(db, f"{owner_id}:{original_hash}")
+    existing = epub_duplicate(db, owner_id, original_hash)
     if existing:
         if existing.archived_at:
             raise HTTPException(
@@ -99,49 +128,22 @@ def import_book(db, owner_id: str, data: bytes, segmentation: int = SEGMENTATION
                 "Restaurez-le depuis les archives.",
             )
         raise HTTPException(409, f"Cet EPUB est déjà importé dans « {existing.title} ».")
-    parsed = parse_book(data, segmentation=segmentation)
-    project_id = uid()
-    book_path = settings().data_dir / "books" / f"{project_id}.epub"
-    project = Project(
-        id=project_id,
-        owner_id=owner_id,
-        title=parsed["title"][:500] or "Sans titre",
-        author=parsed["author"][:500],
-        source_language=parsed["language"][:80] or "en",
-        original_hash=original_hash,
-        original_path=str(book_path),
-        book_info=parsed["info"],
-    )
-    db.add(project)
-    db.flush()
-    position = 0
-    for number, item in enumerate(parsed["chapters"]):
-        chapter = Chapter(
-            project_id=project.id,
-            position=number,
-            title=item["title"],
-            resource=item["resource"],
-            kind=item["kind"],
+    volume = EpubAdapter().parse(name, data, segmentation=segmentation)
+    files = files if files is not None else Files()
+    try:
+        return create_volume(
+            db,
+            owner_id,
+            volume,
+            files,
+            series=series,
+            source_format="epub",
+            number=volume_number,
+            meta={"original_name": safe_display_name(name), "segmentation": segmentation},
         )
-        db.add(chapter)
-        db.flush()
-        for group in item["groups"]:
-            db.add(
-                Segment(
-                    project_id=project.id,
-                    chapter_id=chapter.id,
-                    position=position,
-                    units=group,
-                    source="\n\n".join(u["text"] for u in group),
-                    source_key=memory_key(group),
-                    section=group[0]["section"][:100],
-                )
-            )
-            position += 1
-    if not position:
-        raise ValueError("Aucun texte traduisible trouvé dans l’EPUB.")
-    book_path.write_bytes(data)
-    return project
+    except BaseException:
+        files.discard()
+        raise
 
 
 @router.get("")
@@ -157,8 +159,9 @@ def projects(user: CurrentUser, db: DB, include_archived: bool = False):
 
 @router.post("", status_code=201)
 async def upload(file: UploadFile, user: CurrentUser, db: DB):
+    """Direct EPUB import as a standalone volume (0.5 clients); the interface uses /api/imports."""
     data = await file.read(settings().max_upload_mb * 1024**2 + 1)
-    project = await run_in_threadpool(import_book, db, user.id, data)
+    project = await run_in_threadpool(import_book, db, user.id, data, name=file.filename or "book.epub")
     try:
         try:
             validation = await run_in_threadpool(epubcheck, data)
@@ -188,12 +191,19 @@ def configure_series(body: SeriesBatchInput, user: CurrentUser, db: DB):
         for project in projects:
             if project.series_name != series_name:
                 check_series_access(db, project, user, series_name)
+    touched = {project.series_id for project in projects}
     for offset, project in enumerate(projects):
-        project.series_name = "" if body.mode == "clear" else series_name
+        if body.mode == "clear" and (project.project_kind == "serial" or project.source_format != "epub"):
+            raise HTTPException(409, "Des chapitres TXT ou JSON appartiennent obligatoirement à une série.")
+        series = None if body.mode == "clear" else get_or_create_series(db, project.owner_id, series_name)
+        attach(project, series)
+        touched.add(project.series_id)
         if body.mode == "sequential":
             project.volume_number = body.first_volume + offset
         elif body.mode == "clear":
             project.volume_number = None
+    for series_id in touched - {None}:
+        refresh_series(db, series_id)
     db.commit()
     return project_views(db, projects)
 
@@ -234,8 +244,17 @@ def configure(project_id: str, body: ProjectConfig, user: CurrentUser, db: DB):
         raise HTTPException(422, "Provider inconnu.")
     if "series_name" in changed:
         check_series_access(db, project, user, body.series_name)
+        if project.project_kind == "serial" or (project.source_format != "epub" and not body.series_name.strip()):
+            raise HTTPException(409, "Des chapitres TXT ou JSON appartiennent obligatoirement à une série.")
+    previous_series = project.series_id
     for key, value in values.items():
-        setattr(project, key, value)
+        if key != "series_name":
+            setattr(project, key, value)
+    if "series_name" in changed:
+        name = body.series_name.strip()
+        attach(project, get_or_create_series(db, project.owner_id, name) if name else None)
+        for series_id in {previous_series, project.series_id} - {None}:
+            refresh_series(db, series_id)
     # Clients that predate the setting omit it: the stored choice is then kept.
     if "translation_memory" in body.model_fields_set:
         project.config = {**project.config, "translation_memory": body.translation_memory}
@@ -286,10 +305,13 @@ def remove(project_id: str, user: CurrentUser, db: DB, stop_jobs: bool = False):
     # Clear self references before the project-level cascade; PostgreSQL otherwise may try to
     # SET NULL on an entity already deleted by the same cascade.
     db.execute(update(Entity).where(Entity.project_id == project_id).values(merged_into_id=None))
-    path = Path(project.original_path)
+    series_id = project.series_id
     db.delete(project)
     db.commit()
-    path.unlink(missing_ok=True)
+    discard_book_file(project)
+    if series_id:
+        refresh_series(db, series_id)
+        db.commit()
     return {
         "ok": True,
         "message": "Projet local supprimé. La mémoire OpenViking distante se gère séparément.",
@@ -318,7 +340,8 @@ def restore(project_id: str, user: CurrentUser, db: DB):
 def chapters(project_id: str, user: CurrentUser, db: DB):
     access(db, project_id, user)
     return [
-        row(c)
+        # The layout of a text chapter is only needed to export it; it can be long.
+        {**row(c, ("import_meta",)), "import_meta": {k: v for k, v in c.import_meta.items() if k != "layout"}}
         for c in db.scalars(
             select(Chapter).where(Chapter.project_id == project_id).order_by(Chapter.position)
         )
@@ -333,6 +356,22 @@ def chapter_instructions(project_id: str, chapter_id: str, body: InstructionInpu
         raise HTTPException(404, "Chapitre introuvable.")
     chapter.instructions = body.instructions
     project.memory_revision += 1
+    db.commit()
+    return row(chapter)
+
+
+class StaleInput(BaseModel):
+    stale: bool
+
+
+@router.put("/{project_id}/chapters/{chapter_id}/stale")
+def chapter_stale(project_id: str, chapter_id: str, body: StaleInput, user: CurrentUser, db: DB):
+    """An earlier chapter's source changed: a person checked this one, or asks for it to be checked."""
+    access(db, project_id, user, write=True)
+    chapter = db.get(Chapter, chapter_id)
+    if not chapter or chapter.project_id != project_id:
+        raise HTTPException(404, "Chapitre introuvable.")
+    chapter.context_stale = body.stale
     db.commit()
     return row(chapter)
 
@@ -448,6 +487,13 @@ def control(
     job = db.scalar(select(Job).where(Job.id == job_id).with_for_update())
     if not job or job.project_id != project_id:
         raise HTTPException(404, "Travail introuvable.")
+    control_job(db, project, job, action)
+    db.commit()
+    return row(job)
+
+
+def control_job(db, project: Project, job: Job, action: str) -> Job:
+    """Pause, resume, retry or cancel a job the caller may write; the caller commits."""
     if action in {"resume", "retry"} and job.status not in {
         "paused",
         "failed",
@@ -457,7 +503,7 @@ def control(
     }:
         raise HTTPException(409, "Seul un travail en pause, en attente, bloqué ou échoué peut être repris.")
     if action in {"resume", "retry"} and db.scalar(
-        select(Job.id).where(Job.project_id == project_id, Job.id != job_id, Job.status.in_(HELD))
+        select(Job.id).where(Job.project_id == project.id, Job.id != job.id, Job.status.in_(HELD))
     ):
         raise HTTPException(409, "Un autre travail est déjà actif pour ce livre.")
     if action in {"resume", "retry"} and project.archived_at is not None:
@@ -480,9 +526,8 @@ def control(
     )
     project.status = job.status
     project.updated_at = time.time()
-    emit(db, project_id, job_id=job.id, status=job.status)
-    db.commit()
-    return row(job)
+    emit(db, project.id, job_id=job.id, status=job.status)
+    return job
 
 
 class ShareInput(BaseModel):

@@ -24,7 +24,7 @@ Le compte initial est créé seulement lorsque la base ne contient aucun utilisa
 
 ### Stockage
 
-- Volume `books` monté sur `/data` : `/data/books` (originaux), `/data/projects`, `/data/exports`.
+- Volume `books` monté sur `/data` : `/data/books` (EPUB originaux), `/data/sources` (chapitres TXT et payloads JSON), `/data/staging` (fichiers d’imports non confirmés, temporaires), `/data/projects`, `/data/exports`.
 - Volume `database` : données PostgreSQL, textes, traductions, versions, mémoire, paramètres chiffrés, jobs et traces.
 - `.env` : clé de chiffrement de l’application et identifiants de déploiement.
 
@@ -35,25 +35,72 @@ Les traductions sont enregistrées immédiatement en SQL ; le volume `/data/proj
 Pour les commandes par lot, les deux progressions, les interruptions, les refus et le graphe : [guide d’exploitation](operations.md).
 
 1. Dans **Paramètres → Providers LLM**, renseigner la base URL (incluant `/v1`), le modèle et éventuellement la clé. Le bouton de test interroge `/models`. Les capacités JSON et reasoning restent configurables.
-2. Importer un EPUB dans la bibliothèque (bouton **Importer des EPUB** ou glisser-déposer des fichiers sur la page). La structure, les ressources et le texte sont analysés ; EPUBCheck est exécuté dans l’image Docker.
+2. Importer un EPUB avec le bouton **Ajouter du contenu** de la bibliothèque (ou en glissant les fichiers sur la page) : l’assistant demande où le ranger (série ou **Volume unique**), examine le fichier puis crée le livre à la confirmation — voir [Ajouter du contenu](#ajouter-du-contenu). La structure, les ressources et le texte sont analysés ; EPUBCheck est exécuté dans l’image Docker.
 3. Dans l’onglet **Réglages** du livre, choisir le provider, les langues, le mode qualité et les instructions globales. Le choix du premier provider lance l’analyse puis la traduction. Utiliser des codes de langue BCP 47, par exemple `en`, `fr`, `ja`.
 4. **Analyser le livre** (le bouton principal de l’en-tête du livre propose toujours l’étape suivante). Une confirmation affiche l’estimation de tokens et de coût du serveur lorsqu’elle est disponible. Chaque unité est analysée, puis les résultats sont consolidés par chapitre en Book Bible. L’historique d’analyse reste consultable.
 5. Examiner et corriger la **Book Bible**, les personnages et les propositions de glossaire. Les entrées proposées ne sont pas acceptées automatiquement par défaut. Le glossaire s’exporte et s’importe en JSON, CSV ou TBX (format d’échange des outils de traduction). L’import reconnaît le format au contenu, accepte les CSV de tableur (séparateur `;` ou `,`, en-têtes français ou anglais comme « Terme source ; Traduction ») et ne remplace jamais un terme déjà présent. En TBX, un terme verrouillé est « preferred », un terme accepté « admitted » et une proposition non acceptée « deprecated ».
 6. **Traduire**. Le suivi se reconnecte automatiquement. Pause, reprise et retry conservent les traductions enregistrées.
 7. Comparer, corriger et valider dans l’éditeur (`Ctrl`/`⌘`+`S` enregistre, `Ctrl`/`⌘`+`Entrée` valide). Le texte source affiche la mise en forme du livre ; dans la traduction, les repères `⟦t0⟧…⟦/t0⟧` apparaissent en marques discrètes (‹ ouvre une mise en forme, › la ferme, un petit carré signale une image ou une note ; le survol les nomme) et doivent rester en place : leur suppression est signalée puis refusée par le serveur. Quitter un onglet ou la page avec une traduction non enregistrée demande confirmation.
-8. Exporter en EPUB, TXT, Markdown, Book Bible (JSON) ou archive de projet. L’export EPUB complet est refusé si du texte manque ou si EPUBCheck signale une non-conformité. L’archive de projet est une sauvegarde complète du travail (statuts, validations, historique, critiques, glossaire, personnages, travaux) ; les membres, le provider et le propriétaire ne sont pas restaurés — voir [Archive de projet](operations.md#archive-de-projet).
+8. Exporter depuis le menu **Exporter** du volume (voir [Exports](#exports)). L’archive de projet est une sauvegarde complète du travail (statuts, validations, historique, critiques, glossaire, personnages, travaux) ; les membres, le provider et le propriétaire ne sont pas restaurés — voir [Archive de projet](operations.md#archive-de-projet).
+
+### Exports
+
+Le menu **Exporter** propose les formats adaptés à la source du volume :
+
+- **Volume EPUB** : EPUB traduit, Texte, Markdown, Book Bible JSON, Projet complet (.zip), et **EPUB partiel · originaux conservés**.
+- **Volume TXT ou JSON** : **Chapitres (.zip, un fichier par chapitre)**, **Texte consolidé (.txt)**, Markdown, Book Bible JSON, Projet complet (.zip). L’export EPUB n’existe pas pour ces volumes.
+
+Le ZIP de chapitres contient un fichier UTF-8 par chapitre (`chapters/001 - Titre.txt`, dans l’ordre de lecture, numéros complétés de zéros) et `manifest.json` (titre, série, numéro de volume, langues, et pour chaque chapitre son numéro, son titre, son empreinte SHA-256 et s’il est complet). Chaque fichier garde la mise en page de la source : paragraphes, lignes, lignes vides, indentation, séparateurs de scène ; aucun repère interne de Libris n’y figure. Le texte consolidé réunit tous les chapitres sous leur titre ; le Markdown met un titre `##` au-dessus de chaque chapitre. L’export texte d’un EPUB respecte aussi les chapitres et leurs titres traduits.
+
+**Options d’export…** permet de choisir le format et deux options : **Compléter avec le texte original** (les passages non traduits gardent leur texte source ; le manifeste signale les chapitres incomplets) et, pour le ZIP, **Ajouter le texte consolidé au ZIP**. Sans la première option, un export texte ou EPUB d’une traduction incomplète est refusé ; l’export EPUB complet est aussi refusé si EPUBCheck signale une non-conformité.
+
+L’API permet en plus d’exporter plusieurs volumes d’une série en un seul ZIP (`POST /api/exports/text`, un dossier par volume). L’aperçu d’un chapitre TXT ou JSON est une mise en page simple de son texte.
 
 ### Écrans du livre
 
 - **Traduction** : sections repliables à gauche, passages source et traduction alignés, consignes propres à un passage via **Retraduire… → Consignes du passage…**.
 - **Validations** : file paginée des passages à vérifier (source, traduction, doutes et propositions de l’IA) ; chaque proposition peut être acceptée, refusée ou chargée dans l’éditeur avec **Modifier**. **Tout accepter** et **Lancer la revue IA** demandent confirmation.
 - **Book Bible** : résumé, fiches personnages modifiables dans un formulaire, maintenance de la mémoire (synchroniser, vérifier, réindexer dans OpenViking, reconstruire depuis la base).
-- **Glossaire** : import JSON, CSV ou TBX et export dans ces trois formats.
-- **Réglages** : informations du livre, langues, modèle, **Mémoire de traduction** lorsque le serveur la propose, partage (liste des membres, invitation, révocation) et suppression du projet.
+- **Glossaire** : import JSON, CSV ou TBX et export dans ces trois formats. Dans une série, la case **Déroge à la série** garde la traduction de ce volume même si le glossaire de la série en impose une autre ; la dérogation est tracée dans le journal de la série.
+- **Réglages** : informations du livre (changer le nom de série d’un EPUB le rattache à cette série, créée au besoin ; le vider en fait un volume unique ; les chapitres texte restent dans leur série), langues, modèle, **Mémoire de traduction** lorsque le serveur la propose, partage (liste des membres, invitation, révocation) et suppression du projet.
 
 Le thème (clair, sombre ou celui du système) et la langue se choisissent dans le menu du compte, en bas de la barre latérale.
 
 La preview est volontairement simplifiée (CSS de lecture neutre) ; les CSS et ressources originales sont conservées dans l’EPUB exporté. Aucune mention IA n’est ajoutée automatiquement.
+
+## Bibliothèque, séries et import
+
+La bibliothèque est organisée en **séries → volumes → chapitres**. Une série est le projet principal ; un volume est l’unité de traitement (analyse, traduction, relecture, export) ; un EPUB sans série est un **volume unique**. Une webnovel importée chapitre par chapitre range ses chapitres dans le **flux continu** de sa série (ou dans un volume texte numéroté).
+
+### Bibliothèque
+
+- **Séries** en premier : nom, nombre de volumes et de chapitres, formats (EPUB, TXT, JSON), progression cumulée, dernière activité, points à examiner (passages à vérifier, erreurs, chapitres dont le contexte a changé, envois de mémoire en échec), provider et modèle, source de mémoire, volumes manquants ou en double. Une série partagée avec vous porte le badge **Partagée** et n’affiche que les volumes partagés.
+- **Volumes uniques** ensuite, en tableau ou en cartes, avec la sélection multiple et les actions groupées (configurer, analyser, exporter, archiver…).
+- La recherche porte sur le nom de la série, ses auteurs et les titres de ses volumes ; les filtres (en cours, à examiner, traduction complète, archives) et le tri s’appliquent aux deux listes. Sous 720 px, tout s’affiche en cartes empilées.
+
+### Ajouter du contenu
+
+Le bouton **Ajouter du contenu** ouvre un assistant (plein écran sur téléphone). Rien n’est créé avant la dernière étape : les fichiers attendent sur le serveur, et **Abandonner** les supprime.
+
+1. **Format** : livres EPUB, chapitres TXT (un fichier par chapitre) ou restauration d’une archive Libris (`.zip` exportée depuis un livre). L’API JSON d’automatisation se configure avec un jeton d’API dans les paramètres.
+2. **Destination** : pour des EPUB, une série existante, une nouvelle série (le nom peut rester vide : il est alors proposé d’après les fichiers) ou explicitement **Volume unique**. Des chapitres TXT appartiennent toujours à une série : existante ou nouvelle, puis son flux continu, un volume texte existant ou un nouveau volume (numéro et titre).
+3. **Fichiers** : glisser-déposer ou sélecteur, un ou plusieurs fichiers. Chacun est envoyé et examiné à son tour (taille, format, titre, numéro détecté, erreurs, doublons) ; un fichier peut être retiré.
+4. **Pré-analyse** : tableau modifiable (cartes sur téléphone). Le nom de série se corrige pour tout le lot et indique si la série existe déjà ; titres et numéros se modifient ; **Monter/Descendre** puis **Renuméroter dans cet ordre** fixent l’ordre (**Trier par numéro** pour les chapitres). Chaque numéro affiche sa confiance et sa raison ; un numéro de confiance faible doit être confirmé (ou corrigé). Les numéros en double et les volumes déjà présents dans la série bloquent la suite ; les numéros manquants sont signalés. Les fichiers illisibles et les EPUB déjà présents dans la bibliothèque sont écartés. Pour les chapitres TXT : **Utiliser la première ligne comme titre**, et pour un chapitre déjà présent, « identique : ignoré » ou la case **Remplacer** à cocher explicitement. Si un remplacement devait supprimer des passages corrigés ou validés par une personne, une confirmation supplémentaire est demandée.
+5. **Confirmation** : récapitulatif (série ou volumes uniques, volumes créés, chapitres créés, identiques, remplacés, fichiers ignorés) et réglages facultatifs (langues, provider, qualité, source de mémoire ; vides, ils reprennent les valeurs par défaut de la série). Trois choix : **Importer uniquement**, **Importer et lancer l’analyse**, **Importer et lancer tout le pipeline**. Les avertissements (par exemple un provider manquant) et les refus du serveur s’affichent avec leur raison.
+
+### Page de série
+
+Le nom d’une série ouvre sa page (`#series/<id>`) ; le fil d’Ariane d’un volume y ramène aussi.
+
+- **Tableau de bord** : totaux, prochaines actions (volume sans provider ou pas encore analysé, passages à vérifier, volumes manquants ou en double, mémoire en échec) et chapitres dont le contexte a changé depuis leur traduction, avec **Ouvrir le volume**, **Marquer comme vérifié** ou **Relire le chapitre** (appelle le modèle, après confirmation).
+- **Volumes** : ordre de lecture, numéros modifiables, **Renuméroter dans cet ordre**, **Enregistrer la numérotation** (les doublons sont refusés), rattacher un volume unique, détacher un EPUB, actions groupées sur les volumes cochés.
+- **Chapitres** (webnovels et volumes texte) : progression de chaque chapitre, filtre par volume.
+- **Importer** : l’assistant, déjà positionné sur la série.
+- **Series Bible** : univers, lieux, organisations, objets, conventions, chronologie et personnages. **Recalculer depuis les volumes** ; **Modifier (JSON avancé)** enregistre une version validée qui fait autorité ; **Rendre aux volumes** la remet en calcul automatique.
+- **Glossaire** de série (ajout, modification, verrouillage, suppression) et liste des dérogations des volumes.
+- **Identités** (personnages, lieux, organisations, objets) : confirmer ou rejeter les liens proposés entre les volumes, modifier nom et alias, **Fusionner** ou **Séparer** après confirmation. **Relations** entre identités.
+- **Mémoire** : état OpenViking de la série (envoyés, en attente, en échec, par volume) et **Resynchroniser**, **Réindexer**, **Reconstruire**.
+- **Paramètres par défaut** (nom, type, langues, provider, qualité, source de mémoire, instructions) proposés aux prochains imports, et **Gestion** : archiver ou restaurer la série avec ses volumes, la supprimer lorsqu’elle est vide, journal des décisions (fusions, séparations, glossaire, dérogations).
 
 ## Codex
 
@@ -106,7 +153,7 @@ Les choix humains validés remplacent leurs anciennes versions dans le retrieval
 
 ### Séries
 
-Donnez à chaque tome le même nom de série (la casse et les espaces ne comptent pas) et son numéro de volume. Un tome reçoit le glossaire accepté des tomes précédents (jamais des suivants) : un terme verrouillé dans un tome antérieur est imposé et contrôlé comme le glossaire verrouillé du livre, sauf si ce livre verrouille lui-même une autre traduction. Vos corrections validées d’une traduction automatique (« Tour Argentée » → « Tour d’Argent ») sont transmises aux tomes suivants lorsque le passage concerné y est évoqué.
+Rangez chaque tome dans la même série (depuis l’[assistant d’import](#ajouter-du-contenu), la page de la série ou le nom de série des réglages du livre ; la casse et les espaces ne comptent pas) avec son numéro de volume. Un tome reçoit le glossaire accepté des tomes précédents (jamais des suivants) : un terme verrouillé dans un tome antérieur est imposé et contrôlé comme le glossaire verrouillé du livre, sauf si ce livre verrouille lui-même une autre traduction. Vos corrections validées d’une traduction automatique (« Tour Argentée » → « Tour d’Argent ») sont transmises aux tomes suivants lorsque le passage concerné y est évoqué.
 
 ### Mémoire de traduction
 
@@ -158,6 +205,15 @@ Les métriques distinguent le cache, les tentatives, les tokens rapportés par l
 - **Coût** : prix actuels du fournisseur du livre (`currency_note` rappelle lesquels) ; 0 si aucun prix n’est saisi. Les remises de cache des fournisseurs et les forfaits d’abonnement (Codex/ChatGPT) ne sont pas pris en compte.
 
 C’est un ordre de grandeur : les contrôles de cohérence (qualité haute et maximum) sont comptés à un appel par terme ou personnage connu, et l’option de contexte approfondi (`deep`) n’est pas incluse. Les traces complètes de prompts/réponses sont privées au projet ; les logs de service ne contiennent pas le livre.
+
+## API d’automatisation
+
+Un script ou un autre serveur peut envoyer des chapitres à traduire et récupérer le résultat sans passer par l’interface, via l’API versionnée `/api/v1` (référence complète en anglais, avec exemples curl : [docs/api.md](api.md)).
+
+- **Jetons** : *Mon compte* (ou *Paramètres › API d’automatisation*) › *Créer un jeton*. Choisissez un nom, les permissions (`series:read`, `content:write`, `pipeline:start`, `jobs:read`, `jobs:control`, `results:read`) et une expiration. Le secret (`lbr_…`) n’est affiché qu’une fois : copiez-le dans le gestionnaire de secrets du client. Libris n’en garde que l’empreinte SHA-256 ; la création et la révocation sont journalisées. Un jeton ne voit que les séries et requêtes de son propriétaire, et ne permet pas d’utiliser l’interface ; la session de l’interface n’ouvre pas `/api/v1`.
+- **Envoi** : `POST /api/v1/translation-requests` avec `Authorization: Bearer <jeton>`, un JSON (ou un fichier `.json`) qui décrit la série, le volume, les langues (BCP 47), les chapitres (numéro, identifiant externe, titre, texte) et les options du pipeline. Tout est enregistré avant la réponse `202` ; l’en-tête `Idempotency-Key` ou le même `external_id` renvoie la même requête sans rien dupliquer (409 si le contenu diffère). Un chapitre déjà importé avec un autre texte est refusé sauf `replace_changed_chapters: true`.
+- **Suivi et résultat** : la traduction tourne dans le worker ; si un travail occupe déjà le volume, la requête attend (`queued`) et démarre ensuite, même après un redémarrage. `GET …/{id}` donne l’état, l’étape et la progression ; `…/pause`, `…/resume`, `…/cancel` pilotent le travail ; `…/result?format=json|txt|txt-zip` rend la traduction des chapitres de la requête (409 tant qu’elle n’est pas terminée, sauf `partial=true`).
+- **Limites** : taille (`API_MAX_PAYLOAD_MB`), nombre de chapitres (`API_MAX_CHAPTERS`) et débit par jeton (`API_RATE_LIMIT_PER_MINUTE`, compté par processus de l’API). Il n’y a volontairement pas de webhook : le client interroge l’état.
 
 ## Tests et développement
 

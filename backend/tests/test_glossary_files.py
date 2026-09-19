@@ -56,7 +56,8 @@ def test_glossary_round_trip(seeded, format):
         assert f'filename="glossary.{format}"' in exported.headers["content-disposition"]
         reset(pid, [])
         # Content detection: the file name does not tell the format.
-        assert imported(client, pid, "export", exported.content) == {"imported": 4, "skipped": 0}
+        result = imported(client, pid, "export", exported.content)
+        assert (result["imported"], result["skipped"], result["replaced"]) == (4, 0, 0)
     restored = terms(pid)
     if format == "tbx":
         # TBX has one administrative status per term: a locked proposal comes back as a proposal.

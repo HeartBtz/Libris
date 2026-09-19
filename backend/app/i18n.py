@@ -406,6 +406,7 @@ TEMPLATES = {
     "Requête toujours inachevée après {hours} h : délai maximal dépassé.": "Request still unfinished after {hours} h: maximum delay exceeded.",
     "L’hôte « {host} » n’est pas dans la liste des webhooks autorisés.": "The host “{host}” is not in the list of allowed webhooks.",
     "L’hôte « {host} » désigne une adresse privée ou réservée : webhook refusé.": "The host “{host}” points to a private or reserved address: webhook refused.",
+    "Disposition bilingue inconnue : {layout}.": "Unknown bilingual layout: {layout}.",
 }  # fmt: skip
 
 

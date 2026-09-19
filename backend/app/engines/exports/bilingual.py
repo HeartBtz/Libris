@@ -260,7 +260,7 @@ def build_bilingual_epub(
 ) -> bytes:
     """A valid EPUB 3: a title page, one XHTML file per chapter, a navigation document."""
     if layout not in LAYOUTS:
-        raise ValueError(f"Unknown bilingual layout: {layout}")
+        raise ValueError(f"Disposition bilingue inconnue : {layout}.")
     source, target = project.source_language, project.target_language
     title = _clean(project.title) or "Libris"
     files: list[tuple[str, str, bytes]] = []  # (href, label, content)

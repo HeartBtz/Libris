@@ -23,6 +23,8 @@ from app.engines.ingestion.store import data_path, primary_asset, read_asset
 from app.models import Issue, Job, Project, Provider, Segment, Series, TranslationRequest
 
 FORMATS = ("json", "txt", "txt-zip", "epub")
+# What a result covers (see request_texts); the stored artifact is the `request` one.
+SCOPES = ("request", "new", "volume")
 MEDIA_TYPES = {
     "json": "application/json",
     "txt": "text/plain; charset=utf-8",
@@ -53,11 +55,18 @@ def default_format(request: TranslationRequest) -> str:
     return request.options.get("output_format") or "json"
 
 
-def request_texts(db, request: TranslationRequest, project: Project) -> list[ChapterText]:
+def request_texts(
+    db, request: TranslationRequest, project: Project, scope: str = "request"
+) -> list[ChapterText]:
+    """`request`: the chapters the request sent (the whole book for an EPUB); `new`: only those it added
+    or replaced; `volume`: every chapter of the volume, earlier deliveries included."""
     texts = volume_texts(db, project)
-    if request.options.get("input") == "epub":
+    if scope == "volume" or (scope == "request" and request.options.get("input") == "epub"):
         return texts
-    wanted = set(request.chapter_ids or [])
+    if scope == "new":
+        wanted = set(request.options.get("new_chapter_ids", request.chapter_ids) or [])
+    else:
+        wanted = set(request.chapter_ids or [])
     return [item for item in texts if item.chapter_id in wanted]
 
 
@@ -178,12 +187,12 @@ def render_epub(db, project: Project) -> Rendered:
 
 def render(
     db, request: TranslationRequest, project: Project, job: Job | None, fmt: str, status: str, report: dict | None,
-    bundle_report: bool = False,
+    bundle_report: bool = False, scope: str = "request",
 ) -> Rendered:  # fmt: skip
     """`bundle_report` adds report.json to a ZIP of chapters (the stored artifact carries its report)."""
     if fmt == "epub":
         return render_epub(db, project)
-    texts = request_texts(db, request, project)
+    texts = request_texts(db, request, project, scope)
     complete = (
         bool(texts) and all(item.complete for item in texts) and not (report or {}).get("residual_total")
     )
@@ -200,6 +209,7 @@ def render(
                 )
         return Rendered(output.getvalue(), fmt, name + ".zip")
     body = document(db, request, project, job, texts, status, complete, report)
+    body["scope"] = scope
     return Rendered(json.dumps(body, ensure_ascii=False).encode("utf-8"), "json", name + ".json")
 
 

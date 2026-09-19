@@ -16,6 +16,7 @@ from app.engines.translation.memory import remembered_translation
 from app.engines.translation.versions import save_version
 from app.jobs import segment_state as state
 from app.jobs.concurrency import blocking, book_share, in_parallel, job_lock
+from app.jobs.follow_up import scoped_chapters
 from app.jobs.queue import JobStopped, checkpoint, fence, finish_segment
 from app.models import Entity, Glossary, Issue, Job, Project, Segment
 from app.providers.llm import (
@@ -634,6 +635,7 @@ def _consistency_samples(job: Job) -> tuple[Project, list[dict]]:
     subjects += [{"source": e.name, "profile": e.data, "kind": "character"} for e in entities]
     sources = [s.source.casefold() for s in segments]
     samples: dict[str, dict] = {}
+    scope = scoped_chapters(job)
     # Evidence windows sample occurrences throughout the novel for each term; bounded, grounded output.
     for subject in subjects:
         names = [n.casefold() for n in [subject["source"], *subject.get("profile", {}).get("aliases", [])]]
@@ -642,9 +644,15 @@ def _consistency_samples(job: Job) -> tuple[Project, list[dict]]:
             continue
         # Sample across the entire narrative, capped at three calls per entity. Structural/locked-term
         # checks still cover every unit. Coverage is persisted and not represented as exhaustive LLM QA.
-        offsets = sorted({1, max(1, len(evidence) // 2), max(1, len(evidence) - 3)})
+        pool, offsets = evidence, sorted({1, max(1, len(evidence) // 2), max(1, len(evidence) - 3)})
+        if scope is not None:
+            # A follow-up: only the new chapters are sampled, against the first occurrence.
+            pool = [s for s in evidence if s.chapter_id in scope]
+            offsets = sorted({0, len(pool) // 2, max(0, len(pool) - 3)}) if pool else []
         for offset in offsets:
-            batch = list({s.id: s for s in [evidence[0], *evidence[offset : offset + 3]]}.values())
+            batch = list({s.id: s for s in [evidence[0], *pool[offset : offset + 3]]}.values())
+            if len(batch) < 2:
+                continue
             payload = {
                 "subject": subject,
                 "instructions": project.instructions,

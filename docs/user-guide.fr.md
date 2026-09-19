@@ -333,6 +333,10 @@ Des bandeaux apparaissent sous l’en-tête quand quelque chose mérite votre at
 - **Ce travail attend son tour dans la file d’attente.** : sa position et ce qui le retient (fournisseur
   occupé, nombre de travaux simultanés du compte ou du jeton atteint) ; **Voir la file d’attente** ouvre la
   [file d’attente](#la-file-dattente).
+- **Budget atteint : travail en pause** : le livre (ou le jeton d’API qui a lancé la requête) a atteint son
+  budget ; le message donne la dépense et le plafond. **Relever le budget** ouvre les réglages du livre ; une
+  fois le budget relevé, **Reprendre** continue là où le travail s’était arrêté (voir [Budgets de
+  coût](#budgets-de-coût)).
 - **Intervention requise** : par exemple, la connexion Codex doit être renouvelée (**Ouvrir les paramètres de
   connexion du provider**, pour un administrateur).
 
@@ -589,6 +593,7 @@ ou d’un glossaire partagé, avec leur niveau (**Livre**, **Vol. n**, **Décisi
 L’onglet **Réglages** regroupe la configuration du livre. Mettez le travail en pause avant de modifier la
 stratégie ou les langues ; **Enregistrer les réglages** applique les changements.
 
+- **Budget du livre**, en tête de l’onglet : voir [Budgets de coût](#budgets-de-coût).
 - **Livre** : nombre de mots, sections, images et taille ; **Titre à l’export**, **Auteur**, **Série** et
   **Numéro du volume**. Changer le nom de série d’un EPUB le rattache à cette série (créée si besoin) ; le vider
   en fait un volume unique. Les chapitres d’une webnovel restent dans leur série.
@@ -617,6 +622,30 @@ stratégie ou les langues ; **Enregistrer les réglages** applique les changemen
 - **Conservés tels quels à l’import** : les éléments jamais envoyés au modèle et restitués à l’identique (texte
   préformaté, formules MathML…), et le **Rapport de validation à l’import**.
 - **Zone de danger** (propriétaire seulement) : **Supprimer ce projet**, définitivement.
+
+### Budgets de coût
+
+Un livre peut avoir un plafond de dépense, dans la devise où les prix des fournisseurs sont saisis (celle de
+l’estimation). Il couvre tout ce que le livre a coûté, tous travaux confondus.
+
+La carte **Budget du livre** montre un badge (**Sans budget**, **Dans le budget**, **Proche du plafond**,
+**Plafond atteint**), le **Dépensé**, le **Plafond** et le **Reste**, une jauge, le seuil de bascule et ce que
+fait un lancement dont l’estimation dépasse le reste. Pour le **Dernier travail**, elle compare le **Coût
+estimé** au lancement et le **Coût réel**, et indique les bascules vers un fournisseur moins cher. Le
+propriétaire choisit **Budget de ce livre** : **Réglage de l’installation** (le plafond par défaut, s’il y en
+a un), **Plafond propre** (avec son **Montant du plafond**) ou **Aucun budget pour ce livre**, puis
+**Enregistrer le budget**.
+
+- **Avant un lancement**, la fenêtre de confirmation affiche l’estimation et ce qui reste du budget. Si
+  l’estimation dépasse le reste, le travail est lancé avec un avertissement, ou refusé si l’installation le
+  demande. Un budget déjà atteint refuse tout lancement.
+- **Pendant le travail**, Libris compare la dépense réelle au plafond avant chaque appel au modèle. À partir du
+  seuil de bascule (90 % par défaut), le travail passe au premier fournisseur de secours moins cher du livre ou
+  de l’installation ; sans fournisseur moins cher, il se met en pause. Au plafond, seul un fournisseur sans prix
+  peut continuer. Chaque bascule ou pause est consignée dans le journal du pilote automatique.
+- **Reprendre** un travail mis en pause par le budget est refusé tant que le budget n’est pas relevé.
+
+Un fournisseur sans prix compte pour 0 : la carte le signale, car le budget ne peut pas l’arrêter.
 
 ### Observabilité
 
@@ -800,10 +829,14 @@ compte** ou, pour un administrateur, depuis **Paramètres → API d’automatisa
    (Basse, Normale ou Haute si votre compte y a droit), et des limites propres au jeton, plus basses que celles
    du compte : **Travaux simultanés au plus** (les suivants attendent) et **Requêtes en attente au plus** (au-delà,
    l’API répond 429). Vides, seules les limites du compte s’appliquent.
-4. Copiez le secret (`lbr_…`) : **il n’est affiché qu’une fois**. Libris n’en garde qu’une empreinte.
+4. Donnez-lui au besoin un **Budget du jeton**, **Par mois** ou **Sur toute la vie du jeton** : une fois le
+   plafond atteint, les requêtes qui lanceraient du travail sont refusées (erreur 402), et un travail en cours
+   se met en pause près du plafond comme pour un livre.
+5. Copiez le secret (`lbr_…`) : **il n’est affiché qu’une fois**. Libris n’en garde qu’une empreinte.
 
-La liste montre pour chaque jeton sa date de création, d’expiration et de dernière utilisation, et ses limites
-de file d’attente quand il en a. **Révoquer**
+La liste montre pour chaque jeton sa date de création, d’expiration et de dernière utilisation, ses limites
+de file d’attente quand il en a, et sa dépense face à son budget (« Budget : 3,20 sur 10,00 ce mois-ci ») ;
+**Modifier le budget** le change. **Révoquer**
 est définitif : les clients qui l’utilisent reçoivent une erreur 401. La référence complète de l’API, avec des
 exemples `curl`, est dans [api.md](api.md).
 
@@ -897,6 +930,14 @@ suivant prend le relais), la liste ordonnée des **Fournisseurs de secours**, et
 automatiques** (entre 0 et 1 ; en dessous, la proposition est refusée ou laissée telle quelle, et la décision
 est consignée). Elles s’appliquent aux décisions suivantes sans redémarrage ; **Revenir aux valeurs de
 l’environnement** efface ce qui a été enregistré ici.
+
+### Budgets
+
+Les **Budgets de l’installation** : le **Plafond par défaut d’un livre** (0 : aucun), appliqué aux livres qui
+n’ont pas le leur ; le **Seuil de bascule (%)**, de 50 à 100, à partir duquel un travail passe à un
+fournisseur moins cher ou se met en pause ; et l’**Estimation au-dessus du reste** : **Avertir et lancer** ou
+**Refuser le lancement**. Sans valeur enregistrée ici, les variables `BUDGET_*` s’appliquent ; **Revenir aux
+valeurs de l’environnement** efface ce qui a été enregistré. Voir [Budgets de coût](#budgets-de-coût).
 
 ### Reprise automatique
 

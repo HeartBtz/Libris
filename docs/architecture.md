@@ -62,8 +62,7 @@ These rules hold everywhere in the code; changes must keep them.
   chooses; nothing is located by a name taken from an upload. External memory is a rebuildable copy,
   and an external failure never removes a local result.
 - **Human work wins.** A passage corrected or validated by a person is never overwritten by a job, the
-  autopilot, a chapter replacement through the API (unless the client explicitly discards it) or a
-  restore. A validated human correction is the top priority in the context of later passages.
+  autopilot, or a chapter replacement (unless the person or the API client explicitly discards it). A validated human correction is the top priority in the context of later passages.
 - **Writes are fenced.** A job writes only while it holds its lease; every write checks the lease and
   the passage revision. A late answer from a job that lost its lease is refused, even if the provider
   finished the call.

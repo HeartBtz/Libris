@@ -1,5 +1,6 @@
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -27,6 +28,9 @@ class Settings(BaseSettings):
     # now on (a volume may choose its own, `config.passage_max_chars`). Longer passages share the fixed
     # context cost of a call across more text; see docs/operations.md before raising it.
     passage_max_chars: int = Field(default=3500, ge=500, le=20000)
+    # "fused": at high and maximum quality, one call reviews a passage and corrects it when needed,
+    # instead of a review call then a revision call (a volume may choose, `config.review_mode`).
+    review_mode: Literal["separate", "fused"] = "separate"
     # Automation API (/api/v1): JSON body of one request (empty: MAX_UPLOAD_MB), chapters per request,
     # and calls per token and per minute in each API process (0: no limit).
     api_max_payload_mb: int | None = Field(default=None, ge=1, le=4096)

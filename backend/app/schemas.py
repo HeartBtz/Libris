@@ -219,6 +219,16 @@ class ReviewResult(StrictModel):
     issues: list[Critique] = Field(default_factory=list)
 
 
+class ReviewRevisionResult(StrictModel):
+    """Review and revision in one answer: the corrected units only when there is something to correct."""
+
+    issues: list[Critique] = Field(default_factory=list)
+    units: list[TextUnit] = Field(default_factory=list)
+    new_terms: list[Term] = Field(default_factory=list)
+    events: list[Fact] = Field(default_factory=list)
+    uncertainties: list[str] = Field(default_factory=list)
+
+
 class FinalReviewResult(ReviewResult):
     decision: Literal["accept", "revise"]
     uncertainties: list[str] = Field(default_factory=list, max_length=0)

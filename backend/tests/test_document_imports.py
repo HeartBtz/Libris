@@ -49,20 +49,22 @@ HTML = """<!DOCTYPE html><html lang="en"><head><title>Glass Road</title><meta na
 <!-- a comment --></body></html>"""
 
 
-def docx_bytes(paragraphs: list[tuple[str, str | None]], title: str = "Word Title", extra: dict | None = None) -> bytes:
+def docx_bytes(
+    paragraphs: list[tuple[str, str | None]], title: str = "Word Title", extra: dict | None = None
+) -> bytes:
     """A minimal DOCX: (text, style id) paragraphs, one text box paragraph nested in the first."""
     body = []
     for text, style in paragraphs:
         properties = f'<w:pPr><w:pStyle w:val="{style}"/></w:pPr>' if style else ""
         if style == "List":
             properties = '<w:pPr><w:numPr><w:ilvl w:val="0"/><w:numId w:val="1"/></w:numPr></w:pPr>'
-        body.append(f"<w:p>{properties}<w:r><w:t xml:space=\"preserve\">{text}</w:t></w:r></w:p>")
+        body.append(f'<w:p>{properties}<w:r><w:t xml:space="preserve">{text}</w:t></w:r></w:p>')
     document = (
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
         '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" '
         'xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"><w:body>'
         + "".join(body)
-        + '<w:p><w:r><w:t>Split</w:t></w:r><w:r><w:tab/><w:t>text</w:t></w:r><w:r><w:delText>gone</w:delText></w:r>'
+        + "<w:p><w:r><w:t>Split</w:t></w:r><w:r><w:tab/><w:t>text</w:t></w:r><w:r><w:delText>gone</w:delText></w:r>"
         "</w:p><w:p><mc:AlternateContent><mc:Fallback><w:p><w:r><w:t>Duplicate</w:t></w:r></w:p></mc:Fallback>"
         "</mc:AlternateContent></w:p></w:body></w:document>"
     )
@@ -105,7 +107,10 @@ def test_markdown_blocks_become_units_and_layout():
     ]
     assert chapter.title == "Chapter 1"
     layout = chapter.meta["layout"]["items"]
-    assert [item.get("fixed") for item in layout if "fixed" in item] == ['```\ncode stays = "as is"\n```', "***"]
+    assert [item.get("fixed") for item in layout if "fixed" in item] == [
+        '```\ncode stays = "as is"\n```',
+        "***",
+    ]
     assert [item["indent"] for item in layout if "unit" in item] == ["# ", "", "- ", "- ", "> ", ""]
     assert chapter.meta["passage_max_chars"] == 3500
 
@@ -152,7 +157,9 @@ def test_docx_paragraphs_headings_lists_without_deleted_or_fallback_text():
     "data",
     [
         b"not a zip",
-        docx_bytes([("x", None)], extra={"word/evil.xml": "x"}).replace(b"word/document.xml", b"word/documenX.xml"),
+        docx_bytes([("x", None)], extra={"word/evil.xml": "x"}).replace(
+            b"word/document.xml", b"word/documenX.xml"
+        ),
     ],
 )
 def test_unreadable_docx_is_explained(data):
@@ -197,7 +204,10 @@ def client():
         db.add(User(username="reader", password_hash=password_hash(PASSWORD), admin=True))
         db.commit()
     with TestClient(app) as client:
-        assert client.post("/api/auth/login", json={"username": "reader", "password": PASSWORD}).status_code == 200
+        assert (
+            client.post("/api/auth/login", json={"username": "reader", "password": PASSWORD}).status_code
+            == 200
+        )
         yield client
 
 
@@ -208,25 +218,39 @@ def commit(client, fmt: str, files: list[tuple[str, bytes]], **settings_values):
         assert response.status_code == 201, response.text
     proposal = client.get(f"/api/imports/{session['id']}").json()["proposal"]
     items = [{"index": item["index"], "chapter_number": item["chapter_number"]} for item in proposal["items"]]
-    body = {"destination": {"mode": "series", "series_name": "Glass"}, "items": items, "settings": settings_values}
+    body = {
+        "destination": {"mode": "series", "series_name": "Glass"},
+        "items": items,
+        "settings": settings_values,
+    }
     return client.post(f"/api/imports/{session['id']}/commit", json=body)
 
 
 def test_documents_import_as_chapters_export_as_text_and_round_trip_through_an_archive(client):
     long = "\n\n".join(f"Sentence {n} about the long glass road and its keepers." for n in range(120))
-    response = commit(client, "md", [("Chapter 1.md", MARKDOWN.encode()), ("Chapter 2.markdown", long.encode())],
-                      passage_max_chars=1200)
+    response = commit(
+        client,
+        "md",
+        [("Chapter 1.md", MARKDOWN.encode()), ("Chapter 2.markdown", long.encode())],
+        passage_max_chars=1200,
+    )
     assert response.status_code == 200, response.text
     project_id = response.json()["projects"][0]["id"]
     assert commit(client, "html", [("Chapter 3.htm", HTML.encode())]).status_code == 200
-    assert commit(client, "docx", [("Chapter 4.docx", docx_bytes([("Chapter 4", "Titre1"), ("Dan ran.", None)]))])
+    assert commit(
+        client, "docx", [("Chapter 4.docx", docx_bytes([("Chapter 4", "Titre1"), ("Dan ran.", None)]))]
+    )
     # A file whose extension does not match the import format is refused before inspection.
     session = client.post("/api/imports", json={"format": "md"}).json()
-    assert client.post(f"/api/imports/{session['id']}/files", files={"file": ("x.txt", b"x")}).status_code == 422
+    assert (
+        client.post(f"/api/imports/{session['id']}/files", files={"file": ("x.txt", b"x")}).status_code == 422
+    )
     with SessionLocal() as db:
         project = db.get(Project, project_id)
         assert project.config["passage_max_chars"] == 1200
-        chapters = db.scalars(select(Chapter).where(Chapter.project_id == project_id).order_by(Chapter.position)).all()
+        chapters = db.scalars(
+            select(Chapter).where(Chapter.project_id == project_id).order_by(Chapter.position)
+        ).all()
         assert [c.chapter_number for c in chapters] == [1, 2, 3, 4]
         assert [c.import_meta["adapter"] for c in chapters] == ["md", "md", "html", "docx"]
         # The volume's passage size also applies to the chapters added later.

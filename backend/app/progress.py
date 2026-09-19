@@ -27,7 +27,7 @@ HELD = ("pending", "waiting", "analyzing", "translating", "reviewing", "syncing"
 
 STAGE_OPERATIONS = {
     "analysis": ("chapter_analysis", "book_analysis"),
-    "translation": ("translation", "translation_review", "polishing"),
+    "translation": ("translation", "translation_review", "review_revision", "polishing"),
     "review": ("final_review", "translation_revision", "consistency_check"),
 }
 REVIEW_JOB_OPERATIONS = ("translate", "resolve_validations")

@@ -251,6 +251,32 @@ export interface ChapterProposal {
   confidence: Confidence;
   reason: string;
   existing_chapter: null | { chapter_id: string; title: string; same_content: boolean };
+  /** Chapters of the target volume met by the parts of a file split at its headings. */
+  split_existing?: { number: number; chapter_id: string; title: string; same_content: boolean }[];
+}
+/** One chapter of a TXT, Markdown or DOCX file split at its headings (inspection `meta.split`). */
+export interface SplitPartProposal {
+  /** Line (TXT, Markdown) or paragraph (DOCX) where the chapter starts. */
+  start: number;
+  number: number;
+  number_from_heading: boolean;
+  title: string;
+  heading: boolean;
+  first_line: string;
+  characters: number;
+  excerpt: string;
+  checksum: string;
+}
+export interface SplitProposal {
+  unit: "line" | "block";
+  confidence: Confidence;
+  reason: string;
+  /** Applied unless the person turns it off (the headings leave no doubt). */
+  default: boolean;
+  /** The file is too long to stay one chapter. */
+  required?: boolean;
+  warnings: string[];
+  parts: SplitPartProposal[];
 }
 export interface Proposal {
   series?: { name: string; confidence: Confidence; series_reason: string; existing_series_id: string | null };

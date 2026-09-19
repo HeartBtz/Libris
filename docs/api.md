@@ -125,6 +125,13 @@ then the state of the job: `pending`, `running`, `paused`, `waiting` (provider t
 retried automatically), `blocked` (needs a person, e.g. provider authentication or refused content),
 `completed`, `failed`, `cancelled`.
 
+Started requests run under the [autopilot](autopilot.md) (unless the server sets `AUTOPILOT_ENABLED=false`
+or the volume opts out): refused content, invalid answers and open review proposals never wait for a
+person, and a provider outage switches to the fallback providers after a bounded wait, so a job always ends
+`completed` or `failed`. Its report (`outcome`, `rounds`, `residuals` — passages kept in the original, with
+their reason — and `reason`) is stored on the job (`result.autopilot`); the interface reads it, with every
+decision, from `GET /api/projects/{id}/autopilot`.
+
 ```bash
 curl -sS "$LIBRIS_URL/api/v1/translation-requests/$REQUEST_ID" -H "Authorization: Bearer $LIBRIS_TOKEN"
 ```

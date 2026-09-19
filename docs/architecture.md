@@ -10,13 +10,14 @@
 - `engines/context` : requête narrative, mémoire locale/externe/hybride, sélection, temporalité, budget et inspecteur ; `series.py` : conventions héritées des tomes antérieurs d’une série.
 - `engines/memory` : décisions humaines, personnages, glossaire et outbox.
 - `engines/translation` : analyse hiérarchique, versions, orchestration, contrôle global, traduction par parties (`repair.py`) et mémoire de traduction (`memory.py`).
+- `engines/autopilot` : pilote automatique (voir [autopilot.md](autopilot.md)) — boucle de convergence (`loop.py`), échelle de récupération des passages en échec (`recovery.py`), arbitrage IA des points ouverts (`arbitration.py`), décisions sur la mémoire (`memory.py`), fournisseurs de secours et pannes bornées (`providers.py`), dégradation des étapes facultatives (`degrade.py`) et journal `autopilot_decisions` (`decisions.record`).
 - `engines/quality` : identifiants d’unités, codes DOM, sorties vides, longueur, répétition, texte inchangé et terminologie.
 - `jobs` : prise en charge transactionnelle, bail, fencing, événements persistants, reprise, état par passage (`segment_state`) et exécution hors de la boucle asyncio (`concurrency`).
 - `api` : authentification, autorisations, projets, édition, paramètres, exports et SSE ; `api/v1.py` + `api/tokens.py` : API d’automatisation par jetons (voir [api.md](api.md)), dont les requêtes attendent en SQL que leur volume soit libre (`jobs/requests.py`, répartiteur du worker).
 
 ## Modèle SQL
 
-Entités normalisées (détail : [modèle de données](data-model.md)) : users, login_sessions, memberships, series, projects (volumes, flux continus de webnovel), source_assets, import_sessions, chapters, segments, translation_versions, entities, glossary, memories, bible_revisions, memory_outbox, prompts, jobs, job_segment_state, events, llm_requests, quality_issues, app_settings, series_entities, series_entity_links, series_relations, series_glossary, audit_entries, api_tokens, translation_requests.
+Entités normalisées (détail : [modèle de données](data-model.md)) : users, login_sessions, memberships, series, projects (volumes, flux continus de webnovel), source_assets, import_sessions, chapters, segments, translation_versions, entities, glossary, memories, bible_revisions, memory_outbox, prompts, jobs, job_segment_state, events, llm_requests, quality_issues, app_settings, series_entities, series_entity_links, series_relations, series_glossary, audit_entries, api_tokens, translation_requests, autopilot_decisions (journal des décisions du pilote automatique ; `jobs.result` porte le rapport final).
 
 Les documents XHTML/NCX sont des sections de travail ; les subdivisions sémantiques sont conservées dans les unités et `Segment.section`. Le `spine` original est stocké explicitement et ne dépend jamais d’un ordre de noms de fichiers. Les ancres sont déterministes : ressource + XPath + type de champ. Les paragraphes longs peuvent être fragmentés à des frontières linguistiques, puis réassemblés avant réinjection.
 
@@ -55,6 +56,8 @@ Ce qu’un job a réglé passage par passage vit dans `job_segment_state` (clé 
 | `recovery_target` | passages repris par la récupération automatique |
 | `repair` | groupe de quatre unités déjà validé d’un passage en réparation (`key` = révision:opération:début) |
 | `bible`, `consistency` | lots de synthèse de la Book Bible et échantillons de cohérence déjà traités (`segment_id` vide) |
+| `analysis_skipped` | pilote automatique : analyse du passage abandonnée après un refus ou des réponses invalides |
+| `autopilot_ladder`, `autopilot_arbitrated` | pilote automatique : passage passé par l’échelle de récupération, ou points ouverts arbitrés, pendant le tour `key` (`r1`, `r2`…) ; issue (`recovered`, `source_retained`, `applied`, `decided`, `failed`, `protected`) |
 
 La progression (`project.progress`, `stats`) lit ces lignes. Une fois un job fini depuis `RETENTION_JOB_STATE_DAYS`, seules ses lignes `reviewed` sont gardées (voir le guide d’exploitation). L’archive de projet emporte ces lignes avec les jobs, et une archive exportée avant la 0.5 est convertie à la restauration. La migration `b856c2e068f8` a converti les anciens checkpoints (listes `finished_ids`, `final_review_*`, `repair`…) : un job en pause au moment de la mise à jour reprend sans retraduire ; le retour arrière reconstruit les listes.
 
@@ -74,7 +77,7 @@ Reprise et sûreté :
 
 - Un passage n’est marqué `finished` qu’une fois toutes ses étapes enregistrées. Chaque écriture vérifie le bail (`fence`) et la révision du passage ; une version déjà appliquée n’est pas réappliquée.
 - Une pause, une annulation, la perte du bail ou l’arrêt du worker annulent tous les appels en vol (leur requête passe à `interrupted`) ; la première erreur d’un passage (panne du provider, authentification) arrête aussi les autres. Les passages interrompus ne sont pas marqués : la reprise les recommence à partir de ce qu’ils avaient enregistré, sans refaire ceux qui étaient terminés ni émettre d’événement pour eux.
-- Le compteur des dix passages consécutifs en échec suit l’ordre d’achèvement des passages.
+- Le compteur des dix passages consécutifs en échec suit l’ordre d’achèvement des passages ; il n’arrête jamais un job du pilote automatique, dont les passages en échec passent par l’échelle de récupération.
 - Ordre des verrous : le worker verrouille la ligne de son job (`fence`) avant toute ligne de passage. Les actions de l’API qui touchent un passage et les jobs actifs du livre (correction humaine, original conservé, mise en file d’une proposition IA) verrouillent d’abord ces jobs (`lock_live_jobs`, par identifiant croissant), puis le passage ; l’interblocage passage/job avec le worker est donc impossible sous PostgreSQL. L’action attend au plus la fin de la courte transaction d’écriture du worker.
 
 ## Sélection contextuelle

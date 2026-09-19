@@ -76,6 +76,23 @@ class Settings(BaseSettings):
     memory_catalog_interval_seconds: int = Field(default=60, ge=10, le=86400)
     provider_recovery_base_seconds: int = 60
     provider_recovery_max_seconds: int = 3600
+    # Autopilot: a launched book goes from its source to an output without anyone's action.
+    # Default of new launches (UI and API); a project's config["autopilot"] or a launch can override it.
+    autopilot_enabled: bool = True
+    # Rounds of recovery → final review → AI arbitration before the remaining points are settled.
+    autopilot_max_rounds: int = Field(default=3, ge=1, le=10)
+    # Providers tried, in order, when the job's own one is down or fails a passage: names or ids,
+    # comma-separated. A project's config["fallback_provider_ids"] comes first.
+    autopilot_fallback_providers: str = ""
+    # A provider outage is waited out this many times and this long at most before the next provider.
+    autopilot_outage_max_retries: int = Field(default=5, ge=1, le=100)
+    autopilot_outage_max_wait_seconds: int = Field(default=3600, ge=0, le=7 * 86400)
+    # Confidence (0-1) an automatic memory decision needs; below it the proposal is rejected (glossary,
+    # series identity) or left as it is (Book Bible, outdated chapter context).
+    autopilot_glossary_min_confidence: float = Field(default=0.75, ge=0, le=1)
+    autopilot_identity_min_confidence: float = Field(default=0.8, ge=0, le=1)
+    autopilot_bible_min_coverage: float = Field(default=0.8, ge=0, le=1)
+    autopilot_stale_min_coverage: float = Field(default=0.5, ge=0, le=1)
     # Diagnostic data is bounded by the worker (app.maintenance.retention); 0 disables a rule.
     retention_request_bodies_days: int = Field(default=30, ge=0)
     retention_events_days: int = Field(default=7, ge=0)

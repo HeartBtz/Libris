@@ -217,6 +217,13 @@ No request stays `running` forever: a job paused, blocked or waiting for more th
 still unfinished after `API_REQUEST_MAX_HOURS` (168). When the autopilot reports an outcome on the job
 (`result.autopilot`), a `failed` outcome fails the request with its reason.
 
+Started requests run under the [autopilot](autopilot.md) (unless the server sets `AUTOPILOT_ENABLED=false`
+or the volume opts out): refused content, invalid answers and open review proposals never wait for a
+person, and a provider outage switches to the fallback providers after a bounded wait, so a job always ends
+`completed` or `failed`. Its report (`outcome`, `rounds`, `residuals` — passages kept in the original, with
+their reason — and `reason`) is stored on the job (`result.autopilot`); the interface reads it, with every
+decision, from `GET /api/projects/{id}/autopilot`.
+
 ```bash
 curl -sS "$LIBRIS_URL/api/v1/translation-requests/$REQUEST_ID" -H "Authorization: Bearer $LIBRIS_TOKEN"
 # Long poll: answers as soon as the request ends, or after 60 s at most (API_RESULT_MAX_WAIT_SECONDS)

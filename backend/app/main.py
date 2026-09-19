@@ -15,6 +15,7 @@ from starlette.exceptions import HTTPException
 
 from app import __version__, throttle
 from app.api import (
+    autopilot,
     characters,
     coverage,
     estimates,
@@ -206,7 +207,7 @@ async def unexpected(request: Request, exc: Exception):
 app.include_router(v1.router)
 for module in (
     tokens, identity, providers, recovery, exports, projects, segments, memory, observability, characters, coverage,
-    series, imports,
+    series, imports, autopilot,
 ):  # fmt: skip
     app.include_router(module.router)
 app.include_router(estimates.router)

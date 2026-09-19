@@ -28,8 +28,9 @@ Cliquer **Analyser** sur un livre entièrement analysé est une opération sans 
 | Arrêt propre du worker        | requête interrompue, travail remis en attente au checkpoint                                                      |
 | Arrêt brutal                  | récupération après expiration du bail de 60 s                                                                    |
 | Réseau, timeout, HTTP 429/5xx | `waiting`, nouvelle tentative planifiée, délai progressif de 60 s à 1 h (`PROVIDER_RECOVERY_BASE_SECONDS`, `PROVIDER_RECOVERY_MAX_SECONDS`) ; `Retry-After` respecté jusqu’à 24 h |
-| Authentification invalide     | `blocked`, reconnexion et reprise nécessaires                                                                    |
-| Refus pendant l’analyse       | `blocked` / `content_refusal`, intervention humaine nécessaire                                                   |
+| Authentification invalide     | `blocked`, reconnexion et reprise nécessaires ; pilote automatique : fournisseur de secours suivant, ou `failed` |
+| Refus pendant l’analyse       | `blocked` / `content_refusal`, intervention humaine nécessaire ; pilote automatique : passage sauté, décision journalisée |
+| Panne prolongée (pilote automatique) | après `AUTOPILOT_OUTAGE_MAX_RETRIES` attentes ou `AUTOPILOT_OUTAGE_MAX_WAIT_SECONDS`, fournisseur de secours suivant ; plus aucun : `failed` (`providers_exhausted`) avec la raison |
 | Refus pendant la traduction   | deuxième essai, puis passage marqué `refused` et poursuite du livre                                              |
 | JSON ou structure invalide    | retries bornés, puis erreur localisée                                                                            |
 
@@ -38,6 +39,8 @@ Un contrôle de bail toutes les deux secondes détecte les pauses et annulations
 Le travail SQL et les calculs proportionnels à la taille du livre s’exécutent hors de la boucle asyncio du worker : un gros livre ne retarde plus les heartbeats des autres livres. Sur un livre synthétique de 1 500 passages traduit en même temps qu’un second de même taille (SQLite, provider sans latence), le retard maximal de la boucle est passé de 450 ms à environ 100 ms et l’intervalle entre deux renouvellements de bail n’a pas dépassé 2,2 s pour un heartbeat de 2 s.
 
 ## Refus et absence de trous silencieux
+
+Sous le [pilote automatique](autopilot.md) (par défaut), rien de ce qui suit n’attend une personne : les passages refusés ou invalides passent par l’échelle de récupération (fournisseurs de secours compris), puis gardent leur original avec la raison ; les propositions IA sont arbitrées par le modèle ; chaque décision est visible dans `GET /api/projects/{id}/autopilot`. Les actions décrites ci-dessous restent disponibles pour corriger à la main.
 
 Les refus explicites du provider, les filtres de contenu et les réponses contenant un refus à la place d’un résultat sont distingués des pannes. Le texte original est toujours conservé dans le projet. Pour une traduction, Libris effectue exactement deux tentatives, marque ensuite le passage comme refusé et continue avec le passage suivant. Un refus n’est pas comptabilisé comme une traduction réussie.
 
